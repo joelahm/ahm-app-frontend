@@ -14,6 +14,9 @@ import {
 import { authApi, type AuthUser, type LoginRequest } from "@/apis/auth";
 
 interface AuthSession {
+  accessToken: string;
+  accessTokenExpiresAt: number;
+  refreshToken: string;
   user: AuthUser;
 }
 
@@ -28,6 +31,43 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const AUTH_STORAGE_KEY = "ahm-auth-session";
+
+const isSessionExpired = (session: AuthSession) =>
+  Date.now() >= session.accessTokenExpiresAt;
+
+const saveSession = (session: AuthSession | null) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!session) {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+
+    return;
+  }
+
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+};
+
+const readSession = (): AuthSession | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawValue) as AuthSession;
+  } catch {
+    return null;
+  }
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,25 +75,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const clearSession = useCallback(() => {
     setSession(null);
+    saveSession(null);
   }, []);
 
   const bootstrapSession = useCallback(async () => {
-    try {
-      const user = await authApi.me();
+    const cachedSession = readSession();
 
-      setSession({ user });
-    } catch {
-      try {
-        await authApi.refresh();
-        const user = await authApi.me();
-
-        setSession({ user });
-      } catch {
-        clearSession();
-      }
-    } finally {
+    if (!cachedSession) {
       setIsLoading(false);
+
+      return;
     }
+
+    if (!isSessionExpired(cachedSession)) {
+      setSession(cachedSession);
+      setIsLoading(false);
+
+      return;
+    }
+
+    try {
+      const refreshed = await authApi.refresh({
+        refreshToken: cachedSession.refreshToken,
+      });
+      const user = await authApi.me(refreshed.accessToken);
+      const nextSession: AuthSession = {
+        accessToken: refreshed.accessToken,
+        accessTokenExpiresAt:
+          Date.now() + refreshed.accessTokenExpiresIn * 1000,
+        refreshToken: refreshed.refreshToken ?? cachedSession.refreshToken,
+        user,
+      };
+
+      setSession(nextSession);
+      saveSession(nextSession);
+    } catch {
+      clearSession();
+    }
+
+    setIsLoading(false);
   }, [clearSession]);
 
   useEffect(() => {
@@ -62,17 +122,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = useCallback(async (payload: LoginRequest) => {
     setError(null);
-    await authApi.login(payload);
-    const user = await authApi.me();
+    const result = await authApi.login(payload);
 
-    setSession({ user });
+    const nextSession: AuthSession = {
+      accessToken: result.accessToken,
+      accessTokenExpiresAt: Date.now() + result.accessTokenExpiresIn * 1000,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    };
+
+    setSession(nextSession);
+    saveSession(nextSession);
   }, []);
 
   const logout = useCallback(async () => {
     setError(null);
 
     try {
-      await authApi.logout();
+      if (session?.refreshToken) {
+        await authApi.logout(session.refreshToken);
+      }
     } catch (logoutError) {
       setError(
         logoutError instanceof Error ? logoutError.message : "Logout failed.",
@@ -80,7 +149,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       clearSession();
     }
-  }, [clearSession]);
+  }, [clearSession, session?.refreshToken]);
 
   const contextValue = useMemo<AuthContextValue>(
     () => ({

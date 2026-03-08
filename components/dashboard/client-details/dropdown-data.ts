@@ -196,7 +196,9 @@ export const useDropdownData = (options: UseDropdownDataOptions = {}) => {
           }
 
           const url = `${apiBaseUrl}${endpoint}`;
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            credentials: "include",
+          });
 
           if (!response.ok) {
             throw new Error(`Failed to fetch ${dataset}`);

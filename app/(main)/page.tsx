@@ -1,24 +1,26 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+"use client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+import { Spinner } from "@heroui/spinner";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-export default async function HomePage() {
-  if (!API_BASE_URL) {
-    redirect("/login");
-  }
+import { useAuth } from "@/components/auth/auth-context";
 
-  const cookieHeader = (await headers()).get("cookie") ?? "";
-  const response = await fetch(`${API_BASE_URL}/api/v1/auth/me`, {
-    cache: "no-store",
-    headers: {
-      cookie: cookieHeader,
-    },
-  });
+export default function HomePage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
 
-  if (!response.ok) {
-    redirect("/login");
-  }
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
 
-  redirect("/dashboard");
+    router.replace(isAuthenticated ? "/dashboard" : "/login");
+  }, [isAuthenticated, isLoading, router]);
+
+  return (
+    <section className="grid min-h-[70vh] place-items-center">
+      <Spinner color="primary" />
+    </section>
+  );
 }

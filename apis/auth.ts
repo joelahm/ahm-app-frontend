@@ -15,11 +15,20 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  user?: AuthUser;
+  accessToken: string;
+  accessTokenExpiresIn: number;
+  refreshToken: string;
+  user: AuthUser;
+}
+
+export interface RefreshRequest {
+  refreshToken: string;
 }
 
 export interface RefreshResponse {
-  success?: boolean;
+  accessToken: string;
+  accessTokenExpiresIn: number;
+  refreshToken?: string;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -66,18 +75,21 @@ export const authApi = {
       method: "POST",
       url: "/api/v1/auth/login",
     }),
-  logout: () =>
+  logout: (refreshToken: string) =>
     request<unknown>({
+      data: { refreshToken },
       method: "POST",
       url: "/api/v1/auth/logout",
     }),
-  me: () =>
+  me: (accessToken: string) =>
     request<AuthUser>({
+      headers: { Authorization: `Bearer ${accessToken}` },
       method: "GET",
       url: "/api/v1/auth/me",
     }),
-  refresh: () =>
+  refresh: (payload: RefreshRequest) =>
     request<RefreshResponse>({
+      data: payload,
       method: "POST",
       url: "/api/v1/auth/refresh",
     }),
