@@ -16,7 +16,7 @@ import { authApi, type AuthUser, type LoginRequest } from "@/apis/auth";
 interface AuthSession {
   accessToken: string;
   accessTokenExpiresAt: number;
-  refreshToken: string;
+  refreshToken?: string;
   user: AuthUser;
 }
 
@@ -33,8 +33,34 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = "ahm-auth-session";
 
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
+
+const isValidSession = (value: unknown): value is AuthSession => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const session = value as Partial<AuthSession>;
+
+  return (
+    isNonEmptyString(session.accessToken) &&
+    isNonEmptyString(session.refreshToken) &&
+    typeof session.accessTokenExpiresAt === "number" &&
+    !!session.user
+  );
+};
+
 const isSessionExpired = (session: AuthSession) =>
   Date.now() >= session.accessTokenExpiresAt;
+
+const resolveExpiryAt = (value: {
+  accessTokenExpiresAt?: number;
+  accessTokenExpiresIn: number;
+}) =>
+  value.accessTokenExpiresAt
+    ? value.accessTokenExpiresAt * 1000
+    : Date.now() + value.accessTokenExpiresIn * 1000;
 
 const saveSession = (session: AuthSession | null) => {
   if (typeof window === "undefined") {
@@ -62,7 +88,13 @@ const readSession = (): AuthSession | null => {
   }
 
   try {
-    return JSON.parse(rawValue) as AuthSession;
+    const parsed = JSON.parse(rawValue) as unknown;
+
+    if (!isValidSession(parsed)) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }
@@ -95,14 +127,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
+      if (!cachedSession.refreshToken) {
+        throw new Error("Missing refresh token.");
+      }
+
       const refreshed = await authApi.refresh({
         refreshToken: cachedSession.refreshToken,
       });
+
+      if (
+        !isNonEmptyString(refreshed.accessToken) ||
+        typeof refreshed.accessTokenExpiresIn !== "number"
+      ) {
+        throw new Error("Invalid refresh response.");
+      }
+
       const user = await authApi.me(refreshed.accessToken);
       const nextSession: AuthSession = {
         accessToken: refreshed.accessToken,
-        accessTokenExpiresAt:
-          Date.now() + refreshed.accessTokenExpiresIn * 1000,
+        accessTokenExpiresAt: resolveExpiryAt(refreshed),
         refreshToken: refreshed.refreshToken ?? cachedSession.refreshToken,
         user,
       };
@@ -123,12 +166,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (payload: LoginRequest) => {
     setError(null);
     const result = await authApi.login(payload);
+    const user = result.user ?? (await authApi.me(result.accessToken));
 
     const nextSession: AuthSession = {
       accessToken: result.accessToken,
-      accessTokenExpiresAt: Date.now() + result.accessTokenExpiresIn * 1000,
+      accessTokenExpiresAt: resolveExpiryAt(result),
       refreshToken: result.refreshToken,
-      user: result.user,
+      user,
     };
 
     setSession(nextSession);

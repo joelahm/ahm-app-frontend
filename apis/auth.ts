@@ -4,8 +4,8 @@ export type UserRole = "ADMIN" | "TEAM_MEMBER";
 
 export interface AuthUser {
   email: string;
-  id: string;
-  name: string;
+  id: string | number;
+  name?: string;
   role: UserRole;
 }
 
@@ -16,9 +16,10 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   accessToken: string;
+  accessTokenExpiresAt?: number;
   accessTokenExpiresIn: number;
-  refreshToken: string;
-  user: AuthUser;
+  refreshToken?: string;
+  user?: AuthUser;
 }
 
 export interface RefreshRequest {
@@ -27,6 +28,7 @@ export interface RefreshRequest {
 
 export interface RefreshResponse {
   accessToken: string;
+  accessTokenExpiresAt?: number;
   accessTokenExpiresIn: number;
   refreshToken?: string;
 }
@@ -53,6 +55,156 @@ const parseError = (error: unknown) => {
   return "Something went wrong.";
 };
 
+const asObject = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
+
+const asString = (value: unknown) =>
+  typeof value === "string" ? value : undefined;
+
+const asNumber = (value: unknown) => {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+};
+
+const asUserRole = (value: unknown): UserRole | undefined =>
+  value === "ADMIN" || value === "TEAM_MEMBER" ? value : undefined;
+
+const resolvePayload = (value: unknown) => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+
+  return Object.keys(nested).length > 0 ? nested : root;
+};
+
+const parseUser = (value: unknown): AuthUser | undefined => {
+  const user = asObject(value);
+  const id = user.id;
+  const email = asString(user.email);
+  const role = asUserRole(user.role);
+
+  if ((typeof id !== "string" && typeof id !== "number") || !email || !role) {
+    return undefined;
+  }
+
+  return {
+    email,
+    id,
+    name: asString(user.name),
+    role,
+  };
+};
+
+const normalizeLoginResponse = (value: unknown): LoginResponse => {
+  const payload = resolvePayload(value);
+  const tokens = asObject(payload.tokens);
+  const user = parseUser(payload.user) ?? parseUser(payload);
+  const accessToken =
+    asString(payload.accessToken) ??
+    asString(payload.access_token) ??
+    asString(tokens.accessToken) ??
+    asString(tokens.access_token) ??
+    asString(tokens.token) ??
+    asString(payload.token);
+  const refreshToken =
+    asString(payload.refreshToken) ??
+    asString(payload.refresh_token) ??
+    asString(tokens.refreshToken) ??
+    asString(tokens.refresh_token);
+  const accessTokenExpiresAt =
+    asNumber(payload.accessTokenExpiresAt) ??
+    asNumber(payload.access_token_expires_at) ??
+    asNumber(tokens.accessTokenExpiresAt) ??
+    asNumber(tokens.access_token_expires_at);
+  const accessTokenExpiresIn =
+    asNumber(payload.accessTokenExpiresIn) ??
+    asNumber(payload.access_token_expires_in) ??
+    asNumber(tokens.accessTokenExpiresIn) ??
+    asNumber(tokens.access_token_expires_in) ??
+    asNumber(tokens.expiresIn) ??
+    asNumber(payload.expires_in) ??
+    asNumber(payload.expiresIn);
+
+  const resolvedAccessTokenExpiresIn =
+    accessTokenExpiresIn ??
+    (accessTokenExpiresAt
+      ? Math.max(1, accessTokenExpiresAt - Math.floor(Date.now() / 1000))
+      : undefined);
+
+  if (!accessToken || !resolvedAccessTokenExpiresIn) {
+    throw new Error(
+      "Invalid login response: expected accessToken and accessTokenExpiresIn.",
+    );
+  }
+
+  return {
+    accessToken,
+    accessTokenExpiresAt,
+    accessTokenExpiresIn: resolvedAccessTokenExpiresIn,
+    refreshToken,
+    user,
+  };
+};
+
+const normalizeRefreshResponse = (value: unknown): RefreshResponse => {
+  const payload = resolvePayload(value);
+  const tokens = asObject(payload.tokens);
+  const accessToken =
+    asString(payload.accessToken) ??
+    asString(payload.access_token) ??
+    asString(tokens.accessToken) ??
+    asString(tokens.access_token) ??
+    asString(tokens.token) ??
+    asString(payload.token);
+  const refreshToken =
+    asString(payload.refreshToken) ??
+    asString(payload.refresh_token) ??
+    asString(tokens.refreshToken) ??
+    asString(tokens.refresh_token);
+  const accessTokenExpiresAt =
+    asNumber(payload.accessTokenExpiresAt) ??
+    asNumber(payload.access_token_expires_at) ??
+    asNumber(tokens.accessTokenExpiresAt) ??
+    asNumber(tokens.access_token_expires_at);
+  const accessTokenExpiresIn =
+    asNumber(payload.accessTokenExpiresIn) ??
+    asNumber(payload.access_token_expires_in) ??
+    asNumber(tokens.accessTokenExpiresIn) ??
+    asNumber(tokens.access_token_expires_in) ??
+    asNumber(tokens.expiresIn) ??
+    asNumber(payload.expires_in) ??
+    asNumber(payload.expiresIn);
+
+  const resolvedAccessTokenExpiresIn =
+    accessTokenExpiresIn ??
+    (accessTokenExpiresAt
+      ? Math.max(1, accessTokenExpiresAt - Math.floor(Date.now() / 1000))
+      : undefined);
+
+  if (!accessToken || !resolvedAccessTokenExpiresIn) {
+    throw new Error(
+      "Invalid refresh response: expected accessToken and accessTokenExpiresIn.",
+    );
+  }
+
+  return {
+    accessToken,
+    accessTokenExpiresAt,
+    accessTokenExpiresIn: resolvedAccessTokenExpiresIn,
+    refreshToken,
+  };
+};
+
 const request = async <T>(config: {
   data?: unknown;
   headers?: Record<string, string>;
@@ -69,12 +221,14 @@ const request = async <T>(config: {
 };
 
 export const authApi = {
-  login: (payload: LoginRequest) =>
-    request<LoginResponse>({
-      data: payload,
-      method: "POST",
-      url: "/api/v1/auth/login",
-    }),
+  login: async (payload: LoginRequest) =>
+    normalizeLoginResponse(
+      await request<unknown>({
+        data: payload,
+        method: "POST",
+        url: "/api/v1/auth/login",
+      }),
+    ),
   logout: (refreshToken: string) =>
     request<unknown>({
       data: { refreshToken },
@@ -87,10 +241,12 @@ export const authApi = {
       method: "GET",
       url: "/api/v1/auth/me",
     }),
-  refresh: (payload: RefreshRequest) =>
-    request<RefreshResponse>({
-      data: payload,
-      method: "POST",
-      url: "/api/v1/auth/refresh",
-    }),
+  refresh: async (payload: RefreshRequest) =>
+    normalizeRefreshResponse(
+      await request<unknown>({
+        data: payload,
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+      }),
+    ),
 };
