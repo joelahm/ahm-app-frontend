@@ -1,8 +1,20 @@
+"use client";
+
+import { useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Badge } from "@heroui/badge";
 import { Button } from "@heroui/button";
 import { Divider } from "@heroui/divider";
+import {
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@heroui/dropdown";
 import { ChevronRight, Search, Bell } from "lucide-react";
+import { useRouter } from "next/navigation";
+
+import { useAuth } from "@/components/auth/auth-context";
 
 interface DashboardTopbarProps {
   title: string;
@@ -10,6 +22,15 @@ interface DashboardTopbarProps {
 }
 
 export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
+  const router = useRouter();
+  const { logout } = useAuth();
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  const handleLogout = async () => {
+    await logout();
+    router.replace("/login");
+  };
+
   return (
     <header className="sticky top-0 z-20 h-[81px] border-b border-default-200 bg-white px-4 py-3.5">
       <div className="flex flex-col gap-4 items-center lg:flex-row lg:justify-between">
@@ -48,9 +69,21 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
               <p className="text-sm text-default-500">@saharap</p>
             </div>
           </div>
-          <Button isIconOnly radius="full" size="sm" variant="light">
-            <ChevronRight size={18} />
-          </Button>
+          <Dropdown placement="bottom-end" onOpenChange={setIsProfileMenuOpen}>
+            <DropdownTrigger>
+              <Button isIconOnly radius="full" size="sm" variant="light">
+                <ChevronRight
+                  className={`transition-transform duration-200 ${isProfileMenuOpen ? "rotate-90" : ""}`}
+                  size={18}
+                />
+              </Button>
+            </DropdownTrigger>
+            <DropdownMenu aria-label="Profile actions">
+              <DropdownItem key="logout" color="danger" onPress={handleLogout}>
+                Logout
+              </DropdownItem>
+            </DropdownMenu>
+          </Dropdown>
         </div>
       </div>
     </header>
