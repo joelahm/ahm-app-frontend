@@ -34,15 +34,14 @@ export const DashboardTableShell = ({
           {actions.map((action) => (
             <Button
               key={action.key}
+              className={action.color ? "bg-[#022279] text-white" : undefined}
               color="default"
               startContent={action.startContent}
               variant={action.variant ?? "bordered"}
               onPress={action.onPress}
-              className={action.color ? "bg-[#022279] text-white" : undefined}
             >
               {action.label}
             </Button>
-
           ))}
         </div>
       </CardHeader>

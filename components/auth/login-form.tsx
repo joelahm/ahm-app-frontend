@@ -13,7 +13,10 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/auth-context";
 
 const loginSchema = yup.object({
-  email: yup.string().email("Enter a valid email").required("Email is required"),
+  email: yup
+    .string()
+    .email("Enter a valid email")
+    .required("Email is required"),
   password: yup.string().required("Password is required"),
 });
 
@@ -70,7 +73,10 @@ export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
   };
 
   return (
-    <Card className="mx-auto w-full max-w-md border border-default-200" shadow="none">
+    <Card
+      className="mx-auto w-full max-w-md border border-default-200"
+      shadow="none"
+    >
       <CardHeader className="flex flex-col items-start gap-1 px-6 pt-6">
         <h1 className="text-xl font-semibold text-[#111827]">Sign In</h1>
         <p className="text-sm text-default-500">

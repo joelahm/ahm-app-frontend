@@ -19,12 +19,10 @@ import {
   BriefcaseMedical,
   Copy,
   FileText,
-  Globe,
   ListChecks,
   Pipette,
   Stethoscope,
   TestTubeDiagonal,
-  Upload,
 } from "lucide-react";
 
 import { ClientProfileAside } from "@/components/dashboard/client-details/client-profile-aside";
@@ -130,7 +128,7 @@ const TagRow = ({
   label,
   placeholder,
   tags,
-  startContent = <ListChecks size={14} className="text-default-400" />,
+  startContent = <ListChecks className="text-default-400" size={14} />,
 }: {
   label: string;
   placeholder: string;
@@ -513,14 +511,14 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               <TagRow
                 label="Top 3 Medical Specialties"
                 placeholder="Add top 3 medical specialties"
-                tags={["Specialties", "Specialties"]}
                 startContent={<Stethoscope size={18} />}
+                tags={["Specialties", "Specialties"]}
               />
               <TagRow
                 label="Other Medical Specialty"
                 placeholder="Add other medical specialty(s)"
-                tags={["Other Specialties", "Other Specialties"]}
                 startContent={<BriefcaseMedical size={18} />}
+                tags={["Other Specialties", "Other Specialties"]}
               />
             </div>
 
@@ -528,22 +526,22 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               <TagRow
                 label="Sub-specialty"
                 placeholder="Add sub-specialty"
-                tags={["Specialties", "Specialties"]}
                 startContent={<TestTubeDiagonal size={18} />}
+                tags={["Specialties", "Specialties"]}
               />
               <TagRow
                 label="Top 5 Special Interests You Would Like to Be Known For"
                 placeholder="Add top 5 special interests"
-                tags={["Other Specialties", "Other Specialties"]}
                 startContent={<Beaker size={18} />}
+                tags={["Other Specialties", "Other Specialties"]}
               />
             </div>
 
             <TagRow
               label="Top 3 Treatments You Want To Be Visible For"
               placeholder="Add top 3 treatments"
-              tags={["Treatments", "Treatments"]}
               startContent={<Pipette size={18} />}
+              tags={["Treatments", "Treatments"]}
             />
 
             <div>
@@ -555,7 +553,9 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               />
             </div>
             <div>
-              <p className={fieldLabel}>What makes your pratice unique to competitors *</p>
+              <p className={fieldLabel}>
+                What makes your pratice unique to competitors *
+              </p>
               <Textarea
                 defaultValue="Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
                 minRows={3}
@@ -713,7 +713,9 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   size="sm"
                   startContent={
                     <div className="pointer-events-none flex items-center border-r-1 border-default-300 pr-2 min-w-20">
-                      <span className="text-default-400 text-small">Facebook</span>
+                      <span className="text-default-400 text-small">
+                        Facebook
+                      </span>
                     </div>
                   }
                 />
@@ -725,7 +727,9 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   size="sm"
                   startContent={
                     <div className="pointer-events-none flex items-center border-r-1 border-default-300 pr-2 min-w-20">
-                      <span className="text-default-400 text-small">Instagram</span>
+                      <span className="text-default-400 text-small">
+                        Instagram
+                      </span>
                     </div>
                   }
                 />
@@ -737,7 +741,9 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   size="sm"
                   startContent={
                     <div className="pointer-events-none flex items-center border-r-1 border-default-300 pr-2 min-w-20">
-                      <span className="text-default-400 text-small">LinkedIn</span>
+                      <span className="text-default-400 text-small">
+                        LinkedIn
+                      </span>
                     </div>
                   }
                 />
@@ -794,14 +800,14 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               <TagRow
                 label="List of treatment and services to be included (maximum 10)"
                 placeholder="Add sub-specialty"
-                tags={["Specialties", "Specialties"]}
                 startContent={<Stethoscope size={18} />}
+                tags={["Specialties", "Specialties"]}
               />
               <TagRow
                 label="Conditions treated (maximum 10)"
                 placeholder="Add top 5 special interests"
-                tags={["Other Specialties", "Other Specialties"]}
                 startContent={<BriefcaseMedical size={18} />}
+                tags={["Other Specialties", "Other Specialties"]}
               />
             </div>
           </DetailSection>

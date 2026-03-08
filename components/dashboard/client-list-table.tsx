@@ -12,13 +12,13 @@ import {
   Plus,
   SlidersHorizontal,
 } from "lucide-react";
+import Link from "next/link";
 
 import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
 import { DashboardTableAction } from "@/components/dashboard/dashboard-table-shell";
-import Link from "next/link";
 
 export interface ClientRecord {
   id: string;

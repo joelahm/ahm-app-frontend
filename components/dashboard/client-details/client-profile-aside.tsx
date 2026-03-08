@@ -84,7 +84,11 @@ export const ClientProfileAside = ({
 
           if (item.path) {
             return (
-              <Link key={item.key} href={`/dashboard/clients/${slug}${item.path}`} className="block">
+              <Link
+                key={item.key}
+                className="block"
+                href={`/dashboard/clients/${slug}${item.path}`}
+              >
                 <Button
                   key={item.key}
                   className={className}

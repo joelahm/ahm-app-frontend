@@ -1,37 +1,12 @@
-"use client";
+import { LoginScreen } from "@/components/auth/login-screen";
 
-import { Spinner } from "@heroui/spinner";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+interface LoginPageProps {
+  searchParams: Promise<{ callbackUrl?: string }>;
+}
 
-import { useAuth } from "@/components/auth/auth-context";
-import { LoginForm } from "@/components/auth/login-form";
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const callbackUrl = resolvedSearchParams.callbackUrl ?? "/dashboard";
 
-const LoginPage = () => {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
-  const { isAuthenticated, isLoading } = useAuth();
-
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace(callbackUrl);
-    }
-  }, [callbackUrl, isAuthenticated, isLoading, router]);
-
-  if (isLoading) {
-    return (
-      <div className="grid min-h-[70vh] place-items-center">
-        <Spinner color="primary" />
-      </div>
-    );
-  }
-
-  return (
-    <section className="grid min-h-[70vh] place-items-center py-8">
-      <LoginForm redirectTo={callbackUrl} />
-    </section>
-  );
-};
-
-export default LoginPage;
+  return <LoginScreen callbackUrl={callbackUrl} />;
+}
