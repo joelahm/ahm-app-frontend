@@ -7,7 +7,7 @@ import { Alert } from "@heroui/alert";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
-import { Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/auth-context";
@@ -29,6 +29,7 @@ interface LoginFormProps {
 export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
   const router = useRouter();
   const { login } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const {
     register,
@@ -100,13 +101,24 @@ export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
           />
           <Input
             {...register("password")}
+            endContent={
+              <Button
+                isIconOnly
+                size="sm"
+                type="button"
+                variant="light"
+                onPress={() => setShowPassword((value) => !value)}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </Button>
+            }
             errorMessage={errors.password?.message}
             isInvalid={!!errors.password}
             label="Password"
             radius="sm"
             size="sm"
             startContent={<Lock size={16} />}
-            type="password"
+            type={showPassword ? "text" : "password"}
           />
           <Button
             className="w-full"

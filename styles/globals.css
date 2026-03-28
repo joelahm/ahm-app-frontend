@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "intl-tel-input/build/css/intlTelInput.css";
 
 @plugin '../hero.ts';
 
@@ -9,4 +10,20 @@
 @theme {
     --font-sans: "font", sans-serif;
     --font-mono: "monospace", monospace;
+}
+
+.iti {
+    width: 100%;
+}
+
+.iti input {
+    width: 100%;
+}
+
+.iti__country-list {
+    z-index: 9999 !important;
+}
+
+.iti__selected-dial-code {
+    @apply text-sm
 }

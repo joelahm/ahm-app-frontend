@@ -40,76 +40,6 @@ interface ClientListTableProps {
   columns?: DashboardDataTableColumn<ClientRecord>[];
 }
 
-const baseRows: ClientRecord[] = [
-  {
-    id: "1",
-    clientName: "RCG Health",
-    address: "123 ABC Rd, 90987, UK",
-    projects: ["Website", "Accelerator", "+2"],
-    niche: "General Surgeon",
-    manager: "Harsh P",
-    managerAvatar: "https://i.pravatar.cc/100?img=11",
-    status: "Active",
-    dateJoined: "30 Dec, 2024 10:00AM",
-    lastActivity: "30 Dec, 2024 10:00AM",
-  },
-  {
-    id: "2",
-    clientName: "Mr Vikas Acharya",
-    address: "123 ABC Rd, 90987, UK",
-    projects: ["Accelerator"],
-    niche: "ENT Surgeon",
-    manager: "Harsh P",
-    managerAvatar: "https://i.pravatar.cc/100?img=11",
-    status: "Active",
-    dateJoined: "30 Dec, 2024 10:00AM",
-    lastActivity: "30 Dec, 2024 10:00AM",
-  },
-  {
-    id: "3",
-    clientName: "Midlands Colorectal",
-    address: "123 ABC Rd, 90987, UK",
-    projects: ["Accelerator"],
-    niche: "General Surgeon",
-    manager: "Harsh P",
-    managerAvatar: "https://i.pravatar.cc/100?img=11",
-    status: "Active",
-    dateJoined: "30 Dec, 2024 10:00AM",
-    lastActivity: "30 Dec, 2024 10:00AM",
-  },
-  {
-    id: "4",
-    clientName: "Dr Vinita Singh",
-    address: "123 ABC Rd, 90987, UK",
-    projects: ["Accelerator"],
-    niche: "General Surgeon",
-    manager: "Harsh P",
-    managerAvatar: "https://i.pravatar.cc/100?img=11",
-    status: "Active",
-    dateJoined: "30 Dec, 2024 10:00AM",
-    lastActivity: "30 Dec, 2024 10:00AM",
-  },
-];
-
-const generatedRows: ClientRecord[] = Array.from({ length: 96 }, (_, index) => {
-  const id = String(index + 5);
-
-  return {
-    id,
-    clientName: `Client ${id}`,
-    address: `${100 + index} ABC Rd, 90987, UK`,
-    projects: index % 3 === 0 ? ["Website", "Accelerator"] : ["Accelerator"],
-    niche: index % 2 === 0 ? "General Surgeon" : "ENT Surgeon",
-    manager: "Harsh P",
-    managerAvatar: "https://i.pravatar.cc/100?img=11",
-    status: "Active",
-    dateJoined: "30 Dec, 2024 10:00AM",
-    lastActivity: "30 Dec, 2024 10:00AM",
-  };
-});
-
-const defaultRows: ClientRecord[] = [...baseRows, ...generatedRows];
-
 const defaultHeaderActions: DashboardTableAction[] = [
   {
     key: "filter",
@@ -134,6 +64,8 @@ const defaultHeaderActions: DashboardTableAction[] = [
     startContent: <Plus size={14} />,
   },
 ];
+
+const defaultRows: ClientRecord[] = [];
 
 export const ClientListTable = ({
   title = "Client List",

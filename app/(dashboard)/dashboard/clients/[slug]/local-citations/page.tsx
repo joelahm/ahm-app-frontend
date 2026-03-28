@@ -1,7 +1,7 @@
+import { ClientLocalCitationsTable } from "@/components/dashboard/client-details/client-local-citations-table";
 import { ClientProfileAside } from "@/components/dashboard/client-details/client-profile-aside";
-import { ClientProjectsTable } from "@/components/dashboard/client-details/client-projects-table";
 
-const ClientProjectsPage = async ({
+const ClientLocalCitationsPage = async ({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -10,12 +10,12 @@ const ClientProjectsPage = async ({
 
   return (
     <section className="relative space-y-4 pl-64">
-      <ClientProfileAside activeKey="projects" slug={slug} />
+      <ClientProfileAside activeKey="citations" slug={slug} />
       <div className="pl-6">
-        <ClientProjectsTable clientId={slug} />
+        <ClientLocalCitationsTable clientId={slug} />
       </div>
     </section>
   );
 };
 
-export default ClientProjectsPage;
+export default ClientLocalCitationsPage;

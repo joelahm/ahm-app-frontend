@@ -23,8 +23,36 @@ interface DashboardTopbarProps {
 
 export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const displayName =
+    [session?.user?.firstName, session?.user?.lastName]
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .join(" ")
+      .trim() ||
+    session?.user?.name?.trim() ||
+    session?.user?.email?.split("@")[0]?.trim() ||
+    "User";
+  const emailAddress = session?.user?.email ?? "user@example.com";
+  const avatarUrl = (() => {
+    const rawAvatarUrl = session?.user?.avatarUrl?.trim();
+
+    if (!rawAvatarUrl) {
+      return undefined;
+    }
+
+    if (/^https?:\/\//i.test(rawAvatarUrl)) {
+      return rawAvatarUrl;
+    }
+
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+    const normalizedPath = rawAvatarUrl.replace(/^\/+/, "");
+
+    return baseUrl ? `${baseUrl}/${normalizedPath}` : rawAvatarUrl;
+  })();
+  const headingTitle = title.includes(",")
+    ? `${title.split(",")[0]}, ${displayName}!`
+    : `${title} ${displayName}!`;
 
   const handleLogout = async () => {
     await logout();
@@ -36,8 +64,8 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
       <div className="flex flex-col gap-4 items-center lg:flex-row lg:justify-between">
         <div>
           <h1 className="text-lg font-semibold leading-tight text-foreground">
-            {title.split("Sahara!")[0]}
-            <span className="text-[#022279]">Sahara!</span>
+            {headingTitle.split(`${displayName}!`)[0]}
+            <span className="text-[#022279]">{displayName}!</span>
           </h1>
           <p className="mt-1 text-xs font-medium text-default-700">
             {subtitle}
@@ -58,15 +86,15 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
           <div className="flex items-center gap-3 rounded-xl px-1 py-1">
             <Avatar
               className="bg-primary/10"
-              name="Sahara P"
+              name={displayName}
               size="md"
-              src="https://i.pravatar.cc/120?img=12"
+              src={avatarUrl}
             />
             <div className="leading-tight">
               <p className="text-base font-semibold text-foreground">
-                Sahara P
+                {displayName}
               </p>
-              <p className="text-sm text-default-500">@saharap</p>
+              <p className="text-sm text-default-500">{emailAddress}</p>
             </div>
           </div>
           <Dropdown placement="bottom-end" onOpenChange={setIsProfileMenuOpen}>

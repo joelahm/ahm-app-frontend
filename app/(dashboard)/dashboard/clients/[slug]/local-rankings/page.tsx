@@ -1,7 +1,7 @@
+import { ClientLocalRankingsTable } from "@/components/dashboard/client-details/client-local-rankings-table";
 import { ClientProfileAside } from "@/components/dashboard/client-details/client-profile-aside";
-import { ClientProjectsTable } from "@/components/dashboard/client-details/client-projects-table";
 
-const ClientProjectsPage = async ({
+const ClientLocalRankingsPage = async ({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -10,12 +10,12 @@ const ClientProjectsPage = async ({
 
   return (
     <section className="relative space-y-4 pl-64">
-      <ClientProfileAside activeKey="projects" slug={slug} />
+      <ClientProfileAside activeKey="local-rankings" slug={slug} />
       <div className="pl-6">
-        <ClientProjectsTable clientId={slug} />
+        <ClientLocalRankingsTable clientId={slug} />
       </div>
     </section>
   );
 };
 
-export default ClientProjectsPage;
+export default ClientLocalRankingsPage;

@@ -23,7 +23,7 @@ type ClientMenuKey =
   | "projects"
   | "analytics"
   | "tasks"
-  | "keywords"
+  | "local-rankings"
   | "gbp"
   | "content"
   | "gbp-posting"
@@ -47,20 +47,35 @@ interface ClientMenuItem {
 const CLIENT_MENU: ClientMenuItem[] = [
   { key: "details", label: "Client Details", icon: Briefcase, path: "/" },
   { key: "projects", label: "Projects", icon: FolderKanban, path: "/projects" },
-  { key: "analytics", label: "Analytics", icon: ChartSpline },
-  { key: "tasks", label: "Tasks", icon: ClipboardCheck },
-  { key: "keywords", label: "Keywords", icon: ListChecks },
-  { key: "gbp", label: "GBP", icon: Globe },
+  {
+    key: "analytics",
+    label: "Analytics",
+    icon: ChartSpline,
+    path: "/analytics",
+  },
+  { key: "tasks", label: "Tasks", icon: ClipboardCheck, path: "/task-lists" },
+  {
+    key: "local-rankings",
+    label: "Local Rankings",
+    icon: ListChecks,
+    path: "/local-rankings",
+  },
+  { key: "gbp", label: "GBP", icon: Globe, path: "/gbp" },
   { key: "content", label: "Content", icon: CircleHelp },
   { key: "gbp-posting", label: "GBP Postings", icon: CheckCircle2 },
   { key: "reviews", label: "Review Management", icon: Building2 },
-  { key: "citations", label: "Local Citations", icon: Clock3 },
+  {
+    key: "citations",
+    label: "Local Citations",
+    icon: Clock3,
+    path: "/local-citations",
+  },
 ];
 
 export const ClientProfileAside = ({
   activeKey,
-  clientAddress = "123 ABC Rd, 90987, UK",
-  clientName = "RCG Health",
+  clientAddress = "",
+  clientName = "",
   slug,
 }: ClientProfileAsideProps) => {
   return (

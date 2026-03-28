@@ -30,6 +30,7 @@ export interface DashboardDataTableColumn<TItem> {
 interface DashboardDataTableProps<TItem> {
   title: ReactNode;
   headerActions?: DashboardTableAction[];
+  headerRight?: ReactNode;
   rows: TItem[];
   columns: DashboardDataTableColumn<TItem>[];
   ariaLabel?: string;
@@ -38,9 +39,12 @@ interface DashboardDataTableProps<TItem> {
   selectedKeys?: Selection;
   onSelectionChange?: (keys: Selection) => void;
   showPagination?: boolean;
+  serverPagination?: boolean;
+  totalPages?: number;
   pageSize?: number;
   currentPage?: number;
   onPageChange?: (page: number) => void;
+  withShell?: boolean;
 }
 
 const getPageItems = (
@@ -87,6 +91,7 @@ const getPageItems = (
 export const DashboardDataTable = <TItem,>({
   title,
   headerActions = [],
+  headerRight,
   rows,
   columns,
   ariaLabel = "Dashboard data table",
@@ -95,9 +100,12 @@ export const DashboardDataTable = <TItem,>({
   selectedKeys,
   onSelectionChange,
   showPagination = false,
+  serverPagination = false,
+  totalPages: totalPagesFromProps,
   pageSize = 8,
   currentPage,
   onPageChange,
+  withShell = true,
 }: DashboardDataTableProps<TItem>) => {
   const [internalPage, setInternalPage] = useState(1);
   const [isMounted, setIsMounted] = useState(false);
@@ -107,7 +115,12 @@ export const DashboardDataTable = <TItem,>({
   }, []);
 
   const totalPages = showPagination
-    ? Math.max(1, Math.ceil(rows.length / Math.max(1, pageSize)))
+    ? Math.max(
+        1,
+        serverPagination
+          ? (totalPagesFromProps ?? 1)
+          : Math.ceil(rows.length / Math.max(1, pageSize)),
+      )
     : 1;
 
   const activePage = currentPage ?? internalPage;
@@ -115,14 +128,14 @@ export const DashboardDataTable = <TItem,>({
   const safePage = Math.min(Math.max(1, activePage), totalPages);
 
   const paginatedRows = useMemo(() => {
-    if (!showPagination) {
+    if (!showPagination || serverPagination) {
       return rows;
     }
 
     const start = (safePage - 1) * pageSize;
 
     return rows.slice(start, start + pageSize);
-  }, [rows, safePage, pageSize, showPagination]);
+  }, [rows, safePage, pageSize, showPagination, serverPagination]);
 
   const pageItems = useMemo(
     () => getPageItems(safePage, totalPages),
@@ -141,8 +154,8 @@ export const DashboardDataTable = <TItem,>({
     setInternalPage(bounded);
   };
 
-  return (
-    <DashboardTableShell actions={headerActions} title={title}>
+  const content = (
+    <>
       {isMounted ? (
         <Table
           removeWrapper
@@ -235,6 +248,20 @@ export const DashboardDataTable = <TItem,>({
           </Button>
         </div>
       )}
+    </>
+  );
+
+  if (!withShell) {
+    return content;
+  }
+
+  return (
+    <DashboardTableShell
+      actions={headerActions}
+      headerRight={headerRight}
+      title={title}
+    >
+      {content}
     </DashboardTableShell>
   );
 };

@@ -54,6 +54,14 @@ const isValidSession = (value: unknown): value is AuthSession => {
 const isSessionExpired = (session: AuthSession) =>
   Date.now() >= session.accessTokenExpiresAt;
 
+const isProfileHydrated = (session: AuthSession) =>
+  !!(
+    session.user?.firstName ||
+    session.user?.lastName ||
+    session.user?.name ||
+    session.user?.avatarUrl
+  );
+
 const resolveExpiryAt = (value: {
   accessTokenExpiresAt?: number;
   accessTokenExpiresIn: number;
@@ -120,7 +128,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (!isSessionExpired(cachedSession)) {
-      setSession(cachedSession);
+      if (isProfileHydrated(cachedSession)) {
+        setSession(cachedSession);
+        setIsLoading(false);
+
+        return;
+      }
+
+      try {
+        const user = await authApi.me(cachedSession.accessToken);
+        const nextSession: AuthSession = {
+          ...cachedSession,
+          user,
+        };
+
+        setSession(nextSession);
+        saveSession(nextSession);
+      } catch {
+        setSession(cachedSession);
+      }
+
       setIsLoading(false);
 
       return;
@@ -166,7 +193,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (payload: LoginRequest) => {
     setError(null);
     const result = await authApi.login(payload);
-    const user = result.user ?? (await authApi.me(result.accessToken));
+    const user = await authApi.me(result.accessToken);
 
     const nextSession: AuthSession = {
       accessToken: result.accessToken,

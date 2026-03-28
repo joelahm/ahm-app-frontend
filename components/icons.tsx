@@ -89,6 +89,69 @@ export const GithubIcon: React.FC<IconSvgProps> = ({
   );
 };
 
+export const FacebookIcon: React.FC<IconSvgProps> = ({
+  size = 24,
+  width,
+  height,
+  ...props
+}) => {
+  return (
+    <svg
+      height={size || height}
+      viewBox="0 0 24 24"
+      width={size || width}
+      {...props}
+    >
+      <path
+        d="M24 12.073C24 5.404 18.627 0 12 0S0 5.404 0 12.073c0 6.027 4.388 11.022 10.125 11.927v-8.437H7.078v-3.49h3.047V9.414c0-3.03 1.792-4.704 4.533-4.704 1.313 0 2.686.236 2.686.236v2.973H15.83c-1.49 0-1.955.93-1.955 1.885v2.269h3.328l-.532 3.49h-2.796V24C19.612 23.095 24 18.1 24 12.073Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+};
+
+export const TwitterXIcon: React.FC<IconSvgProps> = ({
+  size = 24,
+  width,
+  height,
+  ...props
+}) => {
+  return (
+    <svg
+      height={size || height}
+      viewBox="0 0 24 24"
+      width={size || width}
+      {...props}
+    >
+      <path
+        d="M18.901 1.153h3.68l-8.04 9.188L24 22.847h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.153h7.594l5.243 6.932 6.064-6.932Zm-1.291 19.492h2.04L6.486 3.24H4.298L17.61 20.645Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+};
+
+export const InstagramIcon: React.FC<IconSvgProps> = ({
+  size = 24,
+  width,
+  height,
+  ...props
+}) => {
+  return (
+    <svg
+      height={size || height}
+      viewBox="0 0 24 24"
+      width={size || width}
+      {...props}
+    >
+      <path
+        d="M7.75 2h8.5A5.756 5.756 0 0 1 22 7.75v8.5A5.756 5.756 0 0 1 16.25 22h-8.5A5.756 5.756 0 0 1 2 16.25v-8.5A5.756 5.756 0 0 1 7.75 2Zm0 1.8A3.954 3.954 0 0 0 3.8 7.75v8.5a3.954 3.954 0 0 0 3.95 3.95h8.5a3.954 3.954 0 0 0 3.95-3.95v-8.5a3.954 3.954 0 0 0-3.95-3.95h-8.5Zm8.95 1.35a1.05 1.05 0 1 1 0 2.1 1.05 1.05 0 0 1 0-2.1ZM12 6.865A5.136 5.136 0 1 1 6.865 12 5.142 5.142 0 0 1 12 6.865Zm0 1.8A3.336 3.336 0 1 0 15.335 12 3.339 3.339 0 0 0 12 8.665Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+};
+
 export const MoonFilledIcon = ({
   size = 24,
   width,

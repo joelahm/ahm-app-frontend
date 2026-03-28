@@ -4,9 +4,12 @@ export type UserRole = "ADMIN" | "TEAM_MEMBER";
 
 export interface AuthUser {
   email: string;
+  firstName?: string | null;
   id: string | number;
+  lastName?: string | null;
   name?: string;
   role: UserRole;
+  avatarUrl?: string | null;
 }
 
 export interface LoginRequest {
@@ -31,6 +34,12 @@ export interface RefreshResponse {
   accessTokenExpiresAt?: number;
   accessTokenExpiresIn: number;
   refreshToken?: string;
+}
+
+export interface ChangePasswordRequest {
+  confirmPassword: string;
+  currentPassword: string;
+  newPassword: string;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
@@ -89,18 +98,24 @@ const resolvePayload = (value: unknown) => {
 
 const parseUser = (value: unknown): AuthUser | undefined => {
   const user = asObject(value);
-  const id = user.id;
-  const email = asString(user.email);
-  const role = asUserRole(user.role);
+  const nestedUser = asObject(user.user);
+  const source = Object.keys(nestedUser).length > 0 ? nestedUser : user;
+  const id = source.id;
+  const email = asString(source.email);
+  const role = asUserRole(source.role);
 
   if ((typeof id !== "string" && typeof id !== "number") || !email || !role) {
     return undefined;
   }
 
   return {
+    avatarUrl: asString(source.avatarUrl) ?? asString(source.avatar_url),
     email,
+    firstName:
+      asString(source.firstName) ?? asString(source.first_name) ?? null,
     id,
-    name: asString(user.name),
+    lastName: asString(source.lastName) ?? asString(source.last_name) ?? null,
+    name: asString(source.name),
     role,
   };
 };
@@ -221,6 +236,26 @@ const request = async <T>(config: {
 };
 
 export const authApi = {
+  changePassword: async (
+    accessToken: string,
+    payload: ChangePasswordRequest,
+  ) => {
+    try {
+      const response = await apiClient.patch(
+        "/api/v1/users/me/password",
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   login: async (payload: LoginRequest) =>
     normalizeLoginResponse(
       await request<unknown>({
@@ -235,12 +270,20 @@ export const authApi = {
       method: "POST",
       url: "/api/v1/auth/logout",
     }),
-  me: (accessToken: string) =>
-    request<AuthUser>({
+  me: async (accessToken: string) => {
+    const response = await request<unknown>({
       headers: { Authorization: `Bearer ${accessToken}` },
       method: "GET",
       url: "/api/v1/auth/me",
-    }),
+    });
+    const user = parseUser(response);
+
+    if (!user) {
+      throw new Error("Invalid auth profile response.");
+    }
+
+    return user;
+  },
   refresh: async (payload: RefreshRequest) =>
     normalizeRefreshResponse(
       await request<unknown>({
