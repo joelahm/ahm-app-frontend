@@ -437,85 +437,86 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
       ? asArray(payload.clients)
       : asArray(payload.items).length > 0
         ? asArray(payload.items)
-        : asArray(root.clients).length > 0
+      : asArray(root.clients).length > 0
           ? asArray(root.clients)
           : asArray(root.items);
+  const clients: ClientApiItem[] = [];
 
-  return rawClients
-    .map((item) => {
-      const record = asObject(item);
-      const id = record.id;
+  for (const item of rawClients) {
+    const record = asObject(item);
+    const id = record.id;
 
-      if (typeof id !== "number" && typeof id !== "string") {
-        return null;
-      }
+    if (typeof id !== "number" && typeof id !== "string") {
+      continue;
+    }
 
-      const explicitAddress = asString(record.address);
-      const addressLine1 = asString(record.addressLine1) ?? "";
-      const addressLine2 = asString(record.addressLine2) ?? "";
-      const cityState = asString(record.cityState) ?? "";
-      const postCode = asString(record.postCode) ?? "";
-      const assignedToRecord = asObject(record.assignedTo);
-      const assignedToUser =
-        Object.keys(assignedToRecord).length > 0
-          ? assignedToRecord
-          : asObject(record.assignedToUser);
-      const assignedUserName =
-        asString(record.assignedUserName) ??
-        asString(record.assignedToName) ??
-        asString(record.assignedToUserName) ??
-        getDisplayName(assignedToUser.firstName, assignedToUser.lastName) ??
-        asString(assignedToUser.name);
-      const assignedUserAvatar =
-        asString(record.assignedUserAvatar) ??
-        asString(record.assignedToAvatar) ??
-        asString(record.assignedToUserAvatar) ??
-        asString(assignedToUser.avatar) ??
-        asString(assignedToUser.avatarUrl);
-      const assignedUserEmail =
-        asString(record.assignedUserEmail) ??
-        asString(record.assignedToEmail) ??
-        asString(record.assignedToUserEmail) ??
-        asString(assignedToUser.email);
-      const assignedTo =
-        (typeof record.assignedTo === "number" ||
-        typeof record.assignedTo === "string"
-          ? record.assignedTo
-          : null) ??
-        (typeof record.assignedToUserId === "number" ||
-        typeof record.assignedToUserId === "string"
-          ? record.assignedToUserId
-          : null) ??
-        (typeof assignedToUser.id === "number" ||
-        typeof assignedToUser.id === "string"
-          ? assignedToUser.id
-          : null);
-      const composedAddress = [addressLine1, addressLine2, cityState, postCode]
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .join(", ");
+    const explicitAddress = asString(record.address);
+    const addressLine1 = asString(record.addressLine1) ?? "";
+    const addressLine2 = asString(record.addressLine2) ?? "";
+    const cityState = asString(record.cityState) ?? "";
+    const postCode = asString(record.postCode) ?? "";
+    const assignedToRecord = asObject(record.assignedTo);
+    const assignedToUser =
+      Object.keys(assignedToRecord).length > 0
+        ? assignedToRecord
+        : asObject(record.assignedToUser);
+    const assignedUserName =
+      asString(record.assignedUserName) ??
+      asString(record.assignedToName) ??
+      asString(record.assignedToUserName) ??
+      getDisplayName(assignedToUser.firstName, assignedToUser.lastName) ??
+      asString(assignedToUser.name);
+    const assignedUserAvatar =
+      asString(record.assignedUserAvatar) ??
+      asString(record.assignedToAvatar) ??
+      asString(record.assignedToUserAvatar) ??
+      asString(assignedToUser.avatar) ??
+      asString(assignedToUser.avatarUrl);
+    const assignedUserEmail =
+      asString(record.assignedUserEmail) ??
+      asString(record.assignedToEmail) ??
+      asString(record.assignedToUserEmail) ??
+      asString(assignedToUser.email);
+    const assignedTo =
+      (typeof record.assignedTo === "number" ||
+      typeof record.assignedTo === "string"
+        ? record.assignedTo
+        : null) ??
+      (typeof record.assignedToUserId === "number" ||
+      typeof record.assignedToUserId === "string"
+        ? record.assignedToUserId
+        : null) ??
+      (typeof assignedToUser.id === "number" ||
+      typeof assignedToUser.id === "string"
+        ? assignedToUser.id
+        : null);
+    const composedAddress = [addressLine1, addressLine2, cityState, postCode]
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(", ");
 
-      return {
-        address: explicitAddress ?? (composedAddress || null),
-        assignedTo,
-        assignedUserAvatar,
-        assignedUserEmail,
-        assignedUserName,
-        businessName: asString(record.businessName),
-        clientName: asString(record.clientName),
-        clientSuccessManagerAvatar: asString(record.clientSuccessManagerAvatar),
-        clientSuccessManagerName: asString(record.clientSuccessManagerName),
-        createdAt: asString(record.createdAt),
-        dateJoined: asString(record.dateJoined),
-        id,
-        lastActivity: asString(record.lastActivity),
-        niche: asString(record.niche),
-        projects: asStringArray(record.projects),
-        status: asString(record.status),
-        updatedAt: asString(record.updatedAt),
-      } satisfies ClientApiItem;
-    })
-    .filter((item): item is ClientApiItem => item !== null);
+    clients.push({
+      address: explicitAddress ?? (composedAddress || null),
+      assignedTo,
+      assignedUserAvatar,
+      assignedUserEmail,
+      assignedUserName,
+      businessName: asString(record.businessName),
+      clientName: asString(record.clientName),
+      clientSuccessManagerAvatar: asString(record.clientSuccessManagerAvatar),
+      clientSuccessManagerName: asString(record.clientSuccessManagerName),
+      createdAt: asString(record.createdAt),
+      dateJoined: asString(record.dateJoined),
+      id,
+      lastActivity: asString(record.lastActivity),
+      niche: asString(record.niche),
+      projects: asStringArray(record.projects),
+      status: asString(record.status),
+      updatedAt: asString(record.updatedAt),
+    });
+  }
+
+  return clients;
 };
 
 const parseClientDetailsResponse = (value: unknown): ClientDetails => {

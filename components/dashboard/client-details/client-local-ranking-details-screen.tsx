@@ -479,7 +479,7 @@ export const ClientLocalRankingDetailsScreen = ({
         previousEntries.set(key, existing);
       }
 
-      for (const [key, value] of previousEntries.entries()) {
+      for (const [key, value] of Array.from(previousEntries.entries())) {
         previousAverageByKey.set(
           key,
           value.rankedCount

@@ -35,8 +35,8 @@ export interface CreateScanRequestBody {
   labels: string[];
   repeatTime?: string;
   runNow: boolean;
-  startDate: string;
-  startTime: string;
+  startDate?: string;
+  startTime?: string;
 }
 
 export interface ScanRecord {

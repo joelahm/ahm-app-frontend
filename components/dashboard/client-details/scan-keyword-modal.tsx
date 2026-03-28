@@ -465,6 +465,29 @@ export const ScanKeywordModal = ({
         size: Number(validatedValues.coverageSize),
         unit: validatedValues.coverageUnit === "miles" ? "MILES" : "KILOMETERS",
       });
+      const recurringSchedule = validatedValues.isRecurring
+        ? (() => {
+            if (
+              !validatedValues.scheduleDate ||
+              !validatedValues.scheduleTime ||
+              !validatedValues.scheduleMeridiem
+            ) {
+              throw new Error(
+                "Schedule date and time are required for recurring scans.",
+              );
+            }
+
+            return {
+              frequency: (validatedValues.frequency ?? "").toUpperCase(),
+              repeatTime: validatedValues.repeatTime,
+              startDate: validatedValues.scheduleDate,
+              startTime: to24HourTime(
+                validatedValues.scheduleTime,
+                validatedValues.scheduleMeridiem,
+              ),
+            };
+          })()
+        : undefined;
 
       const payload = {
         clientId: normalizedClientId,
@@ -474,17 +497,7 @@ export const ScanKeywordModal = ({
         keywords: validatedValues.keywords,
         labels: validatedValues.labels,
         runNow: true,
-        ...(validatedValues.isRecurring
-          ? {
-              frequency: (validatedValues.frequency ?? "").toUpperCase(),
-              repeatTime: validatedValues.repeatTime,
-              startDate: validatedValues.scheduleDate,
-              startTime: to24HourTime(
-                validatedValues.scheduleTime,
-                validatedValues.scheduleMeridiem,
-              ),
-            }
-          : {}),
+        ...(recurringSchedule ?? {}),
       } as const;
 
       const createResponse = await scansApi.createScan(

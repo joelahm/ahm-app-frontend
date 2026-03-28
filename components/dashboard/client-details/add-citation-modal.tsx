@@ -465,7 +465,9 @@ export const AddCitationModal = ({
               startContent={
                 !isSubmitting ? <CheckCircle2 size={16} /> : undefined
               }
-              onPress={handleSubmit(submitCitation)}
+              onPress={() => {
+                void handleSubmit(submitCitation)();
+              }}
             >
               Save
             </Button>

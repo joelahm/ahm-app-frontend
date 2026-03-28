@@ -56,7 +56,12 @@ const businessCategories: string[] = [];
 
 const serviceAreas: string[] = [];
 
-const openingHours: Array<{ day: string; open: boolean }> = [];
+const openingHours: Array<{
+  closeTime?: string | null;
+  day: string;
+  open: boolean;
+  openTime?: string | null;
+}> = [];
 
 const specialHours: Array<{ date: string; key: string; title: string }> = [];
 
@@ -92,7 +97,7 @@ export const ClientGbpProfile = ({
   clientId,
   businessName = "",
   category = "",
-  completionScore = "",
+  completionScore: _completionScore = "",
   gallery = [],
   rating = "",
   reviewCount = "",
@@ -107,8 +112,6 @@ export const ClientGbpProfile = ({
     useState<GooglePlacesAutocompleteItem | null>(null);
   const effectiveBusinessName = gbpDetails?.businessName ?? businessName;
   const effectiveCategory = gbpDetails?.category ?? category;
-  const effectiveCompletionScore =
-    gbpDetails?.completionScore ?? completionScore;
   const effectiveGallery = gbpDetails?.gallery ?? gallery;
   const effectiveRating = gbpDetails?.rating ?? rating;
   const effectiveReviewCount = gbpDetails?.reviewCount ?? reviewCount;
@@ -352,10 +355,7 @@ export const ClientGbpProfile = ({
             <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#475569]">
               {effectiveRating ? (
                 <span className="flex items-center gap-1">
-                  <Star
-                    className="fill-[#F59E0B] text-[#F59E0B]"
-                    size={13}
-                  />
+                  <Star className="fill-[#F59E0B] text-[#F59E0B]" size={13} />
                   {effectiveRating} {effectiveReviewCount ?? ""}
                 </span>
               ) : null}
@@ -383,10 +383,7 @@ export const ClientGbpProfile = ({
               >
                 Sync Profile
               </DropdownItem>
-              <DropdownItem
-                key="view-members"
-                startContent={<Eye size={16} />}
-              >
+              <DropdownItem key="view-members" startContent={<Eye size={16} />}>
                 View Members
               </DropdownItem>
               <DropdownItem
@@ -409,300 +406,297 @@ export const ClientGbpProfile = ({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <section className={sectionCardClass}>
-            <DetailHeader title="Contact Info" />
-            <div className="space-y-4">
-              {[
-                {
-                  icon: Phone,
-                  label: "Contact Tel",
-                  value: effectivePhone ?? "",
-                },
-                {
-                  icon: Globe,
-                  label: "Website",
-                  value: effectiveWebsite ?? "",
-                },
-                {
-                  icon: Mail,
-                  label: "Email",
-                  value: effectiveEmail ?? "",
-                },
-                {
-                  icon: TimerReset,
-                  label: "Live Since",
-                  value: effectiveOpeningDate ?? "",
-                },
-              ].map((item) => (
-                <div key={item.label} className="space-y-1">
-                  <p className={contactLabelClass}>{item.label}</p>
-                  <div className="flex items-start gap-2">
-                    <item.icon className="mt-0.5 text-[#0E98B5]" size={14} />
-                    <p
-                      className={
-                        item.value ? contactValueClass : emptyValueClass
-                      }
-                    >
-                      {item.value || "No data"}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-default-400">
-                Social Profiles
-              </p>
-              {effectiveSocialProfiles.facebook ||
-              effectiveSocialProfiles.twitterX ||
-              effectiveSocialProfiles.instagram ? (
-                <div className="flex gap-2">
-                  {[
-                    {
-                      Icon: FacebookIcon,
-                      key: "facebook",
-                      url: effectiveSocialProfiles.facebook,
-                    },
-                    {
-                      Icon: InstagramIcon,
-                      key: "instagram",
-                      url: effectiveSocialProfiles.instagram,
-                    },
-                    {
-                      Icon: TwitterXIcon,
-                      key: "twitter-x",
-                      url: effectiveSocialProfiles.twitterX,
-                    },
-                  ]
-                    .filter((item) => Boolean(item.url))
-                    .map(({ Icon, key }) => (
-                      <Button
-                        key={key}
-                        isIconOnly
-                        className="border border-default-200 bg-white text-[#111827]"
-                        radius="full"
-                        size="sm"
-                        variant="light"
-                      >
-                        <Icon size={15} />
-                      </Button>
-                    ))}
-                </div>
-              ) : (
-                <p className={emptyValueClass}>No social profiles</p>
-              )}
-            </div>
-          </section>
-          <section className={sectionCardClass}>
-            <div className="grid gap-4">
-              <div className="space-y-3">
-                <DetailHeader
-                  title={`About ${effectiveBusinessName || "Business"}`}
-                />
-                <p className="text-sm leading-6 text-[#475569]">
-                  {effectiveBusinessDescription || "No business description"}
-                </p>
-              </div>
-              <hr className="border-default-200" />
-              <div className="space-y-3">
-                <DetailHeader title="Business Category" />
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-default-400">
-                      Primary Category
-                    </p>
-                    <p className="mt-1 font-medium text-[#111827]">
-                      {effectivePrimaryCategory || "No primary category"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-default-400">
-                      Secondary Categories
-                    </p>
-                    {effectiveSecondaryCategories.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {effectiveSecondaryCategories.map((item) => (
-                          <Chip
-                            key={item}
-                            className="bg-[#F8FAFC] text-[#334155]"
-                            radius="full"
-                            size="sm"
-                            variant="flat"
-                          >
-                            {item}
-                          </Chip>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-default-400">
-                        No secondary categories
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
-          <section className={sectionCardClass}>
-            <DetailHeader
-              title={`Business Opening Hours ${effectiveSpecialHours.length ? effectiveSpecialHours.length : ""}`.trim()}
-            />
-            <div className="space-y-2">
-              {effectiveOpeningHours.length > 0 ? (
-                effectiveOpeningHours.map((row) => (
-                  <div
-                    key={row.day}
-                    className="grid grid-cols-[84px_56px_1fr] items-center gap-2 rounded-xl bg-[#FAFBFC] px-3 py-2"
+        <section className={sectionCardClass}>
+          <DetailHeader title="Contact Info" />
+          <div className="space-y-4">
+            {[
+              {
+                icon: Phone,
+                label: "Contact Tel",
+                value: effectivePhone ?? "",
+              },
+              {
+                icon: Globe,
+                label: "Website",
+                value: effectiveWebsite ?? "",
+              },
+              {
+                icon: Mail,
+                label: "Email",
+                value: effectiveEmail ?? "",
+              },
+              {
+                icon: TimerReset,
+                label: "Live Since",
+                value: effectiveOpeningDate ?? "",
+              },
+            ].map((item) => (
+              <div key={item.label} className="space-y-1">
+                <p className={contactLabelClass}>{item.label}</p>
+                <div className="flex items-start gap-2">
+                  <item.icon className="mt-0.5 text-[#0E98B5]" size={14} />
+                  <p
+                    className={item.value ? contactValueClass : emptyValueClass}
                   >
-                    <span className="text-sm font-medium text-[#111827]">
-                      {row.day}
-                    </span>
-                    <StatusBadge active={row.open} />
-                    <div className="grid grid-cols-[38px_4px_44px_14px_38px_4px_44px] items-center gap-1 text-center text-[11px] text-default-500">
-                      <div className="rounded-md border border-default-200 bg-white py-1">
-                        {row.openTime?.split(":")[0] ?? "--"}
-                      </div>
-                      <span>:</span>
-                      <div className="rounded-md border border-default-200 bg-white py-1">
-                        {row.openTime?.split(":")[1] ?? "--"}
-                      </div>
-                      <span>-</span>
-                      <div className="rounded-md border border-default-200 bg-white py-1">
-                        {row.closeTime?.split(":")[0] ?? "--"}
-                      </div>
-                      <span>:</span>
-                      <div className="rounded-md border border-default-200 bg-white py-1">
-                        {row.closeTime?.split(":")[1] ?? "--"}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className={emptyValueClass}>No business opening hours</p>
-              )}
+                    {item.value || "No data"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
 
-              {effectiveSpecialHours.length > 0 ? (
-                <div className="border-t border-default-200 pt-3">
-                  <p className="mb-2 text-xs font-semibold text-[#111827]">
-                    Special Hours
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {effectiveSpecialHours.map((item) => (
-                      <Chip
-                        key={item.key}
-                        className="bg-[#F8FAFC] text-[#334155]"
-                        radius="full"
-                        size="sm"
-                        variant="flat"
-                      >
-                        {item.title} {item.date}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+          <div className="mt-5">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-default-400">
+              Social Profiles
+            </p>
+            {effectiveSocialProfiles.facebook ||
+            effectiveSocialProfiles.twitterX ||
+            effectiveSocialProfiles.instagram ? (
+              <div className="flex gap-2">
+                {[
+                  {
+                    Icon: FacebookIcon,
+                    key: "facebook",
+                    url: effectiveSocialProfiles.facebook,
+                  },
+                  {
+                    Icon: InstagramIcon,
+                    key: "instagram",
+                    url: effectiveSocialProfiles.instagram,
+                  },
+                  {
+                    Icon: TwitterXIcon,
+                    key: "twitter-x",
+                    url: effectiveSocialProfiles.twitterX,
+                  },
+                ]
+                  .filter((item) => Boolean(item.url))
+                  .map(({ Icon, key }) => (
+                    <Button
+                      key={key}
+                      isIconOnly
+                      className="border border-default-200 bg-white text-[#111827]"
+                      radius="full"
+                      size="sm"
+                      variant="light"
+                    >
+                      <Icon size={15} />
+                    </Button>
+                  ))}
+              </div>
+            ) : (
+              <p className={emptyValueClass}>No social profiles</p>
+            )}
+          </div>
+        </section>
+        <section className={sectionCardClass}>
+          <div className="grid gap-4">
+            <div className="space-y-3">
+              <DetailHeader
+                title={`About ${effectiveBusinessName || "Business"}`}
+              />
+              <p className="text-sm leading-6 text-[#475569]">
+                {effectiveBusinessDescription || "No business description"}
+              </p>
             </div>
-          </section>
-          <section className={sectionCardClass}>
-            <DetailHeader title="Location and Areas" />
-            <div className="grid gap-4">
-              <div className="space-y-4">
+            <hr className="border-default-200" />
+            <div className="space-y-3">
+              <DetailHeader title="Business Category" />
+              <div className="space-y-3 text-sm">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-default-400">
-                    Address
+                    Primary Category
                   </p>
-                  <p className="mt-1 text-sm text-[#111827]">
-                    {effectiveBusinessLocation || "No business location"}
+                  <p className="mt-1 font-medium text-[#111827]">
+                    {effectivePrimaryCategory || "No primary category"}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-default-400">
-                    Service Areas
+                    Secondary Categories
                   </p>
-                  {effectiveServiceAreas.length > 0 ? (
+                  {effectiveSecondaryCategories.length > 0 ? (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {effectiveServiceAreas.map((area) => (
+                      {effectiveSecondaryCategories.map((item) => (
                         <Chip
-                          key={area}
+                          key={item}
                           className="bg-[#F8FAFC] text-[#334155]"
                           radius="full"
                           size="sm"
                           variant="flat"
                         >
-                          {area}
+                          {item}
                         </Chip>
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-1 text-sm text-default-400">
-                      No service areas
+                    <p className="mt-1 text-default-400">
+                      No secondary categories
                     </p>
                   )}
                 </div>
               </div>
-              <div className="relative h-56 overflow-hidden rounded-2xl border border-default-200 bg-[#F8FAFC]">
-                {mapEmbedSrc ? (
-                  <iframe
-                    className="h-full w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    src={mapEmbedSrc}
-                    title="Business location map"
-                  />
-                ) : (
-                  <div className="absolute inset-0 grid place-items-center">
-                    <div className="flex items-center gap-1 rounded-full bg-white px-2 py-1 shadow">
-                      <MapPin className="text-default-400" size={14} />
-                      <span className="text-xs font-semibold text-default-400">
-                        No pinned location
-                      </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <section className={sectionCardClass}>
+          <DetailHeader
+            title={`Business Opening Hours ${effectiveSpecialHours.length ? effectiveSpecialHours.length : ""}`.trim()}
+          />
+          <div className="space-y-2">
+            {effectiveOpeningHours.length > 0 ? (
+              effectiveOpeningHours.map((row) => (
+                <div
+                  key={row.day}
+                  className="grid grid-cols-[84px_56px_1fr] items-center gap-2 rounded-xl bg-[#FAFBFC] px-3 py-2"
+                >
+                  <span className="text-sm font-medium text-[#111827]">
+                    {row.day}
+                  </span>
+                  <StatusBadge active={row.open} />
+                  <div className="grid grid-cols-[38px_4px_44px_14px_38px_4px_44px] items-center gap-1 text-center text-[11px] text-default-500">
+                    <div className="rounded-md border border-default-200 bg-white py-1">
+                      {row.openTime?.split(":")[0] ?? "--"}
+                    </div>
+                    <span>:</span>
+                    <div className="rounded-md border border-default-200 bg-white py-1">
+                      {row.openTime?.split(":")[1] ?? "--"}
+                    </div>
+                    <span>-</span>
+                    <div className="rounded-md border border-default-200 bg-white py-1">
+                      {row.closeTime?.split(":")[0] ?? "--"}
+                    </div>
+                    <span>:</span>
+                    <div className="rounded-md border border-default-200 bg-white py-1">
+                      {row.closeTime?.split(":")[1] ?? "--"}
                     </div>
                   </div>
+                </div>
+              ))
+            ) : (
+              <p className={emptyValueClass}>No business opening hours</p>
+            )}
+
+            {effectiveSpecialHours.length > 0 ? (
+              <div className="border-t border-default-200 pt-3">
+                <p className="mb-2 text-xs font-semibold text-[#111827]">
+                  Special Hours
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {effectiveSpecialHours.map((item) => (
+                    <Chip
+                      key={item.key}
+                      className="bg-[#F8FAFC] text-[#334155]"
+                      radius="full"
+                      size="sm"
+                      variant="flat"
+                    >
+                      {item.title} {item.date}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+        <section className={sectionCardClass}>
+          <DetailHeader title="Location and Areas" />
+          <div className="grid gap-4">
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-default-400">
+                  Address
+                </p>
+                <p className="mt-1 text-sm text-[#111827]">
+                  {effectiveBusinessLocation || "No business location"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-default-400">
+                  Service Areas
+                </p>
+                {effectiveServiceAreas.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {effectiveServiceAreas.map((area) => (
+                      <Chip
+                        key={area}
+                        className="bg-[#F8FAFC] text-[#334155]"
+                        radius="full"
+                        size="sm"
+                        variant="flat"
+                      >
+                        {area}
+                      </Chip>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-sm text-default-400">
+                    No service areas
+                  </p>
                 )}
               </div>
             </div>
-          </section>
-      </div>
-
-      <div className="gap-4">
-          <section className={sectionCardClass}>
-            <DetailHeader title="More Details" />
-            {detailGroups.length > 0 ? (
-              <div className="space-y-4">
-                {detailGroups.map((group) => (
-                  <div
-                    key={group.title}
-                    className="grid gap-3 border-b border-default-200 pb-4 last:border-b-0 last:pb-0 md:grid-cols-[180px_minmax(0,1fr)]"
-                  >
-                    <p className="text-sm font-medium text-[#111827]">
-                      {group.title}
-                    </p>
-                    <div className="space-y-2">
-                      {group.items.map((item) => (
-                        <div
-                          key={`${group.title}-${item}`}
-                          className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm text-[#475569]"
-                        >
-                          <span>{item}</span>
-                          <CheckCheck className="text-[#16A34A]" size={14} />
-                        </div>
-                      ))}
-                    </div>
+            <div className="relative h-56 overflow-hidden rounded-2xl border border-default-200 bg-[#F8FAFC]">
+              {mapEmbedSrc ? (
+                <iframe
+                  className="h-full w-full border-0"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  src={mapEmbedSrc}
+                  title="Business location map"
+                />
+              ) : (
+                <div className="absolute inset-0 grid place-items-center">
+                  <div className="flex items-center gap-1 rounded-full bg-white px-2 py-1 shadow">
+                    <MapPin className="text-default-400" size={14} />
+                    <span className="text-xs font-semibold text-default-400">
+                      No pinned location
+                    </span>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className={emptyValueClass}>No attributes</p>
-            )}
-          </section>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
 
       <div className="gap-4">
+        <section className={sectionCardClass}>
+          <DetailHeader title="More Details" />
+          {detailGroups.length > 0 ? (
+            <div className="space-y-4">
+              {detailGroups.map((group) => (
+                <div
+                  key={group.title}
+                  className="grid gap-3 border-b border-default-200 pb-4 last:border-b-0 last:pb-0 md:grid-cols-[180px_minmax(0,1fr)]"
+                >
+                  <p className="text-sm font-medium text-[#111827]">
+                    {group.title}
+                  </p>
+                  <div className="space-y-2">
+                    {group.items.map((item) => (
+                      <div
+                        key={`${group.title}-${item}`}
+                        className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm text-[#475569]"
+                      >
+                        <span>{item}</span>
+                        <CheckCheck className="text-[#16A34A]" size={14} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className={emptyValueClass}>No attributes</p>
+          )}
+        </section>
+      </div>
 
+      <div className="gap-4">
         <div className="space-y-4">
           <section className={sectionCardClass}>
             <DetailHeader title="Gallery Photos" />
@@ -724,11 +718,12 @@ export const ClientGbpProfile = ({
                 </div>
                 <div className="overflow-hidden rounded-[22px] border border-default-200 bg-white p-4">
                   {profilePhoto?.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       alt={profilePhoto.title}
                       className="h-44 w-full rounded-[18px] object-cover"
                       referrerPolicy="no-referrer"
-                      src={avatarImageUrl}
+                      src={avatarImageUrl ?? undefined}
                     />
                   ) : (
                     <div className="grid h-44 place-items-center rounded-[18px] bg-[#F8FAFC]">
@@ -759,6 +754,7 @@ export const ClientGbpProfile = ({
                 </div>
                 <div className="overflow-hidden rounded-[22px] border border-default-200 bg-white p-4">
                   {coverPhoto?.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       alt={coverPhoto.title}
                       className="h-44 w-full rounded-[18px] object-cover"
@@ -799,6 +795,7 @@ export const ClientGbpProfile = ({
                       className="overflow-hidden rounded-[18px] border border-default-200 bg-white"
                     >
                       {photo.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           alt={photo.title}
                           className="h-40 w-full object-cover"

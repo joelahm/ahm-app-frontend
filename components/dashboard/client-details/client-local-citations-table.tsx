@@ -35,7 +35,12 @@ import {
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
 
-type CitationStatus = "Pending" | "Rejected" | "Completed" | "Not Synced";
+type CitationStatus =
+  | "Pending"
+  | "Rejected"
+  | "Not Synced"
+  | "Live Citation"
+  | "In Review";
 
 type LocalCitationRow = {
   address: string;
@@ -208,7 +213,7 @@ const extractZipCode = (value?: string | null) => {
 };
 
 const getStatusChipClassName = (status: CitationStatus) => {
-  if (status === "Completed") {
+  if (status === "Live Citation") {
     return "bg-[#DCFCE7] text-[#059669]";
   }
 
@@ -218,6 +223,10 @@ const getStatusChipClassName = (status: CitationStatus) => {
 
   if (status === "Not Synced") {
     return "bg-[#EEF2FF] text-[#4338CA]";
+  }
+
+  if (status === "In Review") {
+    return "bg-[#E0F2FE] text-[#0369A1]";
   }
 
   return "bg-[#FEF3C7] text-[#D97706]";

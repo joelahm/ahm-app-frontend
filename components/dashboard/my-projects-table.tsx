@@ -259,7 +259,7 @@ export const MyProjectsTable = () => {
     const loadProjects = async () => {
       try {
         const clientsResponse = await clientsApi.getClients(accessToken);
-        const allClients = clientsResponse.clients ?? [];
+        const allClients = clientsResponse ?? [];
         const mappedProjects = await Promise.all(
           allClients.map(async (client) => {
             const currentClientId = client.id;
