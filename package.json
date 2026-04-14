@@ -67,6 +67,7 @@
     "react-dom": "18.3.1",
     "react-hook-form": "^7.71.2",
     "socket.io-client": "^4.8.3",
+    "xlsx": "^0.18.5",
     "yup": "^1.7.1"
   },
   "devDependencies": {

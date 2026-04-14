@@ -27,6 +27,7 @@ interface AuthContextValue {
   login: (payload: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   session: AuthSession | null;
+  updateSessionUser: (user: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -222,6 +223,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [clearSession, session?.refreshToken]);
 
+  const updateSessionUser = useCallback((user: AuthUser) => {
+    setSession((previousSession) => {
+      if (!previousSession) {
+        return previousSession;
+      }
+
+      const nextSession: AuthSession = {
+        ...previousSession,
+        user,
+      };
+
+      saveSession(nextSession);
+
+      return nextSession;
+    });
+  }, []);
+
   const contextValue = useMemo<AuthContextValue>(
     () => ({
       error,
@@ -230,8 +248,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       login,
       logout,
       session,
+      updateSessionUser,
     }),
-    [error, isLoading, login, logout, session],
+    [error, isLoading, login, logout, session, updateSessionUser],
   );
 
   return (

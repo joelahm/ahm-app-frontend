@@ -41,6 +41,14 @@ export interface AddClientProjectRequestBody {
   project: string;
 }
 
+export interface UpdateClientProjectRequestBody {
+  accountManagerId?: number | string;
+  clientSuccessManagerId?: number | string;
+  phase?: string;
+  progress?: string;
+  project?: string;
+}
+
 export interface AddProjectTaskRequestBody {
   assigneeId: number | string;
   description: string;
@@ -48,6 +56,7 @@ export interface AddProjectTaskRequestBody {
   projectId: number | string;
   startDate: string;
   status?: string;
+  task?: string;
   taskName: string;
 }
 
@@ -125,6 +134,7 @@ export interface ProjectTask {
   description: string | null;
   dueDate: string | null;
   id: number | string;
+  parentTaskId?: number | string | null;
   priority: string | null;
   projectId: number | string | null;
   projectType: string | null;
@@ -137,6 +147,46 @@ export interface ProjectTask {
 
 export interface ProjectTasksResponse {
   tasks: ProjectTask[];
+}
+
+export interface TaskComment {
+  author: {
+    avatar: string | null;
+    firstName: string | null;
+    id: number | string | null;
+    lastName: string | null;
+  } | null;
+  comment: string;
+  createdAt: string | null;
+  createdBy: number | string | null;
+  id: number | string;
+  taskId: number | string | null;
+  updatedAt: string | null;
+}
+
+export interface TaskCommentsResponse {
+  comments: TaskComment[];
+  total: number;
+}
+
+export interface ProjectComment {
+  author: {
+    avatar: string | null;
+    firstName: string | null;
+    id: number | string | null;
+    lastName: string | null;
+  } | null;
+  comment: string;
+  createdAt: string | null;
+  createdBy: number | string | null;
+  id: number | string;
+  projectId: number | string | null;
+  updatedAt: string | null;
+}
+
+export interface ProjectCommentsResponse {
+  comments: ProjectComment[];
+  total: number;
 }
 
 export interface ClientProject {
@@ -437,7 +487,7 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
       ? asArray(payload.clients)
       : asArray(payload.items).length > 0
         ? asArray(payload.items)
-      : asArray(root.clients).length > 0
+        : asArray(root.clients).length > 0
           ? asArray(root.clients)
           : asArray(root.items);
   const clients: ClientApiItem[] = [];
@@ -1028,6 +1078,11 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
     description: asString(source.description),
     dueDate: asString(source.dueDate),
     id,
+    parentTaskId:
+      asId(source.parentTaskId) ??
+      asId(source.parentTaskID) ??
+      asId(source.parent_task_id) ??
+      asId(source.parentId),
     priority: asString(source.priority),
     projectId: asId(source.projectId),
     projectType: asString(source.projectType),
@@ -1084,6 +1139,126 @@ const parseProjectTasksResponse = (value: unknown): ProjectTasksResponse => {
     .filter((item): item is ProjectTask => item !== null);
 
   return { tasks };
+};
+
+const parseTaskCommentResponse = (value: unknown): TaskComment => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const commentRecord = asObject(payload.comment);
+  const source =
+    Object.keys(commentRecord).length > 0 ? commentRecord : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid task comment response.");
+  }
+
+  const authorRecord = asObject(source.author);
+
+  return {
+    author:
+      Object.keys(authorRecord).length > 0
+        ? {
+            avatar:
+              asString(authorRecord.avatar) ?? asString(authorRecord.avatarUrl),
+            firstName: asString(authorRecord.firstName),
+            id: asId(authorRecord.id),
+            lastName: asString(authorRecord.lastName),
+          }
+        : null,
+    comment: asString(source.comment) ?? "",
+    createdAt: asString(source.createdAt),
+    createdBy: asId(source.createdBy),
+    id,
+    taskId: asId(source.taskId),
+    updatedAt: asString(source.updatedAt),
+  };
+};
+
+const parseTaskCommentsResponse = (value: unknown): TaskCommentsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawComments =
+    asArray(payload.comments).length > 0
+      ? asArray(payload.comments)
+      : asArray(root.comments);
+
+  return {
+    comments: rawComments
+      .map((item) => {
+        try {
+          return parseTaskCommentResponse({ comment: item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is TaskComment => item !== null),
+    total:
+      asNumber(payload.total) ?? asNumber(root.total) ?? rawComments.length,
+  };
+};
+
+const parseProjectCommentResponse = (value: unknown): ProjectComment => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const commentRecord = asObject(payload.comment);
+  const source =
+    Object.keys(commentRecord).length > 0 ? commentRecord : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid project comment response.");
+  }
+
+  const authorRecord = asObject(source.author);
+
+  return {
+    author:
+      Object.keys(authorRecord).length > 0
+        ? {
+            avatar:
+              asString(authorRecord.avatar) ?? asString(authorRecord.avatarUrl),
+            firstName: asString(authorRecord.firstName),
+            id: asId(authorRecord.id),
+            lastName: asString(authorRecord.lastName),
+          }
+        : null,
+    comment: asString(source.comment) ?? "",
+    createdAt: asString(source.createdAt),
+    createdBy: asId(source.createdBy),
+    id,
+    projectId: asId(source.projectId),
+    updatedAt: asString(source.updatedAt),
+  };
+};
+
+const parseProjectCommentsResponse = (
+  value: unknown,
+): ProjectCommentsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawComments =
+    asArray(payload.comments).length > 0
+      ? asArray(payload.comments)
+      : asArray(root.comments);
+
+  return {
+    comments: rawComments
+      .map((item) => {
+        try {
+          return parseProjectCommentResponse({ comment: item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is ProjectComment => item !== null),
+    total:
+      asNumber(payload.total) ?? asNumber(root.total) ?? rawComments.length,
+  };
 };
 
 const parseClientCitationResponse = (value: unknown): ClientCitation => {
@@ -1186,6 +1361,65 @@ const parseClientProjectsResponse = (
 };
 
 export const clientsApi = {
+  deleteClient: async (accessToken: string, clientId: string | number) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/clients/${clientId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateClientStatus: async (
+    accessToken: string,
+    clientId: string | number,
+    status: "Active" | "Inactive",
+  ) => {
+    try {
+      const response = await clientsApiClient.patch(
+        `/api/v1/clients/${clientId}/status`,
+        {
+          status,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        try {
+          const fallbackResponse = await clientsApiClient.patch(
+            `/api/v1/clients/${clientId}`,
+            {
+              status,
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+              },
+            },
+          );
+
+          return fallbackResponse.data;
+        } catch (fallbackError) {
+          throw new Error(parseError(fallbackError));
+        }
+      }
+
+      throw new Error(parseError(error));
+    }
+  },
   getClientGbpDetails: async (
     accessToken: string,
     clientId: string | number,
@@ -1298,6 +1532,121 @@ export const clientsApi = {
       );
 
       return parseProjectTaskResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getTaskComments: async (accessToken: string, taskId: string | number) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/tasks/${taskId}/comments`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskCommentsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createTaskComment: async (
+    accessToken: string,
+    taskId: string | number,
+    payload: { comment: string },
+  ) => {
+    try {
+      const response = await clientsApiClient.post(
+        `/api/v1/projects/tasks/${taskId}/comments`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskCommentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteTaskComment: async (
+    accessToken: string,
+    commentId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/projects/tasks/comments/${commentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getProjectComments: async (
+    accessToken: string,
+    projectId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/${projectId}/comments`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseProjectCommentsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createProjectComment: async (
+    accessToken: string,
+    projectId: string | number,
+    payload: { comment: string },
+  ) => {
+    try {
+      const response = await clientsApiClient.post(
+        `/api/v1/projects/${projectId}/comments`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseProjectCommentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteProjectComment: async (
+    accessToken: string,
+    commentId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/projects/comments/${commentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
     } catch (error) {
       throw new Error(parseError(error));
     }
@@ -1425,6 +1774,48 @@ export const clientsApi = {
       );
 
       return parseClientProjectResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateClientProject: async (
+    accessToken: string,
+    clientId: string | number,
+    projectId: string | number,
+    payload: UpdateClientProjectRequestBody,
+  ) => {
+    try {
+      const response = await clientsApiClient.patch(
+        `/api/v1/clients/${clientId}/projects/${projectId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientProjectResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientProject: async (
+    accessToken: string,
+    clientId: string | number,
+    projectId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/clients/${clientId}/projects/${projectId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
     } catch (error) {
       throw new Error(parseError(error));
     }

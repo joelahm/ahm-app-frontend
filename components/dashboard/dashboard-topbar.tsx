@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Badge } from "@heroui/badge";
 import { Button } from "@heroui/button";
@@ -12,7 +12,8 @@ import {
   DropdownTrigger,
 } from "@heroui/dropdown";
 import { ChevronRight, Search, Bell } from "lucide-react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/auth-context";
 
@@ -22,6 +23,7 @@ interface DashboardTopbarProps {
 }
 
 export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
+  const pathname = usePathname();
   const router = useRouter();
   const { logout, session } = useAuth();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -54,6 +56,42 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
     ? `${title.split(",")[0]}, ${displayName}!`
     : `${title} ${displayName}!`;
 
+  const breadcrumbs = useMemo(() => {
+    const segments = pathname.split("?")[0].split("/").filter(Boolean);
+
+    if (!segments.length) {
+      return [];
+    }
+
+    const formatSegment = (segment: string) => {
+      if (!segment) {
+        return "";
+      }
+
+      if (/^\d+$/.test(segment) || segment.length > 24) {
+        return "Details";
+      }
+
+      return segment
+        .split("-")
+        .filter(Boolean)
+        .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+        .join(" ");
+    };
+
+    return segments.map((segment, index) => {
+      const href = `/${segments.slice(0, index + 1).join("/")}`;
+      const label =
+        index === 0 ? "Dashboard" : formatSegment(decodeURIComponent(segment));
+
+      return {
+        href,
+        isLast: index === segments.length - 1,
+        label,
+      };
+    });
+  }, [pathname]);
+
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -67,9 +105,26 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
             {headingTitle.split(`${displayName}!`)[0]}
             <span className="text-[#022279]">{displayName}!</span>
           </h1>
-          <p className="mt-1 text-xs font-medium text-default-700">
-            {subtitle}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs font-medium text-default-700">
+            {breadcrumbs.length ? (
+              breadcrumbs.map((item) =>
+                item.isLast ? (
+                  <span key={item.href} className="text-default-700">
+                    {item.label}
+                  </span>
+                ) : (
+                  <div key={item.href} className="flex items-center gap-1">
+                    <Link className="hover:text-[#022279]" href={item.href}>
+                      {item.label}
+                    </Link>
+                    <ChevronRight size={12} />
+                  </div>
+                ),
+              )
+            ) : (
+              <span>{subtitle}</span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 self-end lg:self-center">

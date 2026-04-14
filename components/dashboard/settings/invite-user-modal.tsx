@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useMemo, useState } from "react";
+import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
+import { Alert } from "@heroui/alert";
 import { Button } from "@heroui/button";
-import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
 import {
   Modal,
@@ -13,23 +13,28 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@heroui/modal";
-import { Mail, MapPin, X } from "lucide-react";
+import { Mail, X } from "lucide-react";
 
 import {
   InviteMember,
   InviteMemberRow,
   InviteRoleOption,
 } from "@/components/dashboard/settings/invite-member-row";
+import { AutocompleteMultiSelectField } from "@/components/form/autocomplete-multi-select-field";
 import { useAuth } from "@/components/auth/auth-context";
 import { invitationsApi } from "@/apis/invitations";
 import { usersApi } from "@/apis/users";
+import { clientsApi } from "@/apis/clients";
 
 const inviteUserSchema = yup.object({
   inviteEmail: yup
     .string()
     .email("Enter a valid email")
     .required("Member email is required"),
-  locationInput: yup.string().default(""),
+  clientIds: yup
+    .array(yup.string().trim().required())
+    .min(1, "At least one client is required")
+    .required("At least one client is required"),
 });
 
 type InviteUserFormValues = yup.InferType<typeof inviteUserSchema>;
@@ -37,20 +42,25 @@ type InviteUserFormValues = yup.InferType<typeof inviteUserSchema>;
 interface InviteUserModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  onInvited?: (payload: {
+    clientLabels: string[];
+    invitedMembers: InviteMember[];
+  }) => void;
 }
 
 export const InviteUserModal = ({
   isOpen,
   onOpenChange,
+  onInvited,
 }: InviteUserModalProps) => {
   const { session } = useAuth();
   const [submitError, setSubmitError] = useState("");
-  const [locationTags, setLocationTags] = useState<string[]>([
-    "Location Name",
-    "Location Name",
-  ]);
+  const [clients, setClients] = useState<
+    Array<{ id: string; label: string; value: string }>
+  >([]);
   const [members, setMembers] = useState<InviteMember[]>([]);
   const {
+    control,
     register,
     handleSubmit,
     setError,
@@ -62,10 +72,52 @@ export const InviteUserModal = ({
   } = useForm<InviteUserFormValues>({
     defaultValues: {
       inviteEmail: "",
-      locationInput: "",
+      clientIds: [],
     },
     mode: "onBlur",
   });
+
+  const clientOptions = useMemo(
+    () =>
+      clients.map((client) => ({
+        label: client.label,
+        value: client.value,
+      })),
+    [clients],
+  );
+
+  useEffect(() => {
+    if (!isOpen || !session?.accessToken) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await clientsApi.getClients(session.accessToken);
+        const parsedClients = response
+          .map((client) => {
+            const id = String(client.id);
+            const label =
+              (client.businessName || client.clientName || "").trim() ||
+              `Client ${id}`;
+
+            return {
+              id,
+              label,
+              value: id,
+            };
+          })
+          .filter(
+            (client, index, collection) =>
+              collection.findIndex((item) => item.id === client.id) === index,
+          );
+
+        setClients(parsedClients);
+      } catch {
+        setClients([]);
+      }
+    })();
+  }, [isOpen, session?.accessToken]);
 
   const handleAddMember = async () => {
     const inviteEmail = getValues("inviteEmail").trim();
@@ -85,33 +137,35 @@ export const InviteUserModal = ({
         return;
       }
 
-      setMembers((previousMembers) => {
-        const exists = previousMembers.some(
-          (member) => member.email.toLowerCase() === inviteEmail.toLowerCase(),
-        );
+      const exists = members.some(
+        (member) => member.email.toLowerCase() === inviteEmail.toLowerCase(),
+      );
 
-        if (exists) {
-          return previousMembers;
-        }
+      if (exists) {
+        return;
+      }
 
-        const generatedName = inviteEmail
-          .split("@")[0]
-          .split(/[._-]/g)
-          .filter(Boolean)
-          .map((part) => `${part[0]?.toUpperCase()}${part.slice(1)}`)
-          .join(" ");
+      const generatedName = inviteEmail
+        .split("@")[0]
+        .split(/[._-]/g)
+        .filter(Boolean)
+        .map((part) => `${part[0]?.toUpperCase()}${part.slice(1)}`)
+        .join(" ");
 
-        return [
-          ...previousMembers,
-          {
-            email: inviteEmail,
-            id: `member-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            name: generatedName || "New Member",
-            role: "TEAM_MEMBER",
-          },
-        ];
+      setMembers((previousMembers) => [
+        ...previousMembers,
+        {
+          email: inviteEmail,
+          id: `member-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: generatedName || "New Member",
+          role: "GUEST",
+        },
+      ]);
+      setValue("inviteEmail", "", {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
       });
-      setValue("inviteEmail", "", { shouldDirty: false, shouldTouch: false });
     } catch (error) {
       if (error instanceof yup.ValidationError) {
         setError("inviteEmail", {
@@ -136,21 +190,11 @@ export const InviteUserModal = ({
     );
   };
 
-  const handleAddLocation = async () => {
-    const value = getValues("locationInput").trim();
-
-    if (!value) {
-      return;
-    }
-
-    setLocationTags((previous) => [...previous, value]);
-    reset({ ...getValues(), locationInput: "" });
-  };
-
   const handleInvite = async () => {
     await handleSubmit(
       async () => {
         setSubmitError("");
+        const selectedClientIds = getValues("clientIds");
 
         const requestBody = {
           requestedByUserId: session?.user.id ?? null,
@@ -158,14 +202,45 @@ export const InviteUserModal = ({
             email: member.email,
             role: member.role,
           })),
-          locations: locationTags,
+          locations: selectedClientIds,
         };
 
         if (!session?.accessToken) {
           throw new Error("Your session has expired. Please login again.");
         }
 
-        await usersApi.inviteUsers(requestBody, session.accessToken);
+        const inviteResponse = await usersApi.inviteUsers(
+          requestBody,
+          session.accessToken,
+        );
+
+        const invitedEmailSet = new Set(
+          (inviteResponse.results ?? [])
+            .filter(
+              (result) =>
+                String(result.status || "")
+                  .trim()
+                  .toUpperCase() === "INVITED",
+            )
+            .map((result) => result.email.toLowerCase()),
+        );
+        const invitedMembers = members.filter((member) =>
+          invitedEmailSet.has(member.email.toLowerCase()),
+        );
+        const selectedClientLabels = selectedClientIds
+          .map(
+            (selectedClientId) =>
+              clients.find((client) => client.id === selectedClientId)?.label ??
+              "",
+          )
+          .filter(Boolean);
+
+        if (invitedMembers.length > 0) {
+          onInvited?.({
+            clientLabels: selectedClientLabels,
+            invitedMembers,
+          });
+        }
 
         onOpenChange(false);
         reset();
@@ -209,7 +284,13 @@ export const InviteUserModal = ({
           <div>
             <p className="mb-2 text-sm text-[#4B5563]">Invite Members</p>
             {submitError ? (
-              <p className="mb-2 text-xs text-danger">{submitError}</p>
+              <Alert
+                className="mb-2"
+                color="danger"
+                description={submitError}
+                title="Invite failed"
+                variant="flat"
+              />
             ) : null}
             <div className="flex gap-3">
               <Input
@@ -247,43 +328,27 @@ export const InviteUserModal = ({
             )}
           </div>
 
-          <div>
-            <p className="mb-2 text-sm text-[#4B5563]">Locations</p>
-            <div className="rounded-2xl border border-default-200">
-              <div className="flex items-center gap-3 border-b border-default-200 p-3">
-                <Input
-                  {...register("locationInput")}
-                  placeholder="Add location(s)"
-                  radius="md"
-                  startContent={
-                    <MapPin className="text-default-400" size={20} />
+          <Controller
+            control={control}
+            name="clientIds"
+            render={({ field }) => (
+              <AutocompleteMultiSelectField
+                errorMessage={errors.clientIds?.message}
+                label="Clients"
+                options={clientOptions}
+                placeholder={
+                  clients.length ? "Select client(s)" : "No clients available"
+                }
+                values={field.value ?? []}
+                onChange={(values) => {
+                  field.onChange(values);
+                  if (values.length > 0) {
+                    clearErrors("clientIds");
                   }
-                />
-                <Button
-                  className="bg-[#0568C9] text-white"
-                  radius="md"
-                  onPress={handleAddLocation}
-                >
-                  Add
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2 p-3">
-                {locationTags.map((location, index) => (
-                  <Chip
-                    key={`${location}-${index}`}
-                    classNames={{
-                      base: "bg-[#D9ECFC]",
-                      content: "text-[#0568C9]",
-                    }}
-                    size="sm"
-                    variant="flat"
-                  >
-                    {location}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          </div>
+                }}
+              />
+            )}
+          />
         </ModalBody>
         <ModalFooter className="grid grid-cols-2 gap-3">
           <Button

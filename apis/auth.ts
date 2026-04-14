@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export type UserRole = "ADMIN" | "TEAM_MEMBER";
+export type UserRole = "ADMIN" | "TEAM_MEMBER" | "GUEST";
 
 export interface AuthUser {
   email: string;
@@ -54,9 +54,11 @@ const apiClient = axios.create({
 
 const parseError = (error: unknown) => {
   if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data as
+      | { message?: string; error?: { message?: string } }
+      | undefined;
     const message =
-      (error.response?.data as { message?: string } | undefined)?.message ??
-      error.message;
+      responseData?.message ?? responseData?.error?.message ?? error.message;
 
     return message || "Something went wrong.";
   }
@@ -87,7 +89,9 @@ const asNumber = (value: unknown) => {
 };
 
 const asUserRole = (value: unknown): UserRole | undefined =>
-  value === "ADMIN" || value === "TEAM_MEMBER" ? value : undefined;
+  value === "ADMIN" || value === "TEAM_MEMBER" || value === "GUEST"
+    ? value
+    : undefined;
 
 const resolvePayload = (value: unknown) => {
   const root = asObject(value);

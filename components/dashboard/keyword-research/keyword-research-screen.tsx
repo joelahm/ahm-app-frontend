@@ -1,0 +1,1057 @@
+"use client";
+
+import type { Selection } from "@react-types/shared";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert } from "@heroui/alert";
+import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
+import { Button } from "@heroui/button";
+import { Card, CardBody } from "@heroui/card";
+import { Input } from "@heroui/input";
+import { Select, SelectItem } from "@heroui/select";
+import { Tab, Tabs } from "@heroui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableHeader,
+  TableRow,
+} from "@heroui/table";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ListPlus,
+  Search,
+} from "lucide-react";
+
+import {
+  keywordResearchApi,
+  type KeywordResearchCountryOption,
+  type KeywordResearchItem,
+  type KeywordResearchLanguageOption,
+  type KeywordResearchRequestBody,
+} from "@/apis/keyword-research";
+import { keywordContentListsApi } from "@/apis/keyword-content-lists";
+import { clientsApi, type ClientApiItem } from "@/apis/clients";
+import { useAuth } from "@/components/auth/auth-context";
+import { AddKeywordsToWebContentModal } from "@/components/dashboard/keyword-research/add-keywords-to-web-content-modal";
+import {
+  WebsiteContentKeywordsModal,
+  type WebsiteContentKeywordItem,
+  type WebsiteContentFormValues,
+} from "@/components/dashboard/keyword-research/website-content-keywords-modal";
+
+type KeywordResearchRow = {
+  cpc: number | null;
+  id: string;
+  intent: string | null;
+  kd: number | null;
+  keyword: string;
+  searchVolume: number | null;
+  serp: string | null;
+};
+
+const RESULTS_PER_PAGE = 10;
+
+const tabClassNames = {
+  cursor: "bg-white shadow-none",
+  panel: "p-0",
+  tabList: "h-11 gap-0 rounded-xl bg-[#F3F4F6] p-1",
+  tab: "h-9 rounded-lg px-10 text-sm font-medium data-[hover-unselected=true]:opacity-100",
+  tabContent:
+    "group-data-[selected=true]:text-[#111827] group-data-[selected=false]:text-[#111827]",
+};
+
+const headerCellClass =
+  "bg-[#F9FAFB] text-xs font-medium text-[#111827] uppercase tracking-[0.02em]";
+
+const formatCpc = (value: number | null) =>
+  value === null ? "-" : `$ ${value.toFixed(2)}`;
+
+const formatMetric = (value: number | null) =>
+  value === null ? "-" : new Intl.NumberFormat("en-US").format(value);
+
+const escapeCsvValue = (value: string) => {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+
+  return value;
+};
+
+const normalizeSelection = (selection: Selection) => {
+  if (selection === "all") {
+    return null;
+  }
+
+  const [firstKey] = Array.from(selection);
+
+  return firstKey ? String(firstKey) : null;
+};
+
+const normalizeAutocompleteValue = (value: string) => value.trimStart();
+
+const mapApiRowToTableRow = (
+  item: KeywordResearchItem,
+): KeywordResearchRow => ({
+  cpc: item.cpc,
+  id: item.id,
+  intent: item.intent,
+  kd: item.kd,
+  keyword: item.keyword,
+  searchVolume: item.searchVolume,
+  serp: item.serp,
+});
+
+export const KeywordResearchScreen = () => {
+  const { session } = useAuth();
+  const [activeTab, setActiveTab] = useState("keywords");
+  const [keywordMode, setKeywordMode] = useState("similar-keywords");
+  const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set([]));
+  const [clients, setClients] = useState<ClientApiItem[]>([]);
+  const [isAddToListOpen, setIsAddToListOpen] = useState(false);
+  const [isWebsiteContentModalOpen, setIsWebsiteContentModalOpen] =
+    useState(false);
+  const [websiteContentLocation, setWebsiteContentLocation] = useState("");
+  const [websiteContentSelectedClientId, setWebsiteContentSelectedClientId] =
+    useState("");
+  const [websiteContentKeywords, setWebsiteContentKeywords] = useState<
+    WebsiteContentKeywordItem[]
+  >([]);
+  const [page, setPage] = useState(1);
+  const [pageSearch, setPageSearch] = useState("");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [selectedSearchVolume, setSelectedSearchVolume] = useState("");
+  const [selectedKeywordDifficulty, setSelectedKeywordDifficulty] =
+    useState("");
+  const [selectedCpc, setSelectedCpc] = useState("");
+  const [selectedIntent, setSelectedIntent] = useState("");
+  const [selectedExcludedKeyword, setSelectedExcludedKeyword] = useState("");
+  const [languageOptions, setLanguageOptions] = useState<
+    KeywordResearchLanguageOption[]
+  >([]);
+  const [searchLanguage, setSearchLanguage] = useState("");
+  const [countryOptions, setCountryOptions] = useState<
+    KeywordResearchCountryOption[]
+  >([]);
+  const [searchCountry, setSearchCountry] = useState("");
+  const [searchCountryLabel, setSearchCountryLabel] = useState("");
+  const [searchCountryLocationCode, setSearchCountryLocationCode] = useState<
+    number | null
+  >(null);
+  const [similarKeywordResults, setSimilarKeywordResults] = useState<
+    KeywordResearchRow[]
+  >([]);
+  const [keywordSuggestionResults, setKeywordSuggestionResults] = useState<
+    KeywordResearchRow[]
+  >([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+  const [lastSubmittedSearch, setLastSubmittedSearch] =
+    useState<KeywordResearchRequestBody | null>(null);
+
+  useEffect(() => {
+    if (!session?.accessToken) {
+      setClients([]);
+      setCountryOptions([]);
+      setLanguageOptions([]);
+      setSearchCountry("");
+      setSearchCountryLabel("");
+      setSearchCountryLocationCode(null);
+      setSearchLanguage("");
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCountries = async () => {
+      try {
+        setIsLoadingLocations(true);
+        const [countriesResponse, languagesResponse, clientsResponse] =
+          await Promise.all([
+            keywordResearchApi.getCountries(session.accessToken),
+            keywordResearchApi.getLanguages(session.accessToken),
+            clientsApi.getClients(session.accessToken),
+          ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setCountryOptions(
+          countriesResponse.countries.map((item) => ({
+            ...item,
+            key: item.value,
+          })),
+        );
+        setLanguageOptions(
+          languagesResponse.languages.map((item) => ({
+            ...item,
+            key: item.value,
+          })),
+        );
+        setClients(clientsResponse);
+
+        const defaultCountry =
+          countriesResponse.countries.find(
+            (item) => item.value.toUpperCase() === "GB",
+          ) ?? countriesResponse.countries[0];
+        const defaultLanguage =
+          languagesResponse.languages.find((item) => item.value === "en") ??
+          languagesResponse.languages[0];
+
+        if (defaultCountry) {
+          setSearchCountry(defaultCountry.value);
+          setSearchCountryLabel(defaultCountry.label);
+          setSearchCountryLocationCode(defaultCountry.locationCode);
+        }
+
+        if (defaultLanguage) {
+          setSearchLanguage(defaultLanguage.value);
+        }
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load keyword research locations.",
+        );
+      } finally {
+        if (isMounted) {
+          setIsLoadingLocations(false);
+        }
+      }
+    };
+
+    void loadCountries();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.accessToken]);
+
+  const executeSearch = useCallback(
+    async (payload: KeywordResearchRequestBody) => {
+      if (!session?.accessToken) {
+        setLoadError("You must be signed in to search keywords.");
+        setSimilarKeywordResults([]);
+        setKeywordSuggestionResults([]);
+
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setLoadError("");
+
+        const [similarKeywordsResponse, keywordSuggestionsResponse] =
+          await Promise.all([
+            keywordResearchApi.getSimilarKeywords(session.accessToken, payload),
+            keywordResearchApi.getKeywordSuggestions(
+              session.accessToken,
+              payload,
+            ),
+          ]);
+
+        setSimilarKeywordResults(
+          similarKeywordsResponse.keywords.map(mapApiRowToTableRow),
+        );
+        setKeywordSuggestionResults(
+          keywordSuggestionsResponse.keywords.map(mapApiRowToTableRow),
+        );
+        setSelectedKeys(new Set([]));
+      } catch (error) {
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Failed to fetch keyword research results.",
+        );
+        setSimilarKeywordResults([]);
+        setKeywordSuggestionResults([]);
+        setSelectedKeys(new Set([]));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [session?.accessToken],
+  );
+
+  const handleSearch = useCallback(() => {
+    const normalizedKeyword = searchKeyword.trim();
+
+    if (!normalizedKeyword) {
+      setLoadError("Keyword is required.");
+      setSimilarKeywordResults([]);
+      setKeywordSuggestionResults([]);
+      setHasSearched(false);
+
+      return;
+    }
+
+    const selectedLanguage =
+      languageOptions.find((item) => item.value === searchLanguage) ?? null;
+
+    if (!selectedLanguage) {
+      setLoadError("Language is required.");
+      setSimilarKeywordResults([]);
+      setKeywordSuggestionResults([]);
+      setHasSearched(false);
+
+      return;
+    }
+
+    const payload = {
+      country: searchCountryLabel,
+      countryIsoCode: searchCountry || undefined,
+      forceRefresh: true,
+      keyword: normalizedKeyword,
+      languageCode: selectedLanguage.value,
+      languageName: selectedLanguage.label,
+      locationCode: searchCountryLocationCode ?? undefined,
+    };
+
+    setHasSearched(true);
+    setLastSubmittedSearch(payload);
+    setPage(1);
+  }, [
+    searchCountry,
+    searchCountryLabel,
+    searchCountryLocationCode,
+    searchKeyword,
+    searchLanguage,
+  ]);
+
+  useEffect(() => {
+    if (!lastSubmittedSearch) {
+      return;
+    }
+
+    void executeSearch(lastSubmittedSearch);
+  }, [executeSearch, lastSubmittedSearch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSearch]);
+
+  const activeResults = useMemo(
+    () =>
+      keywordMode === "similar-keywords"
+        ? similarKeywordResults
+        : keywordSuggestionResults,
+    [keywordMode, keywordSuggestionResults, similarKeywordResults],
+  );
+
+  const filteredCountryOptions = useMemo(() => {
+    const query = searchCountryLabel.trim().toLowerCase();
+
+    if (!query) {
+      return countryOptions;
+    }
+
+    return countryOptions.filter((item) =>
+      item.label.toLowerCase().includes(query),
+    );
+  }, [countryOptions, searchCountryLabel]);
+
+  const searchVolumeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeResults
+            .map((item) => item.searchVolume)
+            .filter((value): value is number => value !== null),
+        ),
+      )
+        .sort((a, b) => b - a)
+        .map((value) => ({
+          key: String(value),
+          label: formatMetric(value),
+          value: String(value),
+        })),
+    [activeResults],
+  );
+
+  const keywordDifficultyOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeResults
+            .map((item) => item.kd)
+            .filter((value): value is number => value !== null),
+        ),
+      )
+        .sort((a, b) => b - a)
+        .map((value) => ({
+          key: String(value),
+          label: String(value),
+          value: String(value),
+        })),
+    [activeResults],
+  );
+
+  const cpcFilterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeResults
+            .map((item) => item.cpc)
+            .filter((value): value is number => value !== null),
+        ),
+      )
+        .sort((a, b) => b - a)
+        .map((value) => ({
+          key: String(value),
+          label: formatCpc(value),
+          value: String(value),
+        })),
+    [activeResults],
+  );
+
+  const intentFilterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeResults
+            .map((item) => item.intent)
+            .filter((value): value is string => Boolean(value)),
+        ),
+      )
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({
+          key: value,
+          label: value,
+          value,
+        })),
+    [activeResults],
+  );
+
+  const excludeKeywordOptions = useMemo(
+    () =>
+      Array.from(new Set(activeResults.map((item) => item.keyword)))
+        .sort((a, b) => a.localeCompare(b))
+        .map((value) => ({
+          key: value,
+          label: value,
+          value,
+        })),
+    [activeResults],
+  );
+
+  const filteredRows = useMemo(() => {
+    const query = pageSearch.trim().toLowerCase();
+    const normalizedSearchVolume = selectedSearchVolume
+      ? Number(selectedSearchVolume)
+      : null;
+    const normalizedKeywordDifficulty = selectedKeywordDifficulty
+      ? Number(selectedKeywordDifficulty)
+      : null;
+    const normalizedCpc = selectedCpc ? Number(selectedCpc) : null;
+
+    return activeResults.filter((row) => {
+      const matchesQuery = !query
+        ? true
+        : [row.keyword, row.intent ?? "", row.serp ?? ""].some((value) =>
+            value.toLowerCase().includes(query),
+          );
+
+      const matchesSearchVolume =
+        normalizedSearchVolume === null
+          ? true
+          : row.searchVolume === normalizedSearchVolume;
+      const matchesKeywordDifficulty =
+        normalizedKeywordDifficulty === null
+          ? true
+          : row.kd === normalizedKeywordDifficulty;
+      const matchesCpc =
+        normalizedCpc === null ? true : row.cpc === normalizedCpc;
+      const matchesIntent = selectedIntent
+        ? row.intent === selectedIntent
+        : true;
+      const matchesExcludedKeyword = selectedExcludedKeyword
+        ? row.keyword !== selectedExcludedKeyword
+        : true;
+
+      return (
+        matchesQuery &&
+        matchesSearchVolume &&
+        matchesKeywordDifficulty &&
+        matchesCpc &&
+        matchesIntent &&
+        matchesExcludedKeyword
+      );
+    });
+  }, [
+    activeResults,
+    pageSearch,
+    selectedCpc,
+    selectedExcludedKeyword,
+    selectedIntent,
+    selectedKeywordDifficulty,
+    selectedSearchVolume,
+  ]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRows.length / RESULTS_PER_PAGE),
+  );
+
+  const paginatedRows = useMemo(() => {
+    const safePage = Math.min(page, totalPages);
+    const startIndex = (safePage - 1) * RESULTS_PER_PAGE;
+
+    return filteredRows.slice(startIndex, startIndex + RESULTS_PER_PAGE);
+  }, [filteredRows, page, totalPages]);
+
+  const exportRows = useMemo(() => {
+    if (selectedKeys === "all") {
+      return filteredRows;
+    }
+
+    const selectedIds = new Set(Array.from(selectedKeys).map(String));
+
+    if (!selectedIds.size) {
+      return filteredRows;
+    }
+
+    return filteredRows.filter((row) => selectedIds.has(row.id));
+  }, [filteredRows, selectedKeys]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const emptyStateMessage = isLoading
+    ? "Loading keywords..."
+    : loadError
+      ? loadError
+      : hasSearched
+        ? "No keywords found."
+        : "Enter a keyword and run a search.";
+
+  const handleExport = useCallback(() => {
+    if (!exportRows.length) {
+      return;
+    }
+
+    const headers = [
+      "Keyword",
+      "Search Volume",
+      "KD%",
+      "Search Intent",
+      "SERP",
+      "CPC (USD)",
+    ];
+
+    const csv = [
+      headers.join(","),
+      ...exportRows.map((row) =>
+        [
+          escapeCsvValue(row.keyword),
+          row.searchVolume ?? "",
+          row.kd ?? "",
+          escapeCsvValue(row.intent ?? ""),
+          escapeCsvValue(row.serp ?? ""),
+          row.cpc ?? "",
+        ].join(","),
+      ),
+    ].join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const filename =
+      keywordMode === "similar-keywords"
+        ? "similar-keywords.csv"
+        : "keyword-suggestions.csv";
+
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [exportRows, keywordMode]);
+
+  const handleAddToList = useCallback(
+    async ({ clientId, location }: { clientId: string; location: string }) => {
+      setSaveSuccessMessage("");
+
+      if (location !== "Website Content") {
+        return;
+      }
+
+      setWebsiteContentSelectedClientId(clientId);
+      setWebsiteContentLocation(location);
+      setWebsiteContentKeywords(
+        exportRows.map((row) => ({
+          cpc: row.cpc,
+          id: row.id,
+          intent: row.intent,
+          kd: row.kd,
+          keyword: row.keyword,
+          searchVolume: row.searchVolume,
+        })),
+      );
+      setIsWebsiteContentModalOpen(true);
+    },
+    [exportRows],
+  );
+
+  const handleSaveWebsiteContentKeywords = useCallback(
+    async (values: WebsiteContentFormValues) => {
+      if (!session?.accessToken) {
+        throw new Error("You must be signed in to save keywords.");
+      }
+
+      if (!websiteContentSelectedClientId) {
+        throw new Error("Client is required.");
+      }
+
+      await keywordContentListsApi.createKeywordContentList(
+        session.accessToken,
+        {
+          audience: values.audience || "",
+          clientId: websiteContentSelectedClientId,
+          enableContentClustering: Boolean(values.enableContentClustering),
+          keywords: values.keywords.map((item) => ({
+            contentType: item.contentType || "",
+            cpc: item.cpc,
+            id: item.id,
+            intent: item.intent,
+            kd: item.kd,
+            keyword: item.keyword,
+            searchVolume: item.searchVolume,
+            title: item.title || "",
+          })),
+          location: websiteContentLocation || "Website Content",
+          topic: values.topic || "",
+        },
+      );
+      setSaveSuccessMessage("Keyword list saved successfully.");
+    },
+    [
+      session?.accessToken,
+      websiteContentLocation,
+      websiteContentSelectedClientId,
+    ],
+  );
+
+  return (
+    <>
+      {saveSuccessMessage ? (
+        <div className="mb-3">
+          <Alert color="success" title={saveSuccessMessage} variant="flat" />
+        </div>
+      ) : null}
+      <Tabs
+        aria-label="Keyword research mode"
+        classNames={tabClassNames}
+        color="default"
+        radius="lg"
+        selectedKey={activeTab}
+        variant="solid"
+        onSelectionChange={(key) => setActiveTab(String(key))}
+      >
+        <Tab key="keywords" title="Search by Keywords">
+          <div className="space-y-5 pt-5">
+            <Card className="border border-default-200 shadow-none">
+              <CardBody className="p-4">
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <div className="col-span-2 flex gap-2">
+                    <Input
+                      label="Search"
+                      labelPlacement="outside"
+                      placeholder="Enter Keyword"
+                      radius="md"
+                      startContent={
+                        <Search className="text-default-400" size={16} />
+                      }
+                      value={searchKeyword}
+                      onValueChange={setSearchKeyword}
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        className="h-10 bg-[#022279] px-7 text-white"
+                        isLoading={isLoading}
+                        radius="md"
+                        onPress={() => void handleSearch()}
+                      >
+                        Search
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <Select
+                      items={languageOptions}
+                      label="Language"
+                      labelPlacement="outside"
+                      radius="md"
+                      selectedKeys={searchLanguage ? [searchLanguage] : []}
+                      onSelectionChange={(keys) => {
+                        const value = normalizeSelection(keys);
+
+                        if (value) {
+                          setSearchLanguage(value);
+                        }
+                      }}
+                    >
+                      {(item) => (
+                        <SelectItem key={item.value}>{item.label}</SelectItem>
+                      )}
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Autocomplete
+                      allowsCustomValue={false}
+                      inputValue={searchCountryLabel}
+                      isLoading={isLoadingLocations}
+                      items={filteredCountryOptions}
+                      label="Country"
+                      labelPlacement="outside"
+                      placeholder="Select country"
+                      radius="md"
+                      selectedKey={searchCountry || null}
+                      onInputChange={(value) => {
+                        const normalizedValue =
+                          normalizeAutocompleteValue(value);
+
+                        setSearchCountryLabel(normalizedValue);
+
+                        const matchesSelectedCountry = countryOptions.some(
+                          (item) =>
+                            item.value === searchCountry &&
+                            item.label === normalizedValue,
+                        );
+
+                        if (matchesSelectedCountry) {
+                          return;
+                        }
+
+                        setSearchCountry("");
+                        setSearchCountryLocationCode(null);
+                      }}
+                      onSelectionChange={(key) => {
+                        if (!key) {
+                          setSearchCountry("");
+                          setSearchCountryLabel("");
+                          setSearchCountryLocationCode(null);
+
+                          return;
+                        }
+
+                        const selectedCountry = countryOptions.find(
+                          (item) => item.value === String(key),
+                        );
+
+                        if (selectedCountry) {
+                          setSearchCountry(selectedCountry.value);
+                          setSearchCountryLabel(selectedCountry.label);
+                          setSearchCountryLocationCode(
+                            selectedCountry.locationCode,
+                          );
+                        }
+                      }}
+                    >
+                      {(item) => (
+                        <AutocompleteItem
+                          key={item.value}
+                          textValue={item.label}
+                        >
+                          {item.label}
+                        </AutocompleteItem>
+                      )}
+                    </Autocomplete>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+            <Card className="border border-default-200 shadow-none">
+              <CardBody className="p-4">
+                <div className="flex items-center gap-3">
+                  <Tabs
+                    fullWidth
+                    aria-label="Keyword mode"
+                    classNames={{
+                      cursor: "bg-white shadow-none",
+                      tabList: "h-11 gap-0 bg-[#F3F4F6] p-1",
+                      panel: "hidden",
+                      tab: "h-9 rounded-lg data-[hover-unselected=true]:opacity-100",
+                      tabContent:
+                        "text-sm font-medium group-data-[selected=true]:text-[#111827] group-data-[selected=false]:text-[#111827]",
+                    }}
+                    radius="lg"
+                    selectedKey={keywordMode}
+                    variant="solid"
+                    onSelectionChange={(key) => setKeywordMode(String(key))}
+                  >
+                    <Tab key="similar-keywords" title="Similar Keywords" />
+                    <Tab
+                      key="keyword-suggestions"
+                      title="Keyword Suggestions"
+                    />
+                  </Tabs>
+                  <Select
+                    isClearable
+                    items={searchVolumeOptions}
+                    placeholder="Search Volume"
+                    radius="md"
+                    selectedKeys={
+                      selectedSearchVolume ? [selectedSearchVolume] : []
+                    }
+                    onSelectionChange={(keys) => {
+                      setSelectedSearchVolume(normalizeSelection(keys) ?? "");
+                    }}
+                  >
+                    {(item) => <SelectItem>{item.label}</SelectItem>}
+                  </Select>
+                  <Select
+                    isClearable
+                    items={keywordDifficultyOptions}
+                    placeholder="Keyword Difficulty"
+                    radius="md"
+                    selectedKeys={
+                      selectedKeywordDifficulty
+                        ? [selectedKeywordDifficulty]
+                        : []
+                    }
+                    onSelectionChange={(keys) => {
+                      setSelectedKeywordDifficulty(
+                        normalizeSelection(keys) ?? "",
+                      );
+                    }}
+                  >
+                    {(item) => <SelectItem>{item.label}</SelectItem>}
+                  </Select>
+                  <Select
+                    isClearable
+                    items={cpcFilterOptions}
+                    placeholder="CPC"
+                    radius="md"
+                    selectedKeys={selectedCpc ? [selectedCpc] : []}
+                    onSelectionChange={(keys) => {
+                      setSelectedCpc(normalizeSelection(keys) ?? "");
+                    }}
+                  >
+                    {(item) => <SelectItem>{item.label}</SelectItem>}
+                  </Select>
+                  <Select
+                    isClearable
+                    items={intentFilterOptions}
+                    placeholder="Intent"
+                    radius="md"
+                    selectedKeys={selectedIntent ? [selectedIntent] : []}
+                    onSelectionChange={(keys) => {
+                      setSelectedIntent(normalizeSelection(keys) ?? "");
+                    }}
+                  >
+                    {(item) => <SelectItem>{item.label}</SelectItem>}
+                  </Select>
+                  <Select
+                    isClearable
+                    items={excludeKeywordOptions}
+                    placeholder="Exclude Keywords"
+                    radius="md"
+                    selectedKeys={
+                      selectedExcludedKeyword ? [selectedExcludedKeyword] : []
+                    }
+                    onSelectionChange={(keys) => {
+                      setSelectedExcludedKeyword(
+                        normalizeSelection(keys) ?? "",
+                      );
+                    }}
+                  >
+                    {(item) => <SelectItem>{item.label}</SelectItem>}
+                  </Select>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card className="border border-default-200 shadow-none">
+              <CardBody className="p-0">
+                <div className="flex flex-col gap-4 border-b border-default-200 px-4 py-2 lg:flex-row lg:items-center lg:justify-between">
+                  <h2 className="font-semibold text-[#111827]">
+                    {keywordMode === "similar-keywords"
+                      ? "Similar Keywords"
+                      : "Keyword Suggestions"}
+                  </h2>
+
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <Input
+                      className="w-full lg:w-[260px]"
+                      placeholder="Search here"
+                      radius="md"
+                      startContent={
+                        <Search className="text-default-400" size={18} />
+                      }
+                      value={pageSearch}
+                      onValueChange={setPageSearch}
+                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        isDisabled={!paginatedRows.length}
+                        radius="md"
+                        startContent={<ListPlus size={16} />}
+                        variant="bordered"
+                        onPress={() => setIsAddToListOpen(true)}
+                      >
+                        Add to List
+                      </Button>
+                      <Button
+                        isIconOnly
+                        aria-label="Export keywords"
+                        isDisabled={!filteredRows.length}
+                        radius="md"
+                        variant="bordered"
+                        onPress={handleExport}
+                      >
+                        <Download size={16} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <Table
+                  removeWrapper
+                  aria-label="Keyword research results"
+                  classNames={{
+                    table: "border-collapse border-spacing-0",
+                    tbody:
+                      "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#FCFCFD]",
+                    td: "px-4 py-6 text-sm text-[#111827]",
+                    th: "!rounded-none px-4 py-4",
+                    tr: "rounded-none",
+                  }}
+                  selectedKeys={selectedKeys}
+                  selectionMode="multiple"
+                  onSelectionChange={setSelectedKeys}
+                >
+                  <TableHeader>
+                    <TableColumn className={headerCellClass}>
+                      Keyword
+                    </TableColumn>
+                    <TableColumn className={headerCellClass}>
+                      Search Volume
+                    </TableColumn>
+                    <TableColumn className={headerCellClass}>KD%</TableColumn>
+                    <TableColumn className={headerCellClass}>
+                      Search Intent
+                    </TableColumn>
+                    <TableColumn className={headerCellClass}>SERP</TableColumn>
+                    <TableColumn className={headerCellClass}>
+                      CPC (USD)
+                    </TableColumn>
+                  </TableHeader>
+                  <TableBody
+                    emptyContent={emptyStateMessage}
+                    items={paginatedRows}
+                  >
+                    {(item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.keyword}</TableCell>
+                        <TableCell>{formatMetric(item.searchVolume)}</TableCell>
+                        <TableCell>{formatMetric(item.kd)}</TableCell>
+                        <TableCell>{item.intent ?? "-"}</TableCell>
+                        <TableCell>{item.serp ?? "-"}</TableCell>
+                        <TableCell>{formatCpc(item.cpc)}</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+
+                <div className="flex flex-wrap items-center justify-center gap-2 px-4 py-5 text-[#4B5563]">
+                  <Button
+                    isDisabled={page <= 1}
+                    startContent={<ChevronLeft size={18} />}
+                    variant="light"
+                    onPress={() =>
+                      setPage((current) => Math.max(1, current - 1))
+                    }
+                  >
+                    Back
+                  </Button>
+
+                  {Array.from(
+                    { length: Math.min(totalPages, 5) },
+                    (_, index) => {
+                      const item = index + 1;
+                      const isActive = item === page;
+
+                      return (
+                        <Button
+                          key={item}
+                          className={`min-h-11 min-w-11 ${isActive ? "bg-[#022279] text-white" : ""}`}
+                          radius="full"
+                          variant={isActive ? "solid" : "light"}
+                          onPress={() => setPage(item)}
+                        >
+                          {item}
+                        </Button>
+                      );
+                    },
+                  )}
+
+                  {totalPages > 5 ? (
+                    <>
+                      <span className="px-2 text-sm text-[#6B7280]">...</span>
+                      <Button
+                        radius="full"
+                        variant="light"
+                        onPress={() => setPage(totalPages)}
+                      >
+                        {totalPages}
+                      </Button>
+                    </>
+                  ) : null}
+
+                  <Button
+                    endContent={<ChevronRight size={18} />}
+                    isDisabled={page >= totalPages}
+                    variant="light"
+                    onPress={() =>
+                      setPage((current) => Math.min(totalPages, current + 1))
+                    }
+                  >
+                    Next
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+        </Tab>
+        <Tab key="website" title="Search by Website">
+          <Card className="mt-5 border border-default-200 shadow-none">
+            <CardBody className="p-6 text-sm text-[#6B7280]">
+              Search by website view is not built yet.
+            </CardBody>
+          </Card>
+        </Tab>
+      </Tabs>
+      <AddKeywordsToWebContentModal
+        clients={clients}
+        isOpen={isAddToListOpen}
+        onOpenChange={setIsAddToListOpen}
+        onSubmit={handleAddToList}
+      />
+      <WebsiteContentKeywordsModal
+        isOpen={isWebsiteContentModalOpen}
+        keywords={websiteContentKeywords}
+        selectedClientId={websiteContentSelectedClientId}
+        selectedLocation={websiteContentLocation}
+        onOpenChange={setIsWebsiteContentModalOpen}
+        onSubmit={handleSaveWebsiteContentKeywords}
+      />
+    </>
+  );
+};

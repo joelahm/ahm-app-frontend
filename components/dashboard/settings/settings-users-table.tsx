@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert } from "@heroui/alert";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
@@ -13,12 +14,15 @@ import {
 import { Input } from "@heroui/input";
 import {
   EllipsisVertical,
+  Pencil,
   Search,
-  Upload,
+  RefreshCcw,
+  UserRound,
   UserRoundCheck,
   UserRoundCog,
   UserRoundMinus,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import {
   DashboardDataTable,
@@ -27,6 +31,8 @@ import {
 import { useAuth } from "@/components/auth/auth-context";
 import { InviteUserModal } from "@/components/dashboard/settings/invite-user-modal";
 import { usersApi } from "@/apis/users";
+import { type InviteMember } from "@/components/dashboard/settings/invite-member-row";
+import { clientsApi } from "@/apis/clients";
 
 export interface SettingsUserRecord {
   id: string;
@@ -67,19 +73,20 @@ export const SettingsUsersTable = ({
   title = "Users List",
 }: SettingsUsersTableProps) => {
   const PAGE_SIZE = 10;
+  const router = useRouter();
   const { session } = useAuth();
   const [fetchedRows, setFetchedRows] = useState<SettingsUserRecord[]>(
     rows ?? [],
   );
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
   const [actionError, setActionError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [inviteSuccessMessage, setInviteSuccessMessage] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState("");
   const [isLoading, setIsLoading] = useState(!rows);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(
     null,
   );
@@ -87,7 +94,6 @@ export const SettingsUsersTable = ({
   useEffect(() => {
     if (rows) {
       setFetchedRows(rows);
-      setTotalPages(1);
       setIsLoading(false);
 
       return;
@@ -97,7 +103,6 @@ export const SettingsUsersTable = ({
       setFetchedRows([]);
       setIsLoading(false);
       setFetchError("");
-      setTotalPages(1);
 
       return;
     }
@@ -111,24 +116,86 @@ export const SettingsUsersTable = ({
       setDeleteError("");
 
       try {
-        const response = await usersApi.getUsers(session.accessToken, {
-          limit: PAGE_SIZE,
-          page: currentPage,
-        });
+        const allUsers = [];
+        let page = 1;
+        let hasNext = true;
+
+        while (hasNext) {
+          const response = await usersApi.getUsers(session.accessToken, {
+            limit: 100,
+            page,
+          });
+
+          allUsers.push(...response.users);
+          hasNext = Boolean(response.pagination?.hasNext);
+          page += 1;
+        }
+
+        const [pendingInvitationsResponse, clientsResponse] = await Promise.all(
+          [
+            usersApi.getPendingInvitations(session.accessToken),
+            clientsApi.getClients(session.accessToken),
+          ],
+        );
 
         if (!isMounted) {
           return;
         }
 
-        const mappedRows: SettingsUserRecord[] = response.users.map((user) => {
+        const clientNameById = new Map<string, string>();
+        const assignedClientsByUserId = new Map<string, string[]>();
+
+        clientsResponse.forEach((client) => {
+          const clientId = String(client.id);
+          const clientName =
+            (client.businessName || client.clientName || "").trim() ||
+            `Client ${clientId}`;
+          const assignedToId =
+            client.assignedTo === null || client.assignedTo === undefined
+              ? null
+              : String(client.assignedTo);
+
+          clientNameById.set(clientId, clientName);
+
+          if (!assignedToId) {
+            return;
+          }
+
+          const existingAssigned = assignedClientsByUserId.get(assignedToId);
+
+          if (!existingAssigned) {
+            assignedClientsByUserId.set(assignedToId, [clientName]);
+
+            return;
+          }
+
+          if (!existingAssigned.includes(clientName)) {
+            assignedClientsByUserId.set(assignedToId, [
+              ...existingAssigned,
+              clientName,
+            ]);
+          }
+        });
+
+        const mappedRows: SettingsUserRecord[] = allUsers.map((user) => {
           const fullName = [user.firstName, user.lastName]
             .filter(Boolean)
             .join(" ")
             .trim();
-          const roleLabel = user.role === "ADMIN" ? "Admin" : "Team Member";
-          const statusLabel: SettingsUserRecord["status"] = user.isActive
-            ? "Active"
-            : "Pending Invite";
+          const roleLabel =
+            user.role === "ADMIN"
+              ? "Admin"
+              : user.role === "GUEST"
+                ? "Guest"
+                : "Member";
+          const isPendingInvite =
+            String(user.status || "")
+              .trim()
+              .toUpperCase()
+              .includes("PENDING") || !user.isActive;
+          const statusLabel: SettingsUserRecord["status"] = isPendingInvite
+            ? "Pending Invite"
+            : "Active";
 
           return {
             avatarUrl: user.avatarUrl ?? undefined,
@@ -137,15 +204,46 @@ export const SettingsUsersTable = ({
             invitedBy: "-",
             invitedOn: formatDate(user.createdAt),
             lastActiveOn: formatDate(user.updatedAt),
-            locations: user.country ? [user.country] : [],
+            locations: assignedClientsByUserId.get(String(user.id)) ?? [],
             name: fullName || user.email.split("@")[0],
             role: roleLabel,
             status: statusLabel,
           };
         });
 
-        setFetchedRows(mappedRows);
-        setTotalPages(response.pagination?.totalPages ?? 1);
+        const pendingRows: SettingsUserRecord[] = (
+          pendingInvitationsResponse.invitations ?? []
+        ).map((invitation) => ({
+          avatarUrl: undefined,
+          email: invitation.email,
+          id: `invite-${String(invitation.id)}`,
+          invitedBy: invitation.invitedBy ?? "-",
+          invitedOn: formatDate(invitation.createdAt),
+          lastActiveOn: "-",
+          locations: (Array.isArray(invitation.locations)
+            ? invitation.locations
+            : []
+          ).map((location) => clientNameById.get(String(location)) ?? location),
+          name: invitation.email.split("@")[0] || invitation.email,
+          role:
+            invitation.role === "ADMIN"
+              ? "Admin"
+              : invitation.role === "GUEST"
+                ? "Guest"
+                : "Member",
+          status: "Pending Invite",
+        }));
+
+        const mergedRows = [...pendingRows, ...mappedRows].filter(
+          (row, index, collection) =>
+            collection.findIndex(
+              (candidate) =>
+                candidate.email.toLowerCase() === row.email.toLowerCase() &&
+                candidate.status === row.status,
+            ) === index,
+        );
+
+        setFetchedRows(mergedRows);
       } catch (error) {
         if (!isMounted) {
           return;
@@ -167,7 +265,7 @@ export const SettingsUsersTable = ({
     return () => {
       isMounted = false;
     };
-  }, [rows, session?.accessToken, currentPage, reloadTick]);
+  }, [rows, session?.accessToken, reloadTick]);
 
   const handleRemoveUser = useCallback(
     async (userId: string) => {
@@ -194,7 +292,7 @@ export const SettingsUsersTable = ({
   );
 
   const handleChangeRole = useCallback(
-    async (userId: string, role: "ADMIN" | "TEAM_MEMBER") => {
+    async (userId: string, role: "ADMIN" | "TEAM_MEMBER" | "GUEST") => {
       if (!session?.accessToken || deletingUserId || updatingRoleUserId) {
         return;
       }
@@ -216,7 +314,138 @@ export const SettingsUsersTable = ({
     [deletingUserId, session?.accessToken, updatingRoleUserId],
   );
 
+  const handleUsersInvited = useCallback(
+    ({
+      clientLabels,
+      invitedMembers,
+    }: {
+      clientLabels: string[];
+      invitedMembers: InviteMember[];
+    }) => {
+      if (!invitedMembers.length) {
+        return;
+      }
+
+      const inviterName = [
+        session?.user.firstName ?? "",
+        session?.user.lastName ?? "",
+      ]
+        .join(" ")
+        .trim();
+      const invitedBy =
+        inviterName || session?.user.name || session?.user.email || "-";
+      const invitedOn = formatDate(new Date().toISOString());
+
+      setFetchedRows((currentRows) => {
+        const nextRows = [...currentRows];
+
+        invitedMembers.forEach((member) => {
+          const existingIndex = nextRows.findIndex(
+            (item) => item.email.toLowerCase() === member.email.toLowerCase(),
+          );
+          const row: SettingsUserRecord = {
+            avatarUrl: undefined,
+            email: member.email,
+            id: `pending-${member.email.toLowerCase()}`,
+            invitedBy,
+            invitedOn,
+            lastActiveOn: "-",
+            locations: clientLabels,
+            name: member.name,
+            role:
+              member.role === "ADMIN"
+                ? "Admin"
+                : member.role === "GUEST"
+                  ? "Guest"
+                  : "Member",
+            status: "Pending Invite",
+          };
+
+          if (existingIndex >= 0) {
+            nextRows[existingIndex] = row;
+          } else {
+            nextRows.unshift(row);
+          }
+        });
+
+        return nextRows;
+      });
+
+      setInviteSuccessMessage(
+        invitedMembers.length === 1
+          ? "Invite sent successfully."
+          : `${invitedMembers.length} invites sent successfully.`,
+      );
+    },
+    [
+      session?.user.email,
+      session?.user.firstName,
+      session?.user.lastName,
+      session?.user.name,
+    ],
+  );
+
   const tableRows = rows ?? fetchedRows;
+  const filteredRows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return tableRows;
+    }
+
+    return tableRows.filter((item) =>
+      [item.name, item.email, item.role, item.status].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    );
+  }, [searchQuery, tableRows]);
+
+  const handleExportCsv = useCallback(() => {
+    const headers = [
+      "Name",
+      "Email",
+      "Role",
+      "Assigned Clients",
+      "Last Active On",
+      "Invited On",
+      "Invited By",
+      "Status",
+    ];
+    const rowsToExport = filteredRows.map((item) => [
+      item.name,
+      item.email,
+      item.role,
+      item.locations.join(" | "),
+      item.lastActiveOn,
+      item.invitedOn,
+      item.invitedBy,
+      item.status,
+    ]);
+    const csv = [headers, ...rowsToExport]
+      .map((row) =>
+        row
+          .map((cell) => {
+            const value = String(cell ?? "");
+
+            return /[",\n]/.test(value)
+              ? `"${value.replace(/"/g, '""')}"`
+              : value;
+          })
+          .join(","),
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = "users-list.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [filteredRows]);
 
   const columns = useMemo<DashboardDataTableColumn<SettingsUserRecord>[]>(
     () => [
@@ -225,8 +454,10 @@ export const SettingsUsersTable = ({
         key: "name",
         label: "Name",
         renderCell: (item) => (
-          <div className="flex items-center gap-3">
-            <Avatar name={item.name} src={item.avatarUrl} />
+          <div className="flex items-center gap-3 w-">
+            <div className="w-10">
+              <Avatar name={item.name} src={item.avatarUrl} />
+            </div>
             <div>
               <p className="text-sm font-medium text-[#1F2937]">{item.name}</p>
               <p className="text-xs text-[#9CA3AF]">{item.status}</p>
@@ -253,19 +484,29 @@ export const SettingsUsersTable = ({
       {
         className: headerCellClass,
         key: "location",
-        label: "Location",
+        label: "Assigned Clients",
         renderCell: (item) => (
-          <div className="flex flex-wrap gap-1">
-            {item.locations.map((location) => (
+          <div className="flex flex-wrap items-center gap-1">
+            {item.locations.length > 0 ? (
               <Chip
-                key={`${item.id}-${location}`}
                 classNames={{ base: "bg-[#D9ECFC]", content: "text-[#0568C9]" }}
                 size="sm"
                 variant="flat"
               >
-                {location}
+                {item.locations[0]}
               </Chip>
-            ))}
+            ) : (
+              <span className="text-sm text-[#9CA3AF]">-</span>
+            )}
+            {item.locations.length > 1 ? (
+              <Chip
+                classNames={{ base: "bg-[#D9ECFC]", content: "text-[#0568C9]" }}
+                size="sm"
+                variant="flat"
+              >
+                +{item.locations.length - 1}
+              </Chip>
+            ) : null}
           </div>
         ),
       },
@@ -297,122 +538,209 @@ export const SettingsUsersTable = ({
         className: headerCellClass,
         key: "action",
         label: "Action",
-        renderCell: (item) => (
-          <Dropdown placement="bottom-end">
-            <DropdownTrigger>
-              <Button isIconOnly radius="sm" size="sm" variant="bordered">
-                <EllipsisVertical size={16} />
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu aria-label={`User ${item.name} actions`}>
-              <DropdownItem
-                key={`${item.id}-resend`}
-                startContent={<Upload className="text-[#0568C9]" size={18} />}
+        renderCell: (item) => {
+          const isInviteOnlyUser =
+            item.status === "Pending Invite" ||
+            item.id.startsWith("invite-") ||
+            item.id.startsWith("pending-");
+          const isCurrentUser =
+            String(session?.user.id ?? "") !== "" &&
+            String(session?.user.id) === item.id;
+
+          return (
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  isIconOnly
+                  className="h-12 min-w-12 border-default-300 text-[#111827]"
+                  radius="md"
+                  size="sm"
+                  variant="bordered"
+                >
+                  <EllipsisVertical size={16} />
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label={`User ${item.name} actions`}
+                className="min-w-[260px]"
               >
-                Resend
-              </DropdownItem>
-              <DropdownItem
-                key={`${item.id}-set-member`}
-                isDisabled={
-                  deletingUserId === item.id || updatingRoleUserId === item.id
-                }
-                startContent={
-                  <UserRoundCheck className="text-[#0568C9]" size={18} />
-                }
-                onPress={() => {
-                  void handleChangeRole(item.id, "TEAM_MEMBER");
-                }}
-              >
-                Set as Member
-              </DropdownItem>
-              <DropdownItem
-                key={`${item.id}-set-admin`}
-                isDisabled={
-                  deletingUserId === item.id || updatingRoleUserId === item.id
-                }
-                startContent={
-                  <UserRoundCog className="text-[#0568C9]" size={18} />
-                }
-                onPress={() => {
-                  void handleChangeRole(item.id, "ADMIN");
-                }}
-              >
-                Set as Admin
-              </DropdownItem>
-              <DropdownItem
-                key={`${item.id}-remove`}
-                className="text-danger"
-                color="danger"
-                isDisabled={
-                  deletingUserId === item.id || updatingRoleUserId === item.id
-                }
-                startContent={
-                  <UserRoundMinus className="text-danger" size={18} />
-                }
-                onPress={() => {
-                  void handleRemoveUser(item.id);
-                }}
-              >
-                Remove User
-              </DropdownItem>
-            </DropdownMenu>
-          </Dropdown>
-        ),
+                {item.status === "Pending Invite" ? (
+                  <DropdownItem
+                    key={`${item.id}-resend`}
+                    startContent={
+                      <RefreshCcw className="text-[#0568C9]" size={18} />
+                    }
+                  >
+                    Resend
+                  </DropdownItem>
+                ) : null}
+                {!isInviteOnlyUser && !isCurrentUser ? (
+                  <DropdownItem
+                    key={`${item.id}-edit`}
+                    startContent={
+                      <Pencil className="text-[#0568C9]" size={18} />
+                    }
+                    onPress={() => {
+                      router.push(
+                        `/dashboard/settings/users/${encodeURIComponent(item.id)}/edit`,
+                      );
+                    }}
+                  >
+                    Edit User
+                  </DropdownItem>
+                ) : null}
+                <DropdownItem
+                  key={`${item.id}-set-member`}
+                  isDisabled={
+                    deletingUserId === item.id || updatingRoleUserId === item.id
+                  }
+                  startContent={
+                    <UserRoundCheck className="text-[#0568C9]" size={18} />
+                  }
+                  onPress={() => {
+                    void handleChangeRole(item.id, "TEAM_MEMBER");
+                  }}
+                >
+                  Set as Member
+                </DropdownItem>
+                <DropdownItem
+                  key={`${item.id}-set-guest`}
+                  isDisabled={
+                    deletingUserId === item.id || updatingRoleUserId === item.id
+                  }
+                  startContent={
+                    <UserRound className="text-[#0568C9]" size={18} />
+                  }
+                  onPress={() => {
+                    void handleChangeRole(item.id, "GUEST");
+                  }}
+                >
+                  Set as Guest
+                </DropdownItem>
+                <DropdownItem
+                  key={`${item.id}-set-admin`}
+                  isDisabled={
+                    deletingUserId === item.id || updatingRoleUserId === item.id
+                  }
+                  startContent={
+                    <UserRoundCog className="text-[#0568C9]" size={18} />
+                  }
+                  onPress={() => {
+                    void handleChangeRole(item.id, "ADMIN");
+                  }}
+                >
+                  Set as Admin
+                </DropdownItem>
+                <DropdownItem
+                  key={`${item.id}-remove`}
+                  className="text-danger"
+                  color="danger"
+                  isDisabled={
+                    deletingUserId === item.id || updatingRoleUserId === item.id
+                  }
+                  startContent={
+                    <UserRoundMinus className="text-danger" size={18} />
+                  }
+                  onPress={() => {
+                    void handleRemoveUser(item.id);
+                  }}
+                >
+                  Remove User
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+          );
+        },
       },
     ],
-    [deletingUserId, handleChangeRole, handleRemoveUser, updatingRoleUserId],
+    [
+      deletingUserId,
+      handleChangeRole,
+      handleRemoveUser,
+      router,
+      updatingRoleUserId,
+    ],
   );
 
   return (
     <>
       {fetchError ? (
-        <p className="mb-2 text-sm text-danger">{fetchError}</p>
+        <Alert
+          className="mb-2"
+          color="danger"
+          description={fetchError}
+          title="Failed to load users"
+          variant="flat"
+        />
       ) : null}
       {actionError ? (
-        <p className="mb-2 text-sm text-danger">{actionError}</p>
+        <Alert
+          className="mb-2"
+          color="danger"
+          description={actionError}
+          title="Action failed"
+          variant="flat"
+        />
+      ) : null}
+      {inviteSuccessMessage ? (
+        <Alert
+          className="mb-2"
+          color="success"
+          description={inviteSuccessMessage}
+          title="Invite sent"
+          variant="flat"
+        />
       ) : null}
       {deleteError ? (
-        <p className="mb-2 text-sm text-danger">{deleteError}</p>
+        <Alert
+          className="mb-2"
+          color="danger"
+          description={deleteError}
+          title="Remove failed"
+          variant="flat"
+        />
       ) : null}
       <DashboardDataTable
-        serverPagination
         showPagination
         ariaLabel="Settings users list"
         columns={columns}
-        currentPage={currentPage}
         getRowKey={(item) => item.id}
         headerRight={
           <div className="flex w-full flex-wrap items-center justify-end gap-2">
             <Input
-              className="w-full max-w-xs"
+              className="w-full max-w-[200px]"
               placeholder="Search here"
               radius="md"
               startContent={<Search size={20} />}
+              value={searchQuery}
+              onValueChange={setSearchQuery}
             />
             <Button
-              className="bg-[#0568C9] text-white"
+              className="bg-[#022279] text-white"
               radius="md"
-              onPress={() => setIsInviteModalOpen(true)}
+              onPress={() => {
+                setInviteSuccessMessage("");
+                setIsInviteModalOpen(true);
+              }}
             >
               Invite New User
             </Button>
             <Button
-              className="bg-[#0568C9] text-white"
+              className="bg-[#022279] text-white"
               radius="md"
-              startContent={<Upload size={18} />}
+              onPress={handleExportCsv}
             >
               Export CSV
             </Button>
           </div>
         }
         pageSize={PAGE_SIZE}
-        rows={isLoading ? [] : tableRows}
+        rows={isLoading ? [] : filteredRows}
         title={title}
-        totalPages={totalPages}
-        onPageChange={setCurrentPage}
       />
       <InviteUserModal
         isOpen={isInviteModalOpen}
+        onInvited={handleUsersInvited}
         onOpenChange={setIsInviteModalOpen}
       />
     </>

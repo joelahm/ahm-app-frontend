@@ -13,10 +13,8 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@heroui/modal";
-import { Select, SelectItem } from "@heroui/select";
 import { X } from "lucide-react";
 
-import { useDropdownData } from "@/components/dashboard/client-details/dropdown-data";
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { getCountryOptions } from "@/components/form/location-options";
 
@@ -46,7 +44,6 @@ export const AddClientModal = ({
   onOpenChange,
   onSubmit,
 }: AddClientModalProps) => {
-  const { niches } = useDropdownData();
   const countries = getCountryOptions();
   const [countrySearch, setCountrySearch] = useState("");
   const [submitError, setSubmitError] = useState("");
@@ -204,23 +201,16 @@ export const AddClientModal = ({
               control={control}
               name="niche"
               render={({ field }) => (
-                <Select
+                <Input
                   errorMessage={errors.niche?.message}
                   isInvalid={!!errors.niche}
-                  placeholder="Select niche"
+                  placeholder="Enter niche"
                   radius="sm"
-                  selectedKeys={field.value ? [field.value] : []}
                   size="sm"
-                  onSelectionChange={(keys) => {
-                    const selected = Array.from(keys as Set<string>)[0] ?? "";
-
-                    field.onChange(selected);
-                  }}
-                >
-                  {niches.map((option) => (
-                    <SelectItem key={option.key}>{option.label}</SelectItem>
-                  ))}
-                </Select>
+                  value={field.value ?? ""}
+                  onBlur={field.onBlur}
+                  onChange={field.onChange}
+                />
               )}
             />
           </div>

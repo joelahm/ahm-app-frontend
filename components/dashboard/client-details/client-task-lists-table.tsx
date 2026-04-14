@@ -24,6 +24,8 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { clientsApi, ProjectTask } from "@/apis/clients";
+import { projectTemplatesApi } from "@/apis/project-templates";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import {
@@ -35,7 +37,6 @@ import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
-import { clientsApi, ProjectTask } from "@/apis/clients";
 
 type TaskListRow = {
   id: string;
@@ -47,6 +48,7 @@ type TaskListRow = {
   comment: string;
   description: string;
   dueDate: string;
+  parentTaskId?: string;
   projectId?: string;
   projectType: string;
   startDate: string;
@@ -61,13 +63,48 @@ type TaskListGroup = {
 };
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+const DEFAULT_TASK_STATUSES: string[] = [
+  "To Do",
+  "In Progress",
+  "On Hold",
+  "Completed",
+];
+
+const normalizeTaskStatus = (value?: string | null) => {
+  const normalized = (value ?? "").trim().toUpperCase();
+
+  if (normalized === "DONE" || normalized === "COMPLETED") {
+    return "Completed";
+  }
+
+  if (normalized === "IN PROGRESS") {
+    return "In Progress";
+  }
+
+  if (normalized === "ON HOLD") {
+    return "On Hold";
+  }
+
+  return "To Do";
+};
+
+const getUniqueTaskStatuses = (
+  rawOptions?: Array<string | null | undefined>,
+) => {
+  if (!rawOptions?.length) {
+    return DEFAULT_TASK_STATUSES;
+  }
+
+  // Keep canonical statuses fixed for task UI.
+  return DEFAULT_TASK_STATUSES;
+};
 
 const buildColumns = ({
-  onViewTask,
   onDeleteTask,
+  onViewTask,
 }: {
-  onViewTask: (taskId: string) => void;
   onDeleteTask: (taskId: string) => void;
+  onViewTask: (taskId: string) => void;
 }): DashboardDataTableColumn<TaskListRow>[] => [
   {
     key: "taskName",
@@ -139,24 +176,28 @@ const buildColumns = ({
     key: "status",
     label: "Status",
     className: thClassName,
-    renderCell: (item) => (
-      <Chip
-        className={
-          item.status === "DONE"
-            ? "bg-[#DCFCE7] text-[#059669]"
-            : item.status === "ON HOLD"
-              ? "bg-[#FEF3C7] text-[#B45309]"
-              : item.status === "IN PROGRESS"
-                ? "bg-[#DBEAFE] text-[#1D4ED8]"
-                : "bg-[#E5E7EB] text-[#374151]"
-        }
-        radius="full"
-        size="sm"
-        variant="flat"
-      >
-        {item.status}
-      </Chip>
-    ),
+    renderCell: (item) => {
+      const normalizedStatus = normalizeTaskStatus(item.status);
+
+      return (
+        <Chip
+          className={
+            normalizedStatus === "Completed"
+              ? "bg-[#DCFCE7] text-[#059669]"
+              : normalizedStatus === "On Hold"
+                ? "bg-[#FEF3C7] text-[#B45309]"
+                : normalizedStatus === "In Progress"
+                  ? "bg-[#DBEAFE] text-[#1D4ED8]"
+                  : "bg-[#E5E7EB] text-[#374151]"
+          }
+          radius="full"
+          size="sm"
+          variant="flat"
+        >
+          {normalizedStatus}
+        </Chip>
+      );
+    },
   },
   {
     key: "action",
@@ -265,13 +306,18 @@ const toTaskListRow = (task: ProjectTask): TaskListRow => {
     comment: task.description ?? "",
     description: task.description ?? "",
     dueDate: task.dueDate ?? "",
+    parentTaskId:
+      typeof task.parentTaskId === "number" ||
+      typeof task.parentTaskId === "string"
+        ? String(task.parentTaskId)
+        : undefined,
     projectId:
       typeof task.projectId === "number" || typeof task.projectId === "string"
         ? String(task.projectId)
         : undefined,
     projectType: task.projectType ?? "-",
     startDate: task.startDate ?? "",
-    status: task.status ?? "TODO",
+    status: normalizeTaskStatus(task.status),
     taskName: task.taskName ?? task.task ?? "-",
   };
 };
@@ -305,18 +351,28 @@ export const ClientTaskListsTable = ({
 }) => {
   const { session } = useAuth();
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
+  const [isViewTaskOpen, setIsViewTaskOpen] = useState(false);
   const [resolvedProjectId, setResolvedProjectId] = useState(projectId ?? "");
   const [projectOptions, setProjectOptions] = useState<
     Array<{ id: string; label: string }>
   >([]);
   const [rows, setRows] = useState<TaskListRow[]>([]);
+  const [selectedTask, setSelectedTask] = useState<TaskListRow | null>(null);
   const [users, setUsers] = useState<
     Array<{ avatar?: string | null; id: string; name: string }>
   >([]);
-  const [isDeletingTask, setIsDeletingTask] = useState(false);
-  const [isViewTaskOpen, setIsViewTaskOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<TaskListRow | null>(null);
+  const [clientName, setClientName] = useState("-");
+  const [clientAddress, setClientAddress] = useState("-");
+  const [statusOptions, setStatusOptions] = useState<string[]>([]);
   const groups = useMemo(() => groupRowsByProjectType(rows), [rows]);
+  const selectedTaskSubtasks = useMemo(() => {
+    if (!selectedTask) {
+      return [];
+    }
+
+    return rows.filter((row) => row.parentTaskId === selectedTask.id);
+  }, [rows, selectedTask]);
 
   useEffect(() => {
     if (projectId) {
@@ -372,6 +428,7 @@ export const ClientTaskListsTable = ({
         }));
 
         setProjectOptions(mappedOptions);
+
         if (!resolvedProjectId && mappedOptions[0]) {
           setResolvedProjectId(mappedOptions[0].id);
         }
@@ -460,7 +517,7 @@ export const ClientTaskListsTable = ({
               .join(" ");
 
             return {
-              avatar: user.avatarUrl,
+              avatar: resolveServerAssetUrl(user.avatarUrl),
               id: String(user.id),
               name: fullName || user.email,
             };
@@ -482,6 +539,98 @@ export const ClientTaskListsTable = ({
     };
   }, [session?.accessToken]);
 
+  useEffect(() => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      setClientName("-");
+      setClientAddress("-");
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateClientDetails = async () => {
+      try {
+        const details = await clientsApi.getClientById(accessToken, clientId);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const address = [
+          details.addressLine1,
+          details.addressLine2,
+          details.cityState,
+          details.postCode,
+          details.country,
+        ]
+          .map((value) => value?.trim() ?? "")
+          .filter(Boolean)
+          .join(", ");
+
+        setClientName(details.clientName?.trim() || "-");
+        setClientAddress(address || "-");
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setClientName("-");
+        setClientAddress("-");
+      }
+    };
+
+    void hydrateClientDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [clientId, session?.accessToken]);
+
+  useEffect(() => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      setStatusOptions(DEFAULT_TASK_STATUSES);
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateStatusOptions = async () => {
+      try {
+        const response =
+          await projectTemplatesApi.listProjectTemplateStatusOptions(
+            accessToken,
+          );
+        const options = response.statusOptions
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setStatusOptions(getUniqueTaskStatuses(options));
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setStatusOptions(DEFAULT_TASK_STATUSES);
+      }
+    };
+
+    void hydrateStatusOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.accessToken]);
+
   const handleAddTask = async (payload: AddTaskFormValues) => {
     const accessToken = session?.accessToken || getStoredAccessToken();
 
@@ -489,21 +638,26 @@ export const ClientTaskListsTable = ({
       throw new Error("Your session has expired. Please login again.");
     }
 
-    if (!payload.projectId) {
+    if (!resolvedProjectId) {
       throw new Error("Project selection is required.");
     }
 
-    await clientsApi.createProjectTask(accessToken, payload.projectId, {
-      assigneeId: payload.assigneeId,
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const defaultAssigneeId = users[0]?.id ?? "";
+    const defaultStatus = statusOptions[0] ?? DEFAULT_TASK_STATUSES[0];
+
+    await clientsApi.createProjectTask(accessToken, resolvedProjectId, {
+      assigneeId: defaultAssigneeId,
       description: payload.description,
-      dueDate: payload.dueDate,
+      dueDate: todayIso,
       projectId:
-        projectOptions.find((project) => project.id === payload.projectId)
-          ?.id ?? payload.projectId,
-      startDate: payload.startDate,
-      status: payload.status,
+        projectOptions.find((project) => project.id === resolvedProjectId)
+          ?.id ?? resolvedProjectId,
+      startDate: todayIso,
+      status: defaultStatus,
       taskName: payload.taskName,
     });
+
     await loadTasks();
   };
 
@@ -524,35 +678,15 @@ export const ClientTaskListsTable = ({
     }
   };
 
-  const handleSaveTask = async (taskId: string, payload: AddTaskFormValues) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
-      throw new Error("Your session has expired. Please login again.");
-    }
-
-    await clientsApi.updateProjectTask(accessToken, taskId, {
-      assigneeId: payload.assigneeId,
-      description: payload.description,
-      dueDate: payload.dueDate,
-      projectId: payload.projectId,
-      startDate: payload.startDate,
-      status: payload.status,
-      taskName: payload.taskName,
-    });
-
-    await loadTasks();
-  };
-
   const columns = buildColumns({
+    onDeleteTask: (taskId) => {
+      void handleDeleteTask(taskId);
+    },
     onViewTask: (taskId) => {
       const task = rows.find((row) => row.id === taskId) ?? null;
 
       setSelectedTask(task);
       setIsViewTaskOpen(true);
-    },
-    onDeleteTask: (taskId) => {
-      void handleDeleteTask(taskId);
     },
   });
 
@@ -560,8 +694,8 @@ export const ClientTaskListsTable = ({
     <>
       <Card className="border border-default-200 shadow-none">
         <CardHeader className="flex flex-col items-start justify-between gap-3 border-b-0 sm:flex-row sm:items-center">
-          <h2 className="font-semibold flex-none text-[#111827]">Task List</h2>
-          <div className="flex flex-wrap items-center justify-end gap-2 w-full">
+          <h2 className="flex-none font-semibold text-[#111827]">Task List</h2>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
             <Button
               startContent={<SlidersHorizontal size={14} />}
               variant="bordered"
@@ -594,12 +728,12 @@ export const ClientTaskListsTable = ({
           <Accordion
             defaultExpandedKeys={groups.map((group) => group.key)}
             itemClasses={{
-              base: "border-0 rounded-none shadow-none px-0",
+              base: "border-0 rounded-none px-0 shadow-none",
               content: "p-0",
               heading: "px-0",
-              title: "text-white text-sm font-semibold",
+              title: "text-sm font-semibold text-white",
               trigger:
-                "bg-[#0B6BCB] px-3 py-2 min-h-0 h-auto data-[hover=true]:bg-[#0B6BCB]",
+                "min-h-0 h-auto bg-[#0B6BCB] px-3 py-2 data-[hover=true]:bg-[#0B6BCB]",
             }}
             selectionMode="multiple"
             variant="splitted"
@@ -626,14 +760,18 @@ export const ClientTaskListsTable = ({
 
       <AddTaskModal
         isOpen={isAddTaskOpen}
-        projectOptions={projectOptions}
         users={users}
         onOpenChange={setIsAddTaskOpen}
         onSubmit={handleAddTask}
       />
+
       <ViewTaskModal
+        clientAddress={clientAddress}
+        clientName={clientName}
         isOpen={isViewTaskOpen}
         projectOptions={projectOptions}
+        statusOptions={statusOptions}
+        subtasks={selectedTaskSubtasks}
         task={
           selectedTask
             ? {
@@ -642,6 +780,7 @@ export const ClientTaskListsTable = ({
                 comment: selectedTask.comment,
                 description: selectedTask.description,
                 dueDate: selectedTask.dueDate,
+                id: selectedTask.id,
                 projectId: selectedTask.projectId ?? "",
                 startDate: selectedTask.startDate,
                 status: selectedTask.status,
@@ -649,35 +788,18 @@ export const ClientTaskListsTable = ({
               }
             : null
         }
-        users={users.map((user) => ({ id: user.id, name: user.name }))}
-        onDelete={
-          selectedTask
-            ? async () => {
-                await handleDeleteTask(selectedTask.id);
-              }
-            : undefined
-        }
+        users={users.map((user) => ({
+          avatar: user.avatar ?? undefined,
+          id: user.id,
+          name: user.name,
+        }))}
         onOpenChange={(open) => {
           setIsViewTaskOpen(open);
+
           if (!open) {
             setSelectedTask(null);
           }
         }}
-        onSave={
-          selectedTask
-            ? async (values) => {
-                await handleSaveTask(selectedTask.id, {
-                  assigneeId: values.assigneeId,
-                  description: values.description,
-                  dueDate: values.dueDate,
-                  projectId: values.projectId,
-                  startDate: values.startDate,
-                  status: values.status,
-                  taskName: values.taskName,
-                });
-              }
-            : undefined
-        }
       />
     </>
   );

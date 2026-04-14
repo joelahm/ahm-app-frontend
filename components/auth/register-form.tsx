@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { useMemo, useState } from "react";
 import * as yup from "yup";
+import { Alert } from "@heroui/alert";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
@@ -198,7 +199,13 @@ export const RegisterForm = ({
           applied properly.
         </p>
         {submitError ? (
-          <p className="text-sm text-danger">{submitError}</p>
+          <Alert
+            className="mt-2"
+            color="danger"
+            description={submitError}
+            title="Registration failed"
+            variant="flat"
+          />
         ) : null}
       </div>
 

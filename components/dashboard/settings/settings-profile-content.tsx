@@ -3,6 +3,7 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
+import { Alert } from "@heroui/alert";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
@@ -207,7 +208,7 @@ const getStoredAccessToken = () => {
 };
 
 export const SettingsProfileContent = () => {
-  const { session } = useAuth();
+  const { session, updateSessionUser } = useAuth();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -442,6 +443,47 @@ export const SettingsProfileContent = () => {
         : basicInformationPayload;
 
       await usersApi.updateCurrentUser(accessToken, profilePayload);
+      const refreshedProfile = await usersApi.getCurrentUser(accessToken);
+      const refreshedAvatarUrl = (() => {
+        if (!refreshedProfile.avatarUrl) {
+          return undefined;
+        }
+
+        if (/^https?:\/\//i.test(refreshedProfile.avatarUrl)) {
+          return refreshedProfile.avatarUrl;
+        }
+
+        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+        const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
+        const normalizedPath = refreshedProfile.avatarUrl.replace(/^\/+/, "");
+
+        return normalizedBaseUrl
+          ? `${normalizedBaseUrl}/${normalizedPath}`
+          : refreshedProfile.avatarUrl;
+      })();
+
+      setAvatarUrl(refreshedAvatarUrl);
+      setAvatarPreviewUrl((previousUrl) => {
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+
+        return undefined;
+      });
+
+      updateSessionUser({
+        avatarUrl: refreshedAvatarUrl ?? null,
+        email: refreshedProfile.email,
+        firstName: refreshedProfile.firstName ?? null,
+        id: refreshedProfile.id,
+        lastName: refreshedProfile.lastName ?? null,
+        name:
+          [refreshedProfile.firstName, refreshedProfile.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || refreshedProfile.email.split("@")[0],
+        role: refreshedProfile.role,
+      });
 
       const currentPassword = validatedValues.currentPassword.trim();
       const newPassword = validatedValues.newPassword.trim();
@@ -500,10 +542,20 @@ export const SettingsProfileContent = () => {
           </CardHeader>
           <CardBody className="space-y-3 px-4 py-4">
             {profileError ? (
-              <p className="text-sm text-danger">{profileError}</p>
+              <Alert
+                color="danger"
+                description={profileError}
+                title="Failed to update profile"
+                variant="flat"
+              />
             ) : null}
             {submitMessage ? (
-              <p className="text-sm text-success">{submitMessage}</p>
+              <Alert
+                color="success"
+                description={submitMessage}
+                title="Profile updated"
+                variant="flat"
+              />
             ) : null}
             <div className="flex items-center gap-2">
               <UserCircle2 className="text-[#0568C9]" size={16} />
@@ -874,7 +926,13 @@ export const SettingsProfileContent = () => {
                 Upload Photo
               </Button>
               {avatarError ? (
-                <p className="mt-2 text-xs text-danger">{avatarError}</p>
+                <Alert
+                  className="mt-2 text-left"
+                  color="danger"
+                  description={avatarError}
+                  title="Avatar upload failed"
+                  variant="flat"
+                />
               ) : null}
             </div>
           </CardBody>

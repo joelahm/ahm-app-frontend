@@ -1,6 +1,6 @@
 "use client";
 
-import type { Key, ReactNode } from "react";
+import type { Key, ReactNode, HTMLAttributes } from "react";
 import type { Selection } from "@react-types/shared";
 
 import { useEffect, useMemo, useState } from "react";
@@ -31,6 +31,7 @@ interface DashboardDataTableProps<TItem> {
   title: ReactNode;
   headerActions?: DashboardTableAction[];
   headerRight?: ReactNode;
+  topContent?: ReactNode;
   rows: TItem[];
   columns: DashboardDataTableColumn<TItem>[];
   ariaLabel?: string;
@@ -45,6 +46,7 @@ interface DashboardDataTableProps<TItem> {
   currentPage?: number;
   onPageChange?: (page: number) => void;
   withShell?: boolean;
+  getRowProps?: (item: TItem) => HTMLAttributes<HTMLTableRowElement>;
 }
 
 const getPageItems = (
@@ -92,6 +94,7 @@ export const DashboardDataTable = <TItem,>({
   title,
   headerActions = [],
   headerRight,
+  topContent,
   rows,
   columns,
   ariaLabel = "Dashboard data table",
@@ -106,6 +109,7 @@ export const DashboardDataTable = <TItem,>({
   currentPage,
   onPageChange,
   withShell = true,
+  getRowProps,
 }: DashboardDataTableProps<TItem>) => {
   const [internalPage, setInternalPage] = useState(1);
   const [isMounted, setIsMounted] = useState(false);
@@ -156,6 +160,11 @@ export const DashboardDataTable = <TItem,>({
 
   const content = (
     <>
+      {topContent ? (
+        <div className="border-b border-default-200 px-5 py-3">
+          {topContent}
+        </div>
+      ) : null}
       {isMounted ? (
         <Table
           removeWrapper
@@ -184,7 +193,10 @@ export const DashboardDataTable = <TItem,>({
           </TableHeader>
           <TableBody items={paginatedRows}>
             {(item) => (
-              <TableRow key={getRowKey(item)}>
+              <TableRow
+                key={getRowKey(item)}
+                {...(getRowProps ? getRowProps(item) : undefined)}
+              >
                 {columns.map((column) => (
                   <TableCell key={`${String(getRowKey(item))}-${column.key}`}>
                     {column.renderCell(item)}

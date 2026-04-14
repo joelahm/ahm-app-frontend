@@ -26,16 +26,47 @@ export interface InviteUsersRequestBody {
   requestedByUserId: number | string | null;
   members: Array<{
     email: string;
-    role: "ADMIN" | "TEAM_MEMBER";
+    role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
   }>;
   locations: string[];
+}
+
+export interface InviteUsersResponse {
+  locations: string[];
+  results: Array<{
+    email: string;
+    role?: "ADMIN" | "TEAM_MEMBER" | "GUEST";
+    status: string;
+  }>;
+  summary: {
+    failed: number;
+    invited: number;
+    skipped: number;
+  };
+}
+
+export interface PendingInvitationItem {
+  createdAt: string;
+  email: string;
+  expiresAt: string;
+  id: number;
+  invitedBy: string | null;
+  locations: string[];
+  role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
+  sentAt: string | null;
+  status: string;
+  updatedAt: string;
+}
+
+interface PendingInvitationsResponse {
+  invitations: PendingInvitationItem[];
 }
 
 export interface UserListItem {
   avatarUrl?: string | null;
   id: number;
   email: string;
-  role: "ADMIN" | "TEAM_MEMBER";
+  role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
   status: string;
   isActive: boolean;
   firstName: string | null;
@@ -60,7 +91,7 @@ export interface CurrentUserProfile {
   isActive: boolean;
   lastName: string | null;
   phoneNumber: string | null;
-  role: "ADMIN" | "TEAM_MEMBER";
+  role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
   status: string;
   timezone: string | null;
   title: string | null;
@@ -76,6 +107,33 @@ export interface UpdateCurrentUserRequestBody {
   phoneNumber: string;
   timezone: string;
   title: string;
+}
+
+export interface UpdateUserByIdPasswordRequestBody {
+  confirmPassword: string;
+  currentPassword?: string;
+  newPassword: string;
+}
+
+export interface PermissionRowSetting {
+  adminEnabled: boolean;
+  description: string;
+  guestEnabled?: boolean;
+  key: string;
+  memberEnabled: boolean;
+  title: string;
+}
+
+export interface PermissionSectionSetting {
+  description: string;
+  hasGuestColumn?: boolean;
+  key: string;
+  rows: PermissionRowSetting[];
+  title: string;
+}
+
+export interface PermissionsSettingsResponse {
+  sections: PermissionSectionSetting[];
 }
 
 interface GetUsersResponse {
@@ -125,7 +183,11 @@ const parseCurrentUserProfile = (value: unknown): CurrentUserProfile => {
   const email = asString(source.email);
   const role = source.role;
 
-  if (id === null || !email || (role !== "ADMIN" && role !== "TEAM_MEMBER")) {
+  if (
+    id === null ||
+    !email ||
+    (role !== "ADMIN" && role !== "TEAM_MEMBER" && role !== "GUEST")
+  ) {
     throw new Error("Invalid profile response.");
   }
 
@@ -149,6 +211,22 @@ const parseCurrentUserProfile = (value: unknown): CurrentUserProfile => {
 };
 
 export const usersApi = {
+  getPermissionsSettings: async (accessToken: string) => {
+    try {
+      const response = await usersApiClient.get<PermissionsSettingsResponse>(
+        "/api/v1/users/permissions",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getCurrentUser: async (accessToken: string) => {
     try {
       const response = await usersApiClient.get<unknown>("/api/v1/auth/me", {
@@ -178,7 +256,7 @@ export const usersApi = {
   updateUserRole: async (
     accessToken: string,
     userId: string | number,
-    role: "ADMIN" | "TEAM_MEMBER",
+    role: "ADMIN" | "TEAM_MEMBER" | "GUEST",
   ) => {
     try {
       const response = await usersApiClient.patch(
@@ -222,6 +300,22 @@ export const usersApi = {
       throw new Error(parseError(error));
     }
   },
+  getPendingInvitations: async (accessToken: string) => {
+    try {
+      const response = await usersApiClient.get<PendingInvitationsResponse>(
+        "/api/v1/users/pending-invitations",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   updateCurrentUser: async (
     accessToken: string,
     payload: FormData | UpdateCurrentUserRequestBody,
@@ -241,9 +335,115 @@ export const usersApi = {
       throw new Error(parseError(error));
     }
   },
-  inviteUsers: async (payload: InviteUsersRequestBody, accessToken: string) => {
+  getUserById: async (accessToken: string, userId: string | number) => {
     try {
-      const response = await usersApiClient.post(
+      const response = await usersApiClient.get<unknown>(
+        `/api/v1/users/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      const root = asObject(response.data);
+      const nestedData = asObject(root.data);
+      const nestedUser = asObject(nestedData.user);
+      const directUser = asObject(root.user);
+
+      const source =
+        Object.keys(nestedUser).length > 0
+          ? nestedUser
+          : Object.keys(directUser).length > 0
+            ? directUser
+            : Object.keys(nestedData).length > 0
+              ? nestedData
+              : root;
+
+      const id = asNumber(source.id);
+      const email = asString(source.email);
+      const role = source.role;
+
+      if (
+        id === null ||
+        !email ||
+        (role !== "ADMIN" && role !== "TEAM_MEMBER" && role !== "GUEST")
+      ) {
+        throw new Error("Invalid user response.");
+      }
+
+      return {
+        avatarUrl: asString(source.avatarUrl),
+        country: asString(source.country),
+        createdAt: asString(source.createdAt) ?? "",
+        dateFormat: asString(source.dateFormat),
+        email,
+        firstName: asString(source.firstName),
+        id,
+        isActive: Boolean(source.isActive),
+        lastName: asString(source.lastName),
+        phoneNumber: asString(source.phoneNumber),
+        role,
+        status: asString(source.status) ?? "",
+        timezone: asString(source.timezone),
+        title: asString(source.title),
+        updatedAt: asString(source.updatedAt) ?? "",
+      } satisfies CurrentUserProfile;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateUserById: async (
+    accessToken: string,
+    userId: string | number,
+    payload: FormData | UpdateCurrentUserRequestBody,
+  ) => {
+    try {
+      const isFormData =
+        typeof FormData !== "undefined" && payload instanceof FormData;
+      const response = await usersApiClient.patch(
+        `/api/v1/users/${userId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            ...(isFormData ? { "Content-Type": "multipart/form-data" } : {}),
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateUserPasswordById: async (
+    accessToken: string,
+    userId: string | number,
+    payload: UpdateUserByIdPasswordRequestBody,
+  ) => {
+    try {
+      const response = await usersApiClient.patch(
+        `/api/v1/users/${userId}/password`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  inviteUsers: async (
+    payload: InviteUsersRequestBody,
+    accessToken: string,
+  ): Promise<InviteUsersResponse> => {
+    try {
+      const response = await usersApiClient.post<InviteUsersResponse>(
         "/api/v1/users/invite",
         payload,
         {
@@ -254,6 +454,29 @@ export const usersApi = {
       );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updatePermissionsSettings: async (
+    accessToken: string,
+    payload: PermissionsSettingsResponse,
+  ) => {
+    try {
+      const response = await usersApiClient.patch(
+        "/api/v1/users/permissions",
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data as {
+        settings?: PermissionsSettingsResponse;
+        success?: boolean;
+      };
     } catch (error) {
       throw new Error(parseError(error));
     }

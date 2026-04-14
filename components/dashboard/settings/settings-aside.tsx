@@ -4,10 +4,27 @@ import type { ComponentType } from "react";
 
 import { Button } from "@heroui/button";
 import clsx from "clsx";
-import { User, Users } from "lucide-react";
+import {
+  User,
+  Users,
+  LockKeyhole,
+  ReceiptText,
+  Sparkles,
+  MapPin,
+  TableCellsSplit,
+} from "lucide-react";
 import Link from "next/link";
 
-type SettingsNavKey = "users" | "permissions" | "profile";
+import { useAuth } from "@/components/auth/auth-context";
+
+type SettingsNavKey =
+  | "users"
+  | "permissions"
+  | "profile"
+  | "project-templates"
+  | "ai-hub"
+  | "citation-database"
+  | "credit-usage";
 
 interface SettingsAsideProps {
   activeKey: SettingsNavKey;
@@ -34,12 +51,36 @@ const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         key: "users",
         label: "Users",
       },
-      /* {
+      {
         href: "/dashboard/settings/permissions",
-        icon: ShieldCheck,
+        icon: LockKeyhole,
         key: "permissions",
         label: "Permissions",
-      }, */
+      },
+      {
+        href: "/dashboard/settings/project-templates",
+        icon: ReceiptText,
+        key: "project-templates",
+        label: "Project Templates",
+      },
+      {
+        href: "/dashboard/settings/ai-hub",
+        icon: Sparkles,
+        key: "ai-hub",
+        label: "AI Hub",
+      },
+      {
+        href: "/dashboard/settings/citation-database",
+        icon: MapPin,
+        key: "citation-database",
+        label: "Citation Database",
+      },
+      {
+        href: "/dashboard/settings/credit-usage",
+        icon: TableCellsSplit,
+        key: "credit-usage",
+        label: "Credit Usage",
+      },
     ],
     title: "Admin",
   },
@@ -57,9 +98,16 @@ const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
 ];
 
 export const SettingsAside = ({ activeKey }: SettingsAsideProps) => {
+  const { session } = useAuth();
+  const isAdmin = session?.user.role === "ADMIN";
+
+  const visibleGroups = SETTINGS_NAV_GROUPS.filter((group) =>
+    group.title === "Admin" ? isAdmin : true,
+  );
+
   return (
     <aside className="space-y-6 absolute left-0 top-0 h-full w-64 border-r border-default-200 p-4">
-      {SETTINGS_NAV_GROUPS.map((group) => (
+      {visibleGroups.map((group) => (
         <div key={group.title} className="space-y-1">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-default-400">
             {group.title}

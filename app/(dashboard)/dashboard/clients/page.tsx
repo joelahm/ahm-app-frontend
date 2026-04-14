@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert } from "@heroui/alert";
 import { Columns3, Form, Plus, SlidersHorizontal } from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
@@ -62,8 +63,26 @@ const formatDateValue = (value?: string | null) => {
   return `${formattedDate} ${formattedTime}`;
 };
 
+const resolveServerAssetUrl = (value?: string | null) => {
+  const rawValue = value?.trim();
+
+  if (!rawValue) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    return rawValue;
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  const normalizedPath = rawValue.replace(/^\/+/, "");
+
+  return baseUrl ? `${baseUrl}/${normalizedPath}` : rawValue;
+};
+
 const ClientsPage = () => {
   const { session } = useAuth();
+  const [actionError, setActionError] = useState("");
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [rows, setRows] = useState<ClientRecord[]>([]);
 
@@ -80,8 +99,9 @@ const ClientsPage = () => {
           client.assignedUserEmail ??
           client.clientSuccessManagerName ??
           "-",
-        managerAvatar:
+        managerAvatar: resolveServerAssetUrl(
           client.assignedUserAvatar ?? client.clientSuccessManagerAvatar ?? "",
+        ),
         niche: client.niche ?? "-",
         projects: client.projects ?? [],
         status: client.status ?? "-",
@@ -145,12 +165,73 @@ const ClientsPage = () => {
     await loadClients();
   };
 
+  const handleSetClientStatus = useCallback(
+    async (clientId: string, status: "Active" | "Inactive") => {
+      const accessToken = session?.accessToken || getStoredAccessToken();
+
+      if (!accessToken) {
+        setActionError("Your session has expired. Please login again.");
+
+        return;
+      }
+
+      setActionError("");
+
+      try {
+        await clientsApi.updateClientStatus(accessToken, clientId, status);
+        await loadClients();
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "Failed to update client status.",
+        );
+      }
+    },
+    [loadClients, session?.accessToken],
+  );
+
+  const handleRemoveClient = useCallback(
+    async (clientId: string) => {
+      const accessToken = session?.accessToken || getStoredAccessToken();
+
+      if (!accessToken) {
+        setActionError("Your session has expired. Please login again.");
+
+        return;
+      }
+
+      setActionError("");
+
+      try {
+        await clientsApi.deleteClient(accessToken, clientId);
+        await loadClients();
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "Failed to remove client.",
+        );
+      }
+    },
+    [loadClients, session?.accessToken],
+  );
+
   return (
     <>
+      {actionError ? (
+        <Alert
+          className="mb-2"
+          color="danger"
+          description={actionError}
+          title="Client action failed"
+          variant="flat"
+        />
+      ) : null}
       <ClientListTable
         headerActions={headerActions}
         rows={rows}
         title="Client List"
+        onRemove={handleRemoveClient}
+        onSetStatus={handleSetClientStatus}
       />
       <AddClientModal
         isOpen={isAddClientOpen}

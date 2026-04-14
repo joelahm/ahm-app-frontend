@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Drawer, DrawerBody, DrawerContent } from "@heroui/drawer";
 import { Input } from "@heroui/input";
 import {
   Columns3,
@@ -17,15 +18,18 @@ import {
   List,
   ListTodo,
   Search,
+  Trash2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { clientsApi } from "@/apis/clients";
+import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
+import { ViewTaskListsPanelContent } from "@/components/dashboard/client-details/view-task-lists-panel-content";
 import {
   DashboardDataTable,
   type DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 type MyProjectRow = {
   accountManager: {
@@ -44,6 +48,17 @@ type MyProjectRow = {
   progressPercent: number;
   project: string;
   status: string;
+  templateDescription: string;
+  tasks: Array<{
+    assigneeAvatar?: string;
+    assigneeName: string;
+    description?: string | null;
+    dueDate: string;
+    id: string;
+    name: string;
+    startDate?: string | null;
+    status: string;
+  }>;
 };
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
@@ -91,6 +106,9 @@ const resolveServerAssetUrl = (value?: string | null) => {
   return baseUrl ? `${baseUrl}/${normalizedPath}` : value;
 };
 
+const normalizeTemplateProjectName = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase();
+
 const calculateProjectProgressPercent = (
   projectId: string,
   tasks: Awaited<ReturnType<typeof clientsApi.getProjectTasks>>["tasks"],
@@ -103,14 +121,20 @@ const calculateProjectProgressPercent = (
     return 0;
   }
 
-  const completedTasks = projectTasks.filter((task) => task.status === "DONE");
+  const completedTasks = projectTasks.filter((task) => {
+    const normalized = (task.status ?? "").trim().toUpperCase();
+
+    return normalized === "DONE" || normalized === "COMPLETED";
+  });
 
   return Math.round((completedTasks.length / projectTasks.length) * 100);
 };
 
 const columns = ({
+  onRemoveProject,
   onViewTaskLists,
 }: {
+  onRemoveProject: (clientId: string, projectId: string) => void;
   onViewTaskLists: (clientId: string, projectId: string) => void;
 }): DashboardDataTableColumn<MyProjectRow>[] => [
   {
@@ -233,6 +257,17 @@ const columns = ({
           >
             View Task Lists
           </DropdownItem>
+          <DropdownItem
+            key="remove"
+            className="text-danger"
+            color="danger"
+            startContent={<Trash2 size={16} />}
+            onPress={() => {
+              onRemoveProject(item.clientId, item.id);
+            }}
+          >
+            Remove
+          </DropdownItem>
         </DropdownMenu>
       </Dropdown>
     ),
@@ -240,10 +275,66 @@ const columns = ({
 ];
 
 export const MyProjectsTable = () => {
-  const router = useRouter();
   const { session } = useAuth();
+  const toast = useAppToast();
+  const [activeProject, setActiveProject] = useState<MyProjectRow | null>(null);
+  const [isTaskListPanelOpen, setIsTaskListPanelOpen] = useState(false);
   const [rows, setRows] = useState<MyProjectRow[]>([]);
   const [searchValue, setSearchValue] = useState("");
+  const [templateDescriptionByProject, setTemplateDescriptionByProject] =
+    useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      setTemplateDescriptionByProject({});
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateTemplates = async () => {
+      try {
+        const response =
+          await projectTemplatesApi.listProjectTemplates(accessToken);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const map = response.projectTemplates.reduce<Record<string, string>>(
+          (accumulator, template) => {
+            const key = normalizeTemplateProjectName(template.projectName);
+
+            if (!key) {
+              return accumulator;
+            }
+
+            accumulator[key] = template.description?.trim() || "";
+
+            return accumulator;
+          },
+          {},
+        );
+
+        setTemplateDescriptionByProject(map);
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setTemplateDescriptionByProject({});
+      }
+    };
+
+    void hydrateTemplates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.accessToken]);
 
   useEffect(() => {
     const accessToken = session?.accessToken || getStoredAccessToken();
@@ -313,6 +404,30 @@ export const MyProjectsTable = () => {
                 ),
                 project: project.project ?? "-",
                 status: "Active",
+                templateDescription:
+                  templateDescriptionByProject[
+                    normalizeTemplateProjectName(project.project)
+                  ] ?? "",
+                tasks: tasksResponse.tasks
+                  .filter(
+                    (task) => String(task.projectId) === String(project.id),
+                  )
+                  .map((task) => ({
+                    assigneeAvatar: resolveServerAssetUrl(
+                      task.assignedTo?.avatar ?? undefined,
+                    ),
+                    assigneeName:
+                      getFullName(
+                        task.assignedTo?.firstName ?? null,
+                        task.assignedTo?.lastName ?? null,
+                      ) || "-",
+                    description: task.description,
+                    dueDate: task.dueDate ?? "-",
+                    id: String(task.id),
+                    name: task.taskName ?? task.task ?? "-",
+                    startDate: task.startDate,
+                    status: task.status ?? "Todo",
+                  })),
               };
             });
           }),
@@ -341,7 +456,7 @@ export const MyProjectsTable = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [session?.accessToken, templateDescriptionByProject]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
@@ -363,36 +478,151 @@ export const MyProjectsTable = () => {
   }, [rows, searchValue]);
 
   const handleViewTaskLists = (clientId: string, projectId: string) => {
-    router.push(
-      `/dashboard/clients/${clientId}/task-lists?projectId=${projectId}`,
-    );
+    const selectedProject =
+      rows.find((row) => row.clientId === clientId && row.id === projectId) ??
+      null;
+
+    setActiveProject(selectedProject);
+    setIsTaskListPanelOpen(true);
+
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken || !selectedProject) {
+      return;
+    }
+
+    void clientsApi
+      .getProjectTasks(accessToken, clientId)
+      .then((tasksResponse) => {
+        const projectTasks = tasksResponse.tasks
+          .filter((task) => String(task.projectId) === projectId)
+          .map((task) => ({
+            assigneeAvatar: resolveServerAssetUrl(
+              task.assignedTo?.avatar ?? undefined,
+            ),
+            assigneeName:
+              getFullName(
+                task.assignedTo?.firstName ?? null,
+                task.assignedTo?.lastName ?? null,
+              ) || "-",
+            description: task.description,
+            dueDate: task.dueDate ?? "-",
+            id: String(task.id),
+            name: task.taskName ?? task.task ?? "-",
+            startDate: task.startDate,
+            status: task.status ?? "Todo",
+          }));
+
+        setActiveProject((current) =>
+          current?.clientId === clientId && current.id === projectId
+            ? { ...current, tasks: projectTasks }
+            : current,
+        );
+      })
+      .catch(() => {
+        // Keep the drawer open with whatever task data the table already had.
+      });
+  };
+
+  const handleRemoveProject = async (clientId: string, projectId: string) => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      toast.danger("Session expired", {
+        description: "Please login again before removing a project.",
+      });
+
+      return;
+    }
+
+    try {
+      await clientsApi.deleteClientProject(accessToken, clientId, projectId);
+      setRows((previous) =>
+        previous.filter(
+          (row) => !(row.clientId === clientId && row.id === projectId),
+        ),
+      );
+
+      if (
+        activeProject?.clientId === clientId &&
+        activeProject.id === projectId
+      ) {
+        setActiveProject(null);
+        setIsTaskListPanelOpen(false);
+      }
+
+      toast.success("Project removed successfully.");
+    } catch (error) {
+      toast.danger("Failed to remove project", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   return (
-    <DashboardDataTable
-      showPagination
-      ariaLabel="All projects"
-      columns={columns({ onViewTaskLists: handleViewTaskLists })}
-      getRowKey={(item) => item.id}
-      headerRight={
-        <div className="flex w-full flex-wrap items-center justify-end gap-2">
-          <Button startContent={<List size={14} />} variant="bordered">
-            Show 10
-          </Button>
-          <Button startContent={<Columns3 size={14} />} variant="bordered">
-            Columns
-          </Button>
-          <Input
-            className="max-w-[220px]"
-            placeholder="Search here"
-            startContent={<Search className="text-default-400" size={14} />}
-            value={searchValue}
-            onValueChange={setSearchValue}
-          />
-        </div>
-      }
-      rows={filteredRows}
-      title="All Projects"
-    />
+    <>
+      <DashboardDataTable
+        showPagination
+        ariaLabel="All projects"
+        columns={columns({
+          onRemoveProject: handleRemoveProject,
+          onViewTaskLists: handleViewTaskLists,
+        })}
+        getRowKey={(item) => item.id}
+        headerRight={
+          <div className="flex w-full flex-wrap items-center justify-end gap-2">
+            <Button startContent={<List size={14} />} variant="bordered">
+              Show 10
+            </Button>
+            <Button startContent={<Columns3 size={14} />} variant="bordered">
+              Columns
+            </Button>
+            <Input
+              className="max-w-[220px]"
+              placeholder="Search here"
+              startContent={<Search className="text-default-400" size={14} />}
+              value={searchValue}
+              onValueChange={setSearchValue}
+            />
+          </div>
+        }
+        rows={filteredRows}
+        title="All Projects"
+      />
+      <Drawer
+        hideCloseButton
+        classNames={{
+          backdrop: "bg-black/20",
+          base: "w-full max-w-[768px]",
+          wrapper: "justify-end",
+        }}
+        isDismissable={false}
+        isOpen={isTaskListPanelOpen}
+        placement="right"
+        scrollBehavior="inside"
+        onOpenChange={setIsTaskListPanelOpen}
+      >
+        <DrawerContent className="h-screen max-h-screen rounded-none">
+          <DrawerBody className="p-5">
+            <ViewTaskListsPanelContent
+              accountManagerAvatar={activeProject?.accountManager.avatar}
+              accountManagerName={activeProject?.accountManager.name ?? "-"}
+              address="-"
+              clientName={activeProject?.clientName ?? "-"}
+              csmAvatar={activeProject?.clientSuccessManager.avatar}
+              csmName={activeProject?.clientSuccessManager.name ?? "-"}
+              description={activeProject?.templateDescription}
+              projectId={activeProject?.id ?? ""}
+              projectName={activeProject?.project ?? "Local SEO"}
+              tasks={activeProject?.tasks ?? []}
+              onClose={() => {
+                setIsTaskListPanelOpen(false);
+              }}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 };

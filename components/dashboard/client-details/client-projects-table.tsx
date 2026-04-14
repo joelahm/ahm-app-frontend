@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Drawer, DrawerBody, DrawerContent } from "@heroui/drawer";
 import { Input } from "@heroui/input";
 import {
   Columns3,
@@ -21,9 +22,9 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { clientsApi } from "@/apis/clients";
+import { projectTemplatesApi } from "@/apis/project-templates";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import {
@@ -34,10 +35,25 @@ import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+import { ViewTaskListsPanelContent } from "@/components/dashboard/client-details/view-task-lists-panel-content";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 type ClientProjectsRow = {
+  accountManagerId: string;
   id: string;
   project: string;
+  templateDescription: string;
+  tasks: Array<{
+    assigneeAvatar?: string;
+    assigneeName: string;
+    description?: string | null;
+    dueDate: string;
+    id: string;
+    name: string;
+    startDate?: string | null;
+    status: string;
+  }>;
+  csmId: string;
   progressPercent: number;
   clientSuccessManager: {
     avatar?: string;
@@ -93,11 +109,14 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <div className="flex items-center gap-2">
-        <Avatar
-          name={item.clientSuccessManager.name}
-          size="sm"
-          src={item.clientSuccessManager.avatar}
-        />
+        <div className="w-8 h-8">
+          <Avatar
+            name={item.clientSuccessManager.name}
+            size="sm"
+            src={item.clientSuccessManager.avatar}
+          />
+        </div>
+
         <span className="text-sm text-[#374151]">
           {item.clientSuccessManager.name}
         </span>
@@ -110,11 +129,14 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <div className="flex items-center gap-2">
-        <Avatar
-          name={item.accountManager.name}
-          size="sm"
-          src={item.accountManager.avatar}
-        />
+        <div className="w-8 h-8">
+          <Avatar
+            className="!w-8 h-8"
+            name={item.accountManager.name}
+            size="sm"
+            src={item.accountManager.avatar}
+          />
+        </div>
         <span className="text-sm text-[#374151]">
           {item.accountManager.name}
         </span>
@@ -230,7 +252,11 @@ const calculateProjectProgressPercent = (
     return 0;
   }
 
-  const completedTasks = projectTasks.filter((task) => task.status === "DONE");
+  const completedTasks = projectTasks.filter((task) => {
+    const normalized = (task.status ?? "").trim().toUpperCase();
+
+    return normalized === "DONE" || normalized === "COMPLETED";
+  });
 
   return Math.round((completedTasks.length / projectTasks.length) * 100);
 };
@@ -250,10 +276,34 @@ const resolveServerAssetUrl = (value?: string | null) => {
   return baseUrl ? `${baseUrl}/${normalizedPath}` : value;
 };
 
+const normalizeTemplateProjectName = (value?: string | null) =>
+  (value ?? "").trim().toLowerCase();
+
+const normalizeProjectTaskStatus = (value?: string | null) => {
+  const normalized = (value ?? "").trim().toUpperCase();
+
+  if (normalized === "DONE" || normalized === "COMPLETED") {
+    return "Completed";
+  }
+
+  if (normalized === "IN PROGRESS") {
+    return "In Progress";
+  }
+
+  if (normalized === "ON HOLD") {
+    return "On Hold";
+  }
+
+  return "To Do";
+};
+
 export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
-  const router = useRouter();
   const { session } = useAuth();
+  const toast = useAppToast();
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
+  const [isTaskListPanelOpen, setIsTaskListPanelOpen] = useState(false);
+  const [selectedProject, setSelectedProject] =
+    useState<ClientProjectsRow | null>(null);
   const [clientAddress, setClientAddress] = useState("-");
   const [clientName, setClientName] = useState(clientId);
   const [rows, setRows] = useState<ClientProjectsRow[]>([]);
@@ -262,6 +312,11 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
   const [users, setUsers] = useState<
     Array<{ avatar?: string | null; id: string; name: string }>
   >([]);
+  const [templateDescriptionByProject, setTemplateDescriptionByProject] =
+    useState<Record<string, string>>({});
+  const [projectDescriptionById, setProjectDescriptionById] = useState<
+    Record<string, string>
+  >({});
 
   useEffect(() => {
     const accessToken = session?.accessToken || getStoredAccessToken();
@@ -381,8 +436,60 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     };
   }, [session?.accessToken]);
 
+  useEffect(() => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      setTemplateDescriptionByProject({});
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateTemplates = async () => {
+      try {
+        const response =
+          await projectTemplatesApi.listProjectTemplates(accessToken);
+
+        if (!isMounted) {
+          return;
+        }
+
+        const map = response.projectTemplates.reduce<Record<string, string>>(
+          (accumulator, template) => {
+            const key = normalizeTemplateProjectName(template.projectName);
+
+            if (!key) {
+              return accumulator;
+            }
+
+            accumulator[key] = template.description?.trim() || "";
+
+            return accumulator;
+          },
+          {},
+        );
+
+        setTemplateDescriptionByProject(map);
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setTemplateDescriptionByProject({});
+      }
+    };
+
+    void hydrateTemplates();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session?.accessToken]);
+
   const loadProjects = useCallback(
-    async (page: number) => {
+    async (page: number, descriptionOverrides: Record<string, string> = {}) => {
       const accessToken = session?.accessToken || getStoredAccessToken();
 
       if (!accessToken) {
@@ -414,15 +521,42 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
             ) || "-";
 
           return {
+            accountManagerId: String(project.accountManagerId ?? ""),
+            csmId: String(project.clientSuccessManagerId ?? ""),
             id: String(project.id),
             project: project.project ?? "-",
+            templateDescription:
+              descriptionOverrides[String(project.id)] ??
+              projectDescriptionById[String(project.id)] ??
+              templateDescriptionByProject[
+                normalizeTemplateProjectName(project.project)
+              ] ??
+              "",
+            tasks: tasksResponse.tasks
+              .filter((task) => String(task.projectId) === String(project.id))
+              .map((task) => ({
+                assigneeAvatar: resolveServerAssetUrl(
+                  task.assignedTo?.avatar ?? undefined,
+                ),
+                assigneeName:
+                  getFullName(
+                    task.assignedTo?.firstName ?? null,
+                    task.assignedTo?.lastName ?? null,
+                  ) || "-",
+                description: task.description,
+                dueDate: task.dueDate ?? "-",
+                id: String(task.id),
+                name: task.taskName ?? task.task ?? "-",
+                startDate: task.startDate,
+                status: task.status ?? "Todo",
+              })),
             progress: project.progress ?? "-",
             progressPercent: calculateProjectProgressPercent(
               String(project.id),
               tasksResponse.tasks,
             ),
             phase: project.phase ?? "-",
-            status: "Active",
+            status: project.progress ?? "Draft",
             accountManager: {
               avatar: resolveServerAssetUrl(project.accountManager.avatar),
               name: accountManagerName,
@@ -439,7 +573,12 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
       setCurrentPage(response.pagination.page || page);
       setTotalPages(Math.max(1, response.pagination.totalPages || 1));
     },
-    [clientId, session?.accessToken],
+    [
+      clientId,
+      projectDescriptionById,
+      session?.accessToken,
+      templateDescriptionByProject,
+    ],
   );
 
   useEffect(() => {
@@ -465,18 +604,162 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
       },
     );
 
-    void createdProject;
-    await loadProjects(currentPage);
-  };
+    const createdProjectDescription = payload.description?.trim() ?? "";
 
-  const handleViewTaskLists = (projectId: string) => {
-    router.push(
-      `/dashboard/clients/${clientId}/task-lists?projectId=${projectId}`,
+    if (createdProjectDescription) {
+      setProjectDescriptionById((current) => ({
+        ...current,
+        [String(createdProject.id)]: createdProjectDescription,
+      }));
+      setTemplateDescriptionByProject((current) => ({
+        ...current,
+        [normalizeTemplateProjectName(payload.project)]:
+          createdProjectDescription,
+      }));
+    }
+
+    if (payload.tasks?.length) {
+      const failedTaskNames: string[] = [];
+
+      for (const task of payload.tasks) {
+        try {
+          await clientsApi.createProjectTask(accessToken, createdProject.id, {
+            assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
+            description: task.taskDescription,
+            dueDate: payload.dueDate,
+            projectId: createdProject.id,
+            startDate: payload.startDate,
+            status: normalizeProjectTaskStatus(task.status),
+            task: task.taskName,
+            taskName: task.taskName,
+          });
+        } catch {
+          failedTaskNames.push(task.taskName);
+        }
+      }
+
+      if (failedTaskNames.length > 0) {
+        throw new Error(
+          `Project was created, but ${failedTaskNames.length} task(s) failed to save.`,
+        );
+      }
+    }
+
+    void createdProject;
+    await loadProjects(
+      currentPage,
+      createdProjectDescription
+        ? { [String(createdProject.id)]: createdProjectDescription }
+        : {},
     );
   };
 
-  const handleRemoveProject = (projectId: string) => {
-    void projectId;
+  const handleViewTaskLists = (projectId: string) => {
+    setSelectedProject(rows.find((row) => row.id === projectId) ?? null);
+    setIsTaskListPanelOpen(true);
+  };
+
+  const handleProjectMetaChange = async (payload: {
+    accountManagerId?: string;
+    csmId?: string;
+    status?: string;
+  }) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      throw new Error("Your session has expired. Please login again.");
+    }
+
+    const apiPayload = {
+      accountManagerId:
+        payload.accountManagerId ?? selectedProject.accountManagerId,
+      clientSuccessManagerId: payload.csmId ?? selectedProject.csmId,
+      progress: payload.status ?? selectedProject.status,
+    };
+
+    const updatedProject = await clientsApi.updateClientProject(
+      accessToken,
+      clientId,
+      selectedProject.id,
+      apiPayload,
+    );
+
+    const accountManager =
+      payload.accountManagerId !== undefined
+        ? users.find((user) => user.id === payload.accountManagerId)
+        : undefined;
+    const csm =
+      payload.csmId !== undefined
+        ? users.find((user) => user.id === payload.csmId)
+        : undefined;
+
+    const nextProject: ClientProjectsRow = {
+      ...selectedProject,
+      accountManagerId: String(
+        updatedProject.accountManagerId ?? apiPayload.accountManagerId ?? "",
+      ),
+      csmId: String(
+        updatedProject.clientSuccessManagerId ??
+          apiPayload.clientSuccessManagerId ??
+          "",
+      ),
+      status:
+        updatedProject.progress ??
+        apiPayload.progress ??
+        selectedProject.status,
+      accountManager:
+        accountManager !== undefined
+          ? {
+              avatar: accountManager.avatar ?? undefined,
+              name: accountManager.name,
+            }
+          : selectedProject.accountManager,
+      clientSuccessManager:
+        csm !== undefined
+          ? {
+              avatar: csm.avatar ?? undefined,
+              name: csm.name,
+            }
+          : selectedProject.clientSuccessManager,
+    };
+
+    setSelectedProject(nextProject);
+    setRows((previous) =>
+      previous.map((row) => (row.id === nextProject.id ? nextProject : row)),
+    );
+  };
+
+  const handleRemoveProject = async (projectId: string) => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    if (!accessToken) {
+      toast.danger("Session expired", {
+        description: "Please login again before removing a project.",
+      });
+
+      return;
+    }
+
+    try {
+      await clientsApi.deleteClientProject(accessToken, clientId, projectId);
+      setRows((previous) => previous.filter((row) => row.id !== projectId));
+
+      if (selectedProject?.id === projectId) {
+        setSelectedProject(null);
+        setIsTaskListPanelOpen(false);
+      }
+
+      toast.success("Project removed successfully.");
+    } catch (error) {
+      toast.danger("Failed to remove project", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    }
   };
 
   const columns = buildColumns({
@@ -538,6 +821,44 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
         onOpenChange={setIsAddProjectOpen}
         onSubmit={handleAddProject}
       />
+      <Drawer
+        hideCloseButton
+        classNames={{
+          backdrop: "bg-black/20",
+          base: "w-full max-w-4xl",
+          wrapper: "justify-end",
+        }}
+        isDismissable={false}
+        isOpen={isTaskListPanelOpen}
+        placement="right"
+        scrollBehavior="inside"
+        onOpenChange={setIsTaskListPanelOpen}
+      >
+        <DrawerContent className="h-screen max-h-screen rounded-none">
+          <DrawerBody className="p-5">
+            <ViewTaskListsPanelContent
+              accountManagerAvatar={selectedProject?.accountManager.avatar}
+              accountManagerId={selectedProject?.accountManagerId ?? ""}
+              accountManagerName={selectedProject?.accountManager.name ?? "-"}
+              address={clientAddress}
+              clientName={clientName}
+              csmAvatar={selectedProject?.clientSuccessManager.avatar}
+              csmId={selectedProject?.csmId ?? ""}
+              csmName={selectedProject?.clientSuccessManager.name ?? "-"}
+              description={selectedProject?.templateDescription}
+              projectId={selectedProject?.id ?? ""}
+              projectName={selectedProject?.project ?? "Local SEO"}
+              status={selectedProject?.status ?? "Draft"}
+              tasks={selectedProject?.tasks ?? []}
+              users={users}
+              onClose={() => {
+                setIsTaskListPanelOpen(false);
+              }}
+              onProjectMetaChange={handleProjectMetaChange}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
     </>
   );
 };

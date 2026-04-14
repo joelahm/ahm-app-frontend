@@ -457,7 +457,7 @@ const hasCompletedPracticeHours = (items: PracticeHour[]) =>
 export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   const { session } = useAuth();
   const formattedClientName = slug.replace(/-/g, " ");
-  const { cityStates, niches, practiceTypes } = useDropdownData();
+  const { cityStates, practiceTypes } = useDropdownData();
   const countries = useMemo(() => getCountryOptions(), []);
   const [clientId, setClientId] = useState<string>(slug);
   const [assignedToId, setAssignedToId] = useState<string>("");
@@ -1106,22 +1106,16 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                 control={control}
                 name="niche"
                 render={({ field }) => (
-                  <Select
+                  <Input
                     errorMessage={errors.niche?.message}
                     isInvalid={!!errors.niche}
+                    placeholder="Enter niche"
                     radius="sm"
-                    selectedKeys={field.value ? [field.value] : []}
                     size="sm"
-                    onSelectionChange={(keys) => {
-                      const first = Array.from(keys as Set<string>)[0] ?? "";
-
-                      field.onChange(first);
-                    }}
-                  >
-                    {niches.map((niche) => (
-                      <SelectItem key={niche.key}>{niche.label}</SelectItem>
-                    ))}
-                  </Select>
+                    value={field.value ?? ""}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                  />
                 )}
               />
             </div>

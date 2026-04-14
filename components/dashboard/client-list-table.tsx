@@ -5,12 +5,21 @@ import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import {
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@heroui/dropdown";
+import {
+  CirclePause,
+  CirclePlay,
   Columns3,
   EllipsisVertical,
   Eye,
   List,
   Plus,
   SlidersHorizontal,
+  Trash2,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -38,6 +47,8 @@ interface ClientListTableProps {
   headerActions?: DashboardTableAction[];
   rows?: ClientRecord[];
   columns?: DashboardDataTableColumn<ClientRecord>[];
+  onSetStatus?: (clientId: string, status: "Active" | "Inactive") => void;
+  onRemove?: (clientId: string) => void;
 }
 
 const defaultHeaderActions: DashboardTableAction[] = [
@@ -72,6 +83,8 @@ export const ClientListTable = ({
   headerActions = defaultHeaderActions,
   rows = defaultRows,
   columns,
+  onRemove,
+  onSetStatus,
 }: ClientListTableProps) => {
   const defaultColumns = useMemo<DashboardDataTableColumn<ClientRecord>[]>(
     () => [
@@ -120,7 +133,12 @@ export const ClientListTable = ({
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
         renderCell: (item) => (
           <div className="flex items-center gap-2">
-            <Avatar name={item.manager} size="sm" src={item.managerAvatar} />
+            <Avatar
+              className="shrink-0 w-8 h-8"
+              name={item.manager}
+              size="sm"
+              src={item.managerAvatar || undefined}
+            />
             <span className="text-sm">{item.manager}</span>
           </div>
         ),
@@ -129,11 +147,20 @@ export const ClientListTable = ({
         key: "status",
         label: "Status",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
-        renderCell: (item) => (
-          <Chip color="success" size="sm" variant="flat">
-            {item.status}
-          </Chip>
-        ),
+        renderCell: (item) => {
+          const normalizedStatus = item.status.trim().toLowerCase();
+          const isActive = normalizedStatus === "active";
+
+          return (
+            <Chip
+              color={isActive ? "success" : "default"}
+              size="sm"
+              variant="flat"
+            >
+              {item.status}
+            </Chip>
+          );
+        },
       },
       {
         key: "dateJoined",
@@ -163,14 +190,56 @@ export const ClientListTable = ({
                 <Eye size={14} />
               </Button>
             </Link>
-            <Button isIconOnly radius="sm" size="sm" variant="bordered">
-              <EllipsisVertical size={14} />
-            </Button>
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <Button isIconOnly radius="sm" size="sm" variant="bordered">
+                  <EllipsisVertical size={14} />
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label={`Client ${item.clientName} actions`}>
+                {item.status.trim().toLowerCase() === "active" ? (
+                  <DropdownItem
+                    key={`${item.id}-set-inactive`}
+                    startContent={
+                      <CirclePause className="text-[#0568C9]" size={16} />
+                    }
+                    onPress={() => {
+                      onSetStatus?.(item.id, "Inactive");
+                    }}
+                  >
+                    Set Inactive
+                  </DropdownItem>
+                ) : (
+                  <DropdownItem
+                    key={`${item.id}-set-active`}
+                    startContent={
+                      <CirclePlay className="text-[#0568C9]" size={16} />
+                    }
+                    onPress={() => {
+                      onSetStatus?.(item.id, "Active");
+                    }}
+                  >
+                    Set Active
+                  </DropdownItem>
+                )}
+                <DropdownItem
+                  key={`${item.id}-remove`}
+                  className="text-danger"
+                  color="danger"
+                  startContent={<Trash2 className="text-danger" size={16} />}
+                  onPress={() => {
+                    onRemove?.(item.id);
+                  }}
+                >
+                  Remove
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
           </div>
         ),
       },
     ],
-    [],
+    [onRemove, onSetStatus],
   );
 
   return (

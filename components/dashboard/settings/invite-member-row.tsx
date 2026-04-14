@@ -12,10 +12,11 @@ import {
   ChevronDown,
   UserRoundCheck,
   UserRoundCog,
+  UserRound,
   UserRoundMinus,
 } from "lucide-react";
 
-export type InviteRoleOption = "ADMIN" | "TEAM_MEMBER";
+export type InviteRoleOption = "ADMIN" | "TEAM_MEMBER" | "GUEST";
 
 export interface InviteMember {
   email: string;
@@ -48,7 +49,12 @@ export const InviteMemberRow = ({
   onRemove,
   onRoleChange,
 }: InviteMemberRowProps) => {
-  const roleLabel = member.role === "ADMIN" ? "Admin" : "Team Member";
+  const roleLabel =
+    member.role === "ADMIN"
+      ? "Admin"
+      : member.role === "GUEST"
+        ? "Guest"
+        : "Member";
 
   return (
     <div className="rounded-2xl border border-default-200 p-2">
@@ -96,7 +102,13 @@ export const InviteMemberRow = ({
                 <UserRoundCheck className="text-[#0568C9]" size={18} />
               }
             >
-              Team Member
+              Member
+            </DropdownItem>
+            <DropdownItem
+              key="GUEST"
+              startContent={<UserRound className="text-[#0568C9]" size={18} />}
+            >
+              Guest
             </DropdownItem>
             <DropdownItem
               key="remove-role"
