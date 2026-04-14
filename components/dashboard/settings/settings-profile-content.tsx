@@ -24,8 +24,10 @@ import {
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { authApi } from "@/apis/auth";
+import { keywordResearchApi } from "@/apis/keyword-research";
 import { useAuth } from "@/components/auth/auth-context";
 import { usersApi } from "@/apis/users";
+import { useAppToast } from "@/hooks/use-app-toast";
 import {
   getCountryOptions,
   getDateFormatOptions,
@@ -209,6 +211,7 @@ const getStoredAccessToken = () => {
 
 export const SettingsProfileContent = () => {
   const { session, updateSessionUser } = useAuth();
+  const toast = useAppToast();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -222,6 +225,7 @@ export const SettingsProfileContent = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [isSyncingDataForSeo, setIsSyncingDataForSeo] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
   const [timeZoneSearch, setTimeZoneSearch] = useState("");
   const countryAliases: Record<string, string> = {
@@ -527,6 +531,26 @@ export const SettingsProfileContent = () => {
       setProfileError(
         error instanceof Error ? error.message : "Failed to update profile.",
       );
+    }
+  };
+
+  const handleSyncDataForSeo = async () => {
+    const accessToken = session?.accessToken || getStoredAccessToken();
+
+    setIsSyncingDataForSeo(true);
+    try {
+      await keywordResearchApi.syncGoogleAdsReferenceData({
+        accessToken,
+        forceRefresh: true,
+      });
+      toast.success("DataForSEO locations/languages synced successfully.");
+    } catch (error) {
+      toast.danger("Failed to sync DataForSEO reference data.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSyncingDataForSeo(false);
     }
   };
 
@@ -939,7 +963,19 @@ export const SettingsProfileContent = () => {
         </Card>
       </div>
 
-      <div className="pt-2 flex justify-end">
+      <div className="pt-2 flex items-center justify-between">
+        <Button
+          color="secondary"
+          isLoading={isSyncingDataForSeo}
+          radius="md"
+          type="button"
+          variant="flat"
+          onPress={() => {
+            void handleSyncDataForSeo();
+          }}
+        >
+          Sync DataForSEO Locations
+        </Button>
         <Button
           className="bg-primary text-white"
           isLoading={isSubmitting}

@@ -74,6 +74,29 @@ export interface KeywordResearchItem {
 }
 
 export const keywordResearchApi = {
+  syncGoogleAdsReferenceData: async (options?: {
+    accessToken?: string;
+    forceRefresh?: boolean;
+  }) => {
+    try {
+      const response = await keywordResearchApiClient.get<{
+        success?: boolean;
+      }>("/api/v1/integrations/dataforseo/google-ads-reference/sync", {
+        headers: options?.accessToken
+          ? {
+              Authorization: `Bearer ${options.accessToken}`,
+            }
+          : undefined,
+        params: {
+          forceRefresh: options?.forceRefresh ?? true,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getLanguages: async (accessToken: string) => {
     try {
       const response = await keywordResearchApiClient.get<{
