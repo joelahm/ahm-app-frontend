@@ -105,6 +105,19 @@ const mapApiRowToTableRow = (
   serp: item.serp,
 });
 
+const DEFAULT_COUNTRY_OPTION: KeywordResearchCountryOption = {
+  key: "GB",
+  label: "United Kingdom",
+  locationCode: 2826,
+  value: "GB",
+};
+
+const DEFAULT_LANGUAGE_OPTION: KeywordResearchLanguageOption = {
+  key: "en",
+  label: "English",
+  value: "en",
+};
+
 export const KeywordResearchScreen = () => {
   const { session } = useAuth();
   const [activeTab, setActiveTab] = useState("keywords");
@@ -184,14 +197,21 @@ export const KeywordResearchScreen = () => {
           return;
         }
 
+        const resolvedCountries = countriesResponse.countries.length
+          ? countriesResponse.countries
+          : [DEFAULT_COUNTRY_OPTION];
+        const resolvedLanguages = languagesResponse.languages.length
+          ? languagesResponse.languages
+          : [DEFAULT_LANGUAGE_OPTION];
+
         setCountryOptions(
-          countriesResponse.countries.map((item) => ({
+          resolvedCountries.map((item) => ({
             ...item,
             key: item.value,
           })),
         );
         setLanguageOptions(
-          languagesResponse.languages.map((item) => ({
+          resolvedLanguages.map((item) => ({
             ...item,
             key: item.value,
           })),
@@ -199,12 +219,11 @@ export const KeywordResearchScreen = () => {
         setClients(clientsResponse);
 
         const defaultCountry =
-          countriesResponse.countries.find(
-            (item) => item.value.toUpperCase() === "GB",
-          ) ?? countriesResponse.countries[0];
+          resolvedCountries.find((item) => item.value.toUpperCase() === "GB") ??
+          resolvedCountries[0];
         const defaultLanguage =
-          languagesResponse.languages.find((item) => item.value === "en") ??
-          languagesResponse.languages[0];
+          resolvedLanguages.find((item) => item.value === "en") ??
+          resolvedLanguages[0];
 
         if (defaultCountry) {
           setSearchCountry(defaultCountry.value);
@@ -215,16 +234,18 @@ export const KeywordResearchScreen = () => {
         if (defaultLanguage) {
           setSearchLanguage(defaultLanguage.value);
         }
-      } catch (error) {
+      } catch {
         if (!isMounted) {
           return;
         }
 
-        setLoadError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load keyword research locations.",
-        );
+        setCountryOptions([DEFAULT_COUNTRY_OPTION]);
+        setLanguageOptions([DEFAULT_LANGUAGE_OPTION]);
+        setSearchCountry(DEFAULT_COUNTRY_OPTION.value);
+        setSearchCountryLabel(DEFAULT_COUNTRY_OPTION.label);
+        setSearchCountryLocationCode(DEFAULT_COUNTRY_OPTION.locationCode);
+        setSearchLanguage(DEFAULT_LANGUAGE_OPTION.value);
+        setLoadError("");
       } finally {
         if (isMounted) {
           setIsLoadingLocations(false);

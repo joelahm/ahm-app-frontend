@@ -23,6 +23,19 @@ import {
 } from "@/apis/keyword-research";
 import { useAuth } from "@/components/auth/auth-context";
 
+const DEFAULT_COUNTRY_OPTION: KeywordResearchCountryOption = {
+  key: "GB",
+  label: "United Kingdom",
+  locationCode: 2826,
+  value: "GB",
+};
+
+const DEFAULT_LANGUAGE_OPTION: KeywordResearchLanguageOption = {
+  key: "en",
+  label: "English",
+  value: "en",
+};
+
 const stepCards = [
   { key: 1, subtitle: "Double check your keywords", title: "Add Keywords" },
   {
@@ -86,10 +99,10 @@ export const AddWebsiteContentKeywordsModal = ({
   const [activeStep] = useState<1 | 2 | 3>(1);
   const [countryOptions, setCountryOptions] = useState<
     KeywordResearchCountryOption[]
-  >([]);
+  >([DEFAULT_COUNTRY_OPTION]);
   const [languageOptions, setLanguageOptions] = useState<
     KeywordResearchLanguageOption[]
-  >([]);
+  >([DEFAULT_LANGUAGE_OPTION]);
   const [countrySearch, setCountrySearch] = useState("");
   const [languageSearch, setLanguageSearch] = useState("");
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
@@ -151,16 +164,22 @@ export const AddWebsiteContentKeywordsModal = ({
           return;
         }
 
-        setCountryOptions(countriesResponse.countries);
-        setLanguageOptions(languagesResponse.languages);
+        const resolvedCountries = countriesResponse.countries.length
+          ? countriesResponse.countries
+          : [DEFAULT_COUNTRY_OPTION];
+        const resolvedLanguages = languagesResponse.languages.length
+          ? languagesResponse.languages
+          : [DEFAULT_LANGUAGE_OPTION];
+
+        setCountryOptions(resolvedCountries);
+        setLanguageOptions(resolvedLanguages);
 
         const defaultCountry =
-          countriesResponse.countries.find(
-            (item) => item.value.toUpperCase() === "GB",
-          ) ?? countriesResponse.countries[0];
+          resolvedCountries.find((item) => item.value.toUpperCase() === "GB") ??
+          resolvedCountries[0];
         const defaultLanguage =
-          languagesResponse.languages.find((item) => item.value === "en") ??
-          languagesResponse.languages[0];
+          resolvedLanguages.find((item) => item.value === "en") ??
+          resolvedLanguages[0];
 
         if (defaultCountry) {
           setValue("country", defaultCountry.label);
@@ -171,16 +190,18 @@ export const AddWebsiteContentKeywordsModal = ({
           setValue("language", defaultLanguage.label);
           setLanguageSearch(defaultLanguage.label);
         }
-      } catch (error) {
+      } catch {
         if (!isMounted) {
           return;
         }
 
-        setSubmitError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load country and language options.",
-        );
+        setCountryOptions([DEFAULT_COUNTRY_OPTION]);
+        setLanguageOptions([DEFAULT_LANGUAGE_OPTION]);
+        setValue("country", DEFAULT_COUNTRY_OPTION.label);
+        setCountrySearch(DEFAULT_COUNTRY_OPTION.label);
+        setValue("language", DEFAULT_LANGUAGE_OPTION.label);
+        setLanguageSearch(DEFAULT_LANGUAGE_OPTION.label);
+        setSubmitError("");
       } finally {
         if (isMounted) {
           setIsLoadingOptions(false);
@@ -216,16 +237,25 @@ export const AddWebsiteContentKeywordsModal = ({
         country: validated.country,
         countryIsoCode:
           countryOptions.find((item) => item.label === validated.country)
-            ?.value ?? "",
+            ?.value ??
+          (validated.country === DEFAULT_COUNTRY_OPTION.label
+            ? DEFAULT_COUNTRY_OPTION.value
+            : ""),
         enableContentClustering: validated.enableContentClustering,
         keywords: parsedKeywords,
         languageCode:
           languageOptions.find((item) => item.label === validated.language)
-            ?.value ?? "en",
+            ?.value ??
+          (validated.language === DEFAULT_LANGUAGE_OPTION.label
+            ? DEFAULT_LANGUAGE_OPTION.value
+            : DEFAULT_LANGUAGE_OPTION.value),
         language: validated.language,
-        locationCode: countryOptions.find(
-          (item) => item.label === validated.country,
-        )?.locationCode,
+        locationCode:
+          countryOptions.find((item) => item.label === validated.country)
+            ?.locationCode ??
+          (validated.country === DEFAULT_COUNTRY_OPTION.label
+            ? DEFAULT_COUNTRY_OPTION.locationCode
+            : undefined),
         topic: validated.topic?.trim() ?? "",
       });
     } catch (error) {
