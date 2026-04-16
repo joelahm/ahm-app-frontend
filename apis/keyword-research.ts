@@ -127,6 +127,28 @@ export const keywordResearchApi = {
       throw new Error(parseError(error));
     }
   },
+  getRegions: async (
+    accessToken: string,
+    options: { countryIsoCode: string; query?: string },
+  ) => {
+    try {
+      const response = await keywordResearchApiClient.get<{
+        regions: KeywordResearchRegionOption[];
+      }>("/api/v1/integrations/dataforseo/google-ads-locations/regions", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params: {
+          countryIsoCode: options.countryIsoCode,
+          query: options.query ?? undefined,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getSimilarKeywords: async (
     accessToken: string,
     payload: KeywordResearchRequestBody,

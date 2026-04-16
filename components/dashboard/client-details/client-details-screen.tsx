@@ -27,13 +27,16 @@ import {
 } from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
+import {
+  keywordResearchApi,
+  type KeywordResearchCountryOption,
+} from "@/apis/keyword-research";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import { ClientProfileAside } from "@/components/dashboard/client-details/client-profile-aside";
 import { useDropdownData } from "@/components/dashboard/client-details/dropdown-data";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
-import { getCountryOptions } from "@/components/form/location-options";
 import { TokenInputField } from "@/components/form/token-input-field";
 
 const days = [
@@ -57,6 +60,13 @@ type PracticeHour = {
   endTime: string;
   startMeridiem: "AM" | "PM";
   startTime: string;
+};
+
+const DEFAULT_COUNTRY_OPTION: KeywordResearchCountryOption = {
+  key: "2826",
+  label: "United Kingdom",
+  locationCode: 2826,
+  value: "GB",
 };
 
 const buildDefaultPracticeHours = (): PracticeHour[] =>
@@ -419,26 +429,6 @@ const CompletionDoughnut = ({ percentage }: { percentage: number }) => {
   );
 };
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const hasTextValue = (value: string | null | undefined) =>
   Boolean(value?.trim());
 
@@ -456,11 +446,14 @@ const hasCompletedPracticeHours = (items: PracticeHour[]) =>
   );
 
 export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const formattedClientName = slug.replace(/-/g, " ");
-  const { cityStates, practiceTypes } = useDropdownData();
-  const countries = useMemo(() => getCountryOptions(), []);
+  const { practiceTypes } = useDropdownData();
+  const [countryOptions, setCountryOptions] = useState<
+    KeywordResearchCountryOption[]
+  >([]);
+  const [isLoadingCountryOptions, setIsLoadingCountryOptions] = useState(false);
   const [clientId, setClientId] = useState<string>(slug);
   const [assignedToId, setAssignedToId] = useState<string>("");
   const [assignedUserSearch, setAssignedUserSearch] = useState("");
@@ -502,13 +495,15 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     const normalizedQuery = countrySearch.trim().toLowerCase();
 
     if (!normalizedQuery) {
-      return countries;
+      return countryOptions;
     }
 
-    return countries.filter((country) =>
+    const matchedCountries = countryOptions.filter((country) =>
       country.label.toLowerCase().includes(normalizedQuery),
     );
-  }, [countries, countrySearch]);
+
+    return matchedCountries.length > 0 ? matchedCountries : countryOptions;
+  }, [countryOptions, countrySearch]);
   const filteredAssignedUsers = useMemo(() => {
     const normalizedQuery = assignedUserSearch.trim().toLowerCase();
 
@@ -543,6 +538,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     reset,
     clearErrors,
     setError,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<ClientDetailsFormValues>({
@@ -644,9 +640,57 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   ]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
+    if (!session) {
+      setCountryOptions([]);
 
-    if (!accessToken) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadCountries = async () => {
+      try {
+        setIsLoadingCountryOptions(true);
+        const accessToken = await getValidAccessToken();
+        const response = await keywordResearchApi.getCountries(accessToken);
+        const countries = Array.isArray(response?.countries)
+          ? response.countries
+          : [];
+        const resolvedCountries =
+          countries.length > 0 ? countries : [DEFAULT_COUNTRY_OPTION];
+
+        if (!isMounted) {
+          return;
+        }
+
+        setCountryOptions(
+          resolvedCountries.map((country) => ({
+            ...country,
+            key: String(country.locationCode),
+          })),
+        );
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setCountryOptions([]);
+      } finally {
+        if (isMounted) {
+          setIsLoadingCountryOptions(false);
+        }
+      }
+    };
+
+    void loadCountries();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getValidAccessToken, session]);
+
+  useEffect(() => {
+    if (!session) {
       return;
     }
 
@@ -656,6 +700,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       setDetailsError("");
 
       try {
+        const accessToken = await getValidAccessToken();
         const client = await clientsApi.getClientById(accessToken, slug);
 
         if (!isMounted) {
@@ -729,12 +774,10 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [reset, session?.accessToken, slug]);
+  }, [getValidAccessToken, reset, session, slug]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       return;
     }
 
@@ -742,6 +785,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
 
     const hydrateUsers = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const allUsers: Array<{
           email: string;
           firstName: string | null;
@@ -802,7 +846,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session]);
 
   const onSubmit = async (values: ClientDetailsFormValues) => {
     clearErrors();
@@ -810,11 +854,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
 
     try {
       await clientDetailsSchema.validate(values, { abortEarly: false });
-      const accessToken = session?.accessToken || getStoredAccessToken();
-
-      if (!accessToken) {
-        throw new Error("Your session has expired. Please login again.");
-      }
+      const accessToken = await getValidAccessToken();
 
       const payload = (() => {
         const formData = new FormData();
@@ -1205,25 +1245,30 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                     errorMessage={errors.country?.message}
                     inputValue={countrySearch}
                     isInvalid={!!errors.country}
+                    isLoading={isLoadingCountryOptions}
                     items={filteredCountryOptions}
                     menuTrigger="focus"
                     placeholder="Select country"
                     radius="sm"
                     selectedKey={
-                      countries.find((country) => country.label === field.value)
-                        ?.key ?? null
+                      countryOptions.find(
+                        (country) => country.label === field.value,
+                      )?.key ?? null
                     }
                     size="sm"
                     onInputChange={(value) => {
                       setCountrySearch(value);
                     }}
                     onSelectionChange={(key) => {
-                      const selectedCountry = countries.find(
+                      const selectedCountry = countryOptions.find(
                         (country) => country.key === key,
                       );
 
                       field.onChange(selectedCountry?.label ?? "");
                       setCountrySearch(selectedCountry?.label ?? "");
+                      setRegionQuery("");
+                      setValue("cityState", "", { shouldValidate: true });
+                      setValue("visibleArea", "", { shouldValidate: true });
                     }}
                   >
                     {(country) => (
@@ -1432,12 +1477,13 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                       errorMessage={errors.country?.message}
                       inputValue={countrySearch}
                       isInvalid={!!errors.country}
+                      isLoading={isLoadingCountryOptions}
                       items={filteredCountryOptions}
                       menuTrigger="focus"
                       placeholder="Select country"
                       radius="sm"
                       selectedKey={
-                        countries.find(
+                        countryOptions.find(
                           (countryOption) =>
                             countryOption.label === field.value,
                         )?.key ?? null
@@ -1447,12 +1493,14 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                         setCountrySearch(value);
                       }}
                       onSelectionChange={(key) => {
-                        const selectedCountry = countries.find(
+                        const selectedCountry = countryOptions.find(
                           (countryOption) => countryOption.key === key,
                         );
 
                         field.onChange(selectedCountry?.label ?? "");
                         setCountrySearch(selectedCountry?.label ?? "");
+                        setValue("cityState", "", { shouldValidate: true });
+                        setValue("visibleArea", "", { shouldValidate: true });
                       }}
                     >
                       {(countryOption) => (
@@ -1470,24 +1518,16 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   control={control}
                   name="cityState"
                   render={({ field }) => (
-                    <Select
+                    <Input
                       errorMessage={errors.cityState?.message}
                       isInvalid={!!errors.cityState}
+                      placeholder="Enter city/state"
                       radius="sm"
-                      selectedKeys={field.value ? [field.value] : []}
                       size="sm"
-                      onSelectionChange={(keys) => {
-                        const first = Array.from(keys as Set<string>)[0] ?? "";
-
-                        field.onChange(first);
-                      }}
-                    >
-                      {cityStates.map((cityState) => (
-                        <SelectItem key={cityState.key}>
-                          {cityState.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
                   )}
                 />
               </div>
@@ -1515,24 +1555,16 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   control={control}
                   name="visibleArea"
                   render={({ field }) => (
-                    <Select
+                    <Input
                       errorMessage={errors.visibleArea?.message}
                       isInvalid={!!errors.visibleArea}
+                      placeholder="Enter area"
                       radius="sm"
-                      selectedKeys={field.value ? [field.value] : []}
                       size="sm"
-                      onSelectionChange={(keys) => {
-                        const first = Array.from(keys as Set<string>)[0] ?? "";
-
-                        field.onChange(first);
-                      }}
-                    >
-                      {cityStates.map((cityState) => (
-                        <SelectItem key={cityState.key}>
-                          {cityState.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
                   )}
                 />
               </div>
