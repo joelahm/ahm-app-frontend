@@ -12,9 +12,13 @@ const scansApiClient = axios.create({
 
 const parseError = (error: unknown) => {
   if (axios.isAxiosError(error)) {
-    const message =
-      (error.response?.data as { message?: string } | undefined)?.message ??
-      error.message;
+    const data = error.response?.data as
+      | {
+          message?: string;
+          error?: { message?: string };
+        }
+      | undefined;
+    const message = data?.error?.message ?? data?.message ?? error.message;
 
     return message || "Something went wrong.";
   }
@@ -33,6 +37,7 @@ export interface CreateScanRequestBody {
   frequency?: string;
   keywords: string[];
   labels: string[];
+  recurrenceEnabled?: boolean;
   repeatTime?: string;
   runNow: boolean;
   startDate?: string;
@@ -66,9 +71,19 @@ export interface CreateScanResponse {
   id?: number;
   message?: string;
   run?: ScanRecord;
+  runs?: ScanRecord[];
   scan?: {
+    frequency?: string | null;
     id?: number;
+    keyword?: string;
+    nextRunAt?: string | null;
   };
+  scans?: Array<{
+    frequency?: string | null;
+    id?: number;
+    keyword?: string;
+    nextRunAt?: string | null;
+  }>;
 }
 
 export interface RunScanResponse {
@@ -111,6 +126,19 @@ export interface LocalRankingKeyword {
   matchedRating?: number | null;
   matchedTitle?: string | null;
   missingCoordinates?: number | null;
+  competitors?: Array<{
+    key: string;
+    businessName: string;
+    address?: string | null;
+    domain?: string | null;
+    primaryCategory?: string | null;
+    secondaryCategory?: string | null;
+    photos?: number | null;
+    bestRank?: number | null;
+    averageRank?: number | null;
+    rating?: number | null;
+    reviewsCount?: number | null;
+  }>;
   nextSchedule?: string | null;
   nextRunAt?: string | null;
   previousScan?: number | null;
@@ -176,6 +204,12 @@ export interface ClientScanComparisonResponse {
     totalRuns: number;
   };
   scan: ClientScanDetails;
+}
+
+export interface SavedLocalRankingKeywordsResponse {
+  clientId: number;
+  keywords: string[];
+  total: number;
 }
 
 export interface ClientScanDetails {
@@ -315,6 +349,121 @@ export const scansApi = {
           },
         },
       );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  runScan: async (accessToken: string, scanId: number | string) => {
+    try {
+      const response = await scansApiClient.post<RunScanResponse>(
+        `/api/v1/scans/${scanId}/run`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteScanById: async (accessToken: string, scanId: number | string) => {
+    try {
+      const response = await scansApiClient.delete<{
+        deleted: boolean;
+      }>(`/api/v1/scans/${scanId}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteScanKeyword: async (
+    accessToken: string,
+    scanId: number | string,
+    keyword: string,
+  ) => {
+    try {
+      const response = await scansApiClient.delete<{
+        deleted: boolean;
+      }>(`/api/v1/scans/${scanId}/keywords`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params: {
+          keyword,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getSavedLocalRankingKeywords: async (
+    accessToken: string,
+    clientId: number | string,
+  ) => {
+    try {
+      const response =
+        await scansApiClient.get<SavedLocalRankingKeywordsResponse>(
+          `/api/v1/scans/client/${clientId}/local-rankings/saved-keywords`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          },
+        );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  saveLocalRankingKeywords: async (
+    accessToken: string,
+    clientId: number | string,
+    keywords: string[],
+  ) => {
+    try {
+      const response =
+        await scansApiClient.post<SavedLocalRankingKeywordsResponse>(
+          `/api/v1/scans/client/${clientId}/local-rankings/saved-keywords`,
+          { keywords },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          },
+        );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  clearSavedLocalRankingKeywords: async (
+    accessToken: string,
+    clientId: number | string,
+  ) => {
+    try {
+      const response = await scansApiClient.delete<{
+        cleared: boolean;
+        clientId: number;
+      }>(`/api/v1/scans/client/${clientId}/local-rankings/saved-keywords`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
 
       return response.data;
     } catch (error) {

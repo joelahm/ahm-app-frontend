@@ -28,6 +28,7 @@ import { clientsApi } from "@/apis/clients";
 import { extractRunRecord, extractScanId, scansApi } from "@/apis/scans";
 import { useAuth } from "@/components/auth/auth-context";
 import { TokenInputField } from "@/components/form/token-input-field";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const coverageSizeOptions = [
   { label: "5x5", value: "5" },
@@ -182,10 +183,17 @@ export interface ScanCoveragePreview {
 
 interface ScanKeywordModalProps {
   clientId?: number | string;
+  defaultKeywords?: string[];
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onPreviewChange?: (preview: ScanCoveragePreview | null) => void;
-  onRunStarted?: (payload: { runId: number; scanId: number }) => void;
+  onRunStarted?: (payload: {
+    runId: number;
+    scanId: number;
+    keyword: string;
+    frequency: string | null;
+    nextRunAt: string | null;
+  }) => void;
   onSubmit?: (payload: ScanKeywordFormValues) => void | Promise<void>;
 }
 
@@ -228,14 +236,15 @@ const to24HourTime = (time: string, meridiem: string) => {
 
 export const ScanKeywordModal = ({
   clientId,
+  defaultKeywords = [],
   isOpen,
   onOpenChange,
   onPreviewChange,
   onRunStarted,
   onSubmit,
 }: ScanKeywordModalProps) => {
-  const { session } = useAuth();
-  const [submitError, setSubmitError] = useState("");
+  const toast = useAppToast();
+  const { getValidAccessToken, session } = useAuth();
   const [gbpDetails, setGbpDetails] = useState<Awaited<
     ReturnType<typeof clientsApi.getClientGbpDetails>
   > | null>(null);
@@ -295,7 +304,7 @@ export const ScanKeywordModal = ({
       return;
     }
 
-    if (!clientId || !session?.accessToken) {
+    if (!clientId || !session) {
       setGbpDetails(null);
       setValue("connectedLocation", "", {
         shouldDirty: false,
@@ -312,8 +321,9 @@ export const ScanKeywordModal = ({
       setIsLoadingGbp(true);
 
       try {
+        const accessToken = await getValidAccessToken();
         const response = await clientsApi.getClientGbpDetails(
-          session.accessToken,
+          accessToken,
           clientId,
         );
 
@@ -355,7 +365,35 @@ export const ScanKeywordModal = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, isOpen, session?.accessToken, setValue]);
+  }, [clientId, getValidAccessToken, isOpen, session, setValue]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    if (!defaultKeywords.length) {
+      return;
+    }
+
+    const normalizedKeywords = Array.from(
+      new Set(
+        defaultKeywords
+          .map((item) => String(item || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!normalizedKeywords.length) {
+      return;
+    }
+
+    setValue("keywords", normalizedKeywords, {
+      shouldDirty: false,
+      shouldTouch: false,
+      shouldValidate: false,
+    });
+  }, [defaultKeywords, isOpen, setValue]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -421,21 +459,17 @@ export const ScanKeywordModal = ({
     onPreviewChange?.(null);
     reset();
     clearErrors();
-    setSubmitError("");
   };
 
   const submitScan = async (values: ScanKeywordFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       const validatedValues = await scanKeywordSchema.validate(values, {
         abortEarly: false,
       });
 
-      if (!session?.accessToken) {
-        throw new Error("Your session has expired. Please login again.");
-      }
+      const accessToken = await getValidAccessToken();
 
       if (!clientId) {
         throw new Error("Missing client id for scan.");
@@ -496,29 +530,78 @@ export const ScanKeywordModal = ({
           validatedValues.coverageUnit === "miles" ? "MILES" : "KILOMETERS",
         keywords: validatedValues.keywords,
         labels: validatedValues.labels,
+        recurrenceEnabled: validatedValues.isRecurring,
         runNow: true,
         ...(recurringSchedule ?? {}),
       } as const;
 
-      const createResponse = await scansApi.createScan(
-        session.accessToken,
-        payload,
-      );
+      const createResponse = await scansApi.createScan(accessToken, payload);
       const resolvedScanId = extractScanId(createResponse);
 
       if (!resolvedScanId) {
         throw new Error("Create scan response did not include a scan id.");
       }
 
-      const runRecord = extractRunRecord(createResponse);
+      const responseRuns = Array.isArray(createResponse.runs)
+        ? createResponse.runs
+        : [];
+      const responseScans = Array.isArray(createResponse.scans)
+        ? createResponse.scans
+        : [];
 
-      if (runRecord?.id && runRecord.scanId) {
-        onRunStarted?.({
-          runId: runRecord.id,
-          scanId: runRecord.scanId,
+      if (responseRuns.length > 0) {
+        responseRuns.forEach((run, runIndex) => {
+          if (!run?.id || !run?.scanId) {
+            return;
+          }
+
+          const relatedScan = responseScans.find(
+            (scan) =>
+              typeof scan?.id === "number" && Number(scan.id) === run.scanId,
+          );
+
+          onRunStarted?.({
+            frequency:
+              typeof relatedScan?.frequency === "string"
+                ? relatedScan.frequency
+                : (recurringSchedule?.frequency ?? null),
+            keyword:
+              typeof relatedScan?.keyword === "string" &&
+              relatedScan.keyword.trim()
+                ? relatedScan.keyword
+                : (validatedValues.keywords[runIndex] ?? "Keyword"),
+            nextRunAt:
+              typeof relatedScan?.nextRunAt === "string"
+                ? relatedScan.nextRunAt
+                : null,
+            runId: run.id,
+            scanId: run.scanId,
+          });
         });
+      } else {
+        const runRecord = extractRunRecord(createResponse);
+
+        if (runRecord?.id && runRecord.scanId) {
+          const apiScan = createResponse.scan;
+
+          onRunStarted?.({
+            frequency:
+              typeof apiScan?.frequency === "string"
+                ? apiScan.frequency
+                : (recurringSchedule?.frequency ?? null),
+            keyword:
+              typeof apiScan?.keyword === "string" && apiScan.keyword.trim()
+                ? apiScan.keyword
+                : (validatedValues.keywords[0] ?? "Keyword"),
+            nextRunAt:
+              typeof apiScan?.nextRunAt === "string" ? apiScan.nextRunAt : null,
+            runId: runRecord.id,
+            scanId: runRecord.scanId,
+          });
+        }
       }
       await onSubmit?.(validatedValues);
+      toast.success("Scan scheduled successfully.");
       closeModal();
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -536,9 +619,10 @@ export const ScanKeywordModal = ({
         return;
       }
 
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to schedule scan.",
-      );
+      toast.danger("Failed to schedule scan", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
     }
   };
 
@@ -567,9 +651,6 @@ export const ScanKeywordModal = ({
           </Button>
         </ModalHeader>
         <ModalBody className="space-y-4 py-5">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
           <div>
             <p className={labelClassName}>Connected Google Business Profile</p>
             <Card className="border border-default-200 shadow-none">

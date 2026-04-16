@@ -668,18 +668,18 @@ export const ClientGbpProfile = ({
           <DetailHeader title="More Details" />
           {detailGroups.length > 0 ? (
             <div className="space-y-4">
-              {detailGroups.map((group) => (
+              {detailGroups.map((group, groupIndex) => (
                 <div
-                  key={group.title}
+                  key={`${group.title}-${groupIndex}`}
                   className="grid gap-3 border-b border-default-200 pb-4 last:border-b-0 last:pb-0 md:grid-cols-[180px_minmax(0,1fr)]"
                 >
                   <p className="text-sm font-medium text-[#111827]">
                     {group.title}
                   </p>
                   <div className="space-y-2">
-                    {group.items.map((item) => (
+                    {group.items.map((item, itemIndex) => (
                       <div
-                        key={`${group.title}-${item}`}
+                        key={`${group.title}-${item}-${itemIndex}`}
                         className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm text-[#475569]"
                       >
                         <span>{item}</span>

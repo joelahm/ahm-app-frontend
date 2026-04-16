@@ -31,6 +31,7 @@ import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import { ClientProfileAside } from "@/components/dashboard/client-details/client-profile-aside";
 import { useDropdownData } from "@/components/dashboard/client-details/dropdown-data";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { getCountryOptions } from "@/components/form/location-options";
 import { TokenInputField } from "@/components/form/token-input-field";
@@ -456,6 +457,7 @@ const hasCompletedPracticeHours = (items: PracticeHour[]) =>
 
 export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   const { session } = useAuth();
+  const toast = useAppToast();
   const formattedClientName = slug.replace(/-/g, " ");
   const { cityStates, practiceTypes } = useDropdownData();
   const countries = useMemo(() => getCountryOptions(), []);
@@ -496,7 +498,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     useState<UploadValue>([]);
   const [colorGuide, setColorGuide] = useState<UploadValue>([]);
   const [logo, setLogo] = useState<UploadValue>([]);
-  const [saveMessage, setSaveMessage] = useState("");
   const filteredCountryOptions = useMemo(() => {
     const normalizedQuery = countrySearch.trim().toLowerCase();
 
@@ -806,7 +807,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   const onSubmit = async (values: ClientDetailsFormValues) => {
     clearErrors();
     setDetailsError("");
-    setSaveMessage("");
 
     try {
       await clientDetailsSchema.validate(values, { abortEarly: false });
@@ -948,10 +948,8 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         updatedClient.clientName ?? updatedClient.businessName ?? "",
       );
       setCountrySearch(updatedClient.country ?? values.country);
-      setSaveMessage("Client details saved.");
+      toast.success("Client details saved.");
     } catch (error) {
-      setSaveMessage("");
-
       if (error instanceof yup.ValidationError) {
         error.inner.forEach((issue) => {
           if (!issue.path) {
@@ -967,11 +965,15 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         return;
       }
 
-      setDetailsError(
+      const errorMessage =
         error instanceof Error
           ? error.message
-          : "Failed to save client details.",
-      );
+          : "Failed to save client details.";
+
+      setDetailsError(errorMessage);
+      toast.danger("Failed to save client details", {
+        description: errorMessage,
+      });
     }
   };
 
@@ -1771,7 +1773,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           <Divider />
 
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-success">{saveMessage}</p>
+            <div />
             <div className="flex gap-2">
               <Button radius="sm" type="button" variant="light">
                 Cancel

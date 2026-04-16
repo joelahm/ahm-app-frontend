@@ -8,6 +8,13 @@ import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
 import { Input } from "@heroui/input";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { Tab, Tabs } from "@heroui/tabs";
 import {
@@ -25,6 +32,7 @@ import {
   ListPlus,
   Search,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import {
   keywordResearchApi,
@@ -35,6 +43,7 @@ import {
 } from "@/apis/keyword-research";
 import { keywordContentListsApi } from "@/apis/keyword-content-lists";
 import { clientsApi, type ClientApiItem } from "@/apis/clients";
+import { scansApi } from "@/apis/scans";
 import { useAuth } from "@/components/auth/auth-context";
 import { AddKeywordsToWebContentModal } from "@/components/dashboard/keyword-research/add-keywords-to-web-content-modal";
 import {
@@ -42,6 +51,7 @@ import {
   type WebsiteContentKeywordItem,
   type WebsiteContentFormValues,
 } from "@/components/dashboard/keyword-research/website-content-keywords-modal";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 type KeywordResearchRow = {
   cpc: number | null;
@@ -54,6 +64,7 @@ type KeywordResearchRow = {
 };
 
 const RESULTS_PER_PAGE = 10;
+const LOCAL_RANKINGS_LAUNCH_KEY = "ahm-local-rankings-launch";
 
 const tabClassNames = {
   cursor: "bg-white shadow-none",
@@ -119,6 +130,8 @@ const DEFAULT_LANGUAGE_OPTION: KeywordResearchLanguageOption = {
 };
 
 export const KeywordResearchScreen = () => {
+  const router = useRouter();
+  const toast = useAppToast();
   const { session } = useAuth();
   const [activeTab, setActiveTab] = useState("keywords");
   const [keywordMode, setKeywordMode] = useState("similar-keywords");
@@ -127,8 +140,12 @@ export const KeywordResearchScreen = () => {
   const [isAddToListOpen, setIsAddToListOpen] = useState(false);
   const [isWebsiteContentModalOpen, setIsWebsiteContentModalOpen] =
     useState(false);
+  const [isLocalRankingsChoiceOpen, setIsLocalRankingsChoiceOpen] =
+    useState(false);
   const [websiteContentLocation, setWebsiteContentLocation] = useState("");
   const [websiteContentSelectedClientId, setWebsiteContentSelectedClientId] =
+    useState("");
+  const [localRankingsSelectedClientId, setLocalRankingsSelectedClientId] =
     useState("");
   const [websiteContentKeywords, setWebsiteContentKeywords] = useState<
     WebsiteContentKeywordItem[]
@@ -608,6 +625,13 @@ export const KeywordResearchScreen = () => {
     async ({ clientId, location }: { clientId: string; location: string }) => {
       setSaveSuccessMessage("");
 
+      if (location === "Local Rankings") {
+        setLocalRankingsSelectedClientId(clientId);
+        setIsLocalRankingsChoiceOpen(true);
+
+        return;
+      }
+
       if (location !== "Website Content") {
         return;
       }
@@ -628,6 +652,92 @@ export const KeywordResearchScreen = () => {
     },
     [exportRows],
   );
+
+  const handleOpenLocalRankingsNow = useCallback(() => {
+    if (!localRankingsSelectedClientId) {
+      toast.warning("Client is required to continue.");
+
+      return;
+    }
+
+    const keywords = Array.from(
+      new Set(
+        exportRows
+          .map((row) => row.keyword.trim())
+          .filter((keyword) => keyword.length > 0),
+      ),
+    );
+
+    if (!keywords.length) {
+      toast.warning("No keywords selected.");
+
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(
+        LOCAL_RANKINGS_LAUNCH_KEY,
+        JSON.stringify({
+          clientId: localRankingsSelectedClientId,
+          keywords,
+        }),
+      );
+    }
+
+    setIsLocalRankingsChoiceOpen(false);
+    setIsAddToListOpen(false);
+    const encodedKeywords = encodeURIComponent(JSON.stringify(keywords));
+
+    router.push(
+      `/dashboard/clients/${encodeURIComponent(localRankingsSelectedClientId)}/local-rankings?openScanModal=1&prefillKeywords=${encodedKeywords}`,
+    );
+  }, [exportRows, localRankingsSelectedClientId, router, toast]);
+
+  const handleSaveForScanLater = useCallback(() => {
+    if (!session?.accessToken) {
+      toast.warning("You must be signed in.");
+
+      return;
+    }
+
+    if (!localRankingsSelectedClientId) {
+      toast.warning("Client is required to continue.");
+
+      return;
+    }
+
+    const keywords = Array.from(
+      new Set(
+        exportRows
+          .map((row) => row.keyword.trim())
+          .filter((keyword) => keyword.length > 0),
+      ),
+    );
+
+    if (!keywords.length) {
+      toast.warning("No keywords selected.");
+
+      return;
+    }
+
+    void scansApi
+      .saveLocalRankingKeywords(
+        session.accessToken,
+        localRankingsSelectedClientId,
+        keywords,
+      )
+      .then(() => {
+        setIsLocalRankingsChoiceOpen(false);
+        setIsAddToListOpen(false);
+        toast.success("Keywords saved for local ranking scan later.");
+      })
+      .catch((error) => {
+        toast.danger("Failed to save keywords", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      });
+  }, [exportRows, localRankingsSelectedClientId, session?.accessToken, toast]);
 
   const handleSaveWebsiteContentKeywords = useCallback(
     async (values: WebsiteContentFormValues) => {
@@ -1073,6 +1183,37 @@ export const KeywordResearchScreen = () => {
         onOpenChange={setIsWebsiteContentModalOpen}
         onSubmit={handleSaveWebsiteContentKeywords}
       />
+      <Modal
+        isOpen={isLocalRankingsChoiceOpen}
+        placement="center"
+        onOpenChange={setIsLocalRankingsChoiceOpen}
+      >
+        <ModalContent>
+          <ModalHeader className="text-lg font-semibold text-[#111827]">
+            Local Rankings
+          </ModalHeader>
+          <ModalBody className="pb-2 pt-0 text-sm text-[#4B5563]">
+            Do you want to open Local Rankings now with selected keywords, or
+            save these keywords for scan later?
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              radius="md"
+              variant="bordered"
+              onPress={handleSaveForScanLater}
+            >
+              Save For Scan Later
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              radius="md"
+              onPress={handleOpenLocalRankingsNow}
+            >
+              Go To Local Rankings
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 };

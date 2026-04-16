@@ -1,196 +1,200 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
-import { Progress } from "@heroui/progress";
-import { Tab, Tabs } from "@heroui/tabs";
 import {
-  HardDrive,
-  ImageIcon,
-  List,
-  ScanSearch,
-  Search,
-  Sparkles,
-} from "lucide-react";
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
+import { Select, SelectItem } from "@heroui/select";
+import { Search } from "lucide-react";
 
+import { usersApi, type ActivityLogItem } from "@/apis/users";
+import { useAuth } from "@/components/auth/auth-context";
 import {
   DashboardDataTable,
   type DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
-import { ManageCreditAllocationModal } from "@/components/dashboard/settings/manage-credit-allocation-modal";
+import { useAppToast } from "@/hooks/use-app-toast";
 
-interface CreditUsageRow {
-  address: string;
-  allocated: number;
-  clientName: string;
+interface UserLogsRow {
+  action: string;
+  actor: string;
+  actorId: string;
+  createdAt: string;
   id: string;
-  lastUsage: string;
-  used: number;
+  raw: ActivityLogItem;
+  resource: string;
 }
-
-const CREDIT_USAGE_ROWS: CreditUsageRow[] = [
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Ricardo Camprodon",
-    id: "credit-1",
-    lastUsage: "2 days ago",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Sven Putnis",
-    id: "credit-2",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Ricardo Camprodon",
-    id: "credit-3",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Sven Putnis",
-    id: "credit-4",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "1234567890",
-    allocated: 500,
-    clientName: "Mr Ricardo Camprodon",
-    id: "credit-5",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Sven Putnis",
-    id: "credit-6",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Ricardo Camprodon",
-    id: "credit-7",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Sven Putnis",
-    id: "credit-8",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "1234567890",
-    allocated: 500,
-    clientName: "Mr Ricardo Camprodon",
-    id: "credit-9",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-  {
-    address: "123 ABC, Street, 12345",
-    allocated: 500,
-    clientName: "Mr Sven Putnis",
-    id: "credit-10",
-    lastUsage: "Jul. 12, 2024",
-    used: 320,
-  },
-];
 
 const headerCellClass = "bg-[#F9FAFB] text-xs font-medium text-[#111827]";
 
+const formatDateTime = (value: string | null | undefined) => {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+
+  return parsed.toLocaleString("en-GB", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const formatAction = (value: string) =>
+  value
+    .toLowerCase()
+    .split("_")
+    .map((item) => item.charAt(0).toUpperCase() + item.slice(1))
+    .join(" ");
+
 export const SettingsCreditUsageContent = () => {
-  const [activeTab, setActiveTab] = useState("scan-credits");
-  const [currentPage, setCurrentPage] = useState(2);
-  const [isManageAllocationOpen, setIsManageAllocationOpen] = useState(false);
+  const { getValidAccessToken } = useAuth();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
+  const [rows, setRows] = useState<UserLogsRow[]>([]);
+  const [selectedActivity, setSelectedActivity] = useState<UserLogsRow | null>(
+    null,
+  );
   const [searchValue, setSearchValue] = useState("");
+  const [selectedActorId, setSelectedActorId] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+
+  toastRef.current = toast;
+
+  const loadLogs = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const accessToken = await getValidAccessToken();
+      const data = await usersApi.getActivityLogs(accessToken, {
+        actorUserId: selectedActorId === "all" ? undefined : selectedActorId,
+        limit: 10,
+        page: currentPage,
+      });
+
+      const mappedRows: UserLogsRow[] = data.activityLogs.map((item) => ({
+        action: formatAction(item.action),
+        actor: item.actor?.name || item.actor?.email || "Unknown User",
+        actorId: item.actor?.id ? String(item.actor.id) : "unknown",
+        createdAt: formatDateTime(item.createdAt),
+        id: String(item.id),
+        raw: item,
+        resource: item.resourceType,
+      }));
+
+      setRows(mappedRows);
+      setTotalPages(data.pagination?.totalPages ?? 1);
+    } catch (error) {
+      setRows([]);
+      setTotalPages(1);
+      toastRef.current.danger("Failed to load user logs.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, getValidAccessToken, selectedActorId]);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
+
+  const actorOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    rows.forEach((row) => {
+      if (row.actorId !== "unknown" && !map.has(row.actorId)) {
+        map.set(row.actorId, row.actor);
+      }
+    });
+
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [rows]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
 
     if (!query) {
-      return CREDIT_USAGE_ROWS;
+      return rows;
     }
 
-    return CREDIT_USAGE_ROWS.filter((row) =>
-      [row.clientName, row.address, row.lastUsage].some((value) =>
+    return rows.filter((row) =>
+      [row.action, row.actor, row.resource].some((value) =>
         value.toLowerCase().includes(query),
       ),
     );
-  }, [searchValue]);
+  }, [rows, searchValue]);
 
-  const columns = useMemo<DashboardDataTableColumn<CreditUsageRow>[]>(
+  const columns = useMemo<DashboardDataTableColumn<UserLogsRow>[]>(
     () => [
       {
         className: headerCellClass,
-        key: "clientName",
-        label: "Client Name",
+        key: "actor",
+        label: "User",
         renderCell: (item) => (
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-[#1F2937]">
-              {item.clientName}
-            </p>
-            <p className="text-xs text-[#9CA3AF]">{item.address}</p>
-          </div>
+          <span className="text-sm font-medium text-[#111827]">
+            {item.actor}
+          </span>
         ),
       },
       {
         className: headerCellClass,
-        key: "usage",
-        label: "Usage",
+        key: "action",
+        label: "Activity",
         renderCell: (item) => (
-          <div className="min-w-[120px] space-y-1">
-            <p className="text-sm leading-none text-[#374151]">
-              {item.used}
-              <span className="font-medium text-[#98A2B3]">
-                {" "}
-                / {item.allocated}
-              </span>
-            </p>
-            <Progress
-              aria-label={`${item.clientName} usage`}
-              className="w-[70px]"
-              classNames={{
-                base: "max-w-[70px]",
-                indicator: "rounded-full bg-[#0B2A84]",
-                track: "h-2.5 rounded-full bg-[#EEF2F7]",
+          <span className="text-sm text-[#111827]">{item.action}</span>
+        ),
+      },
+      {
+        className: headerCellClass,
+        key: "resource",
+        label: "Resource",
+        renderCell: (item) => (
+          <span className="text-sm capitalize text-default-600">
+            {item.resource.replace(/_/g, " ")}
+          </span>
+        ),
+      },
+      {
+        className: headerCellClass,
+        key: "createdAt",
+        label: "Date & Time",
+        renderCell: (item) => (
+          <span className="text-sm text-default-600">{item.createdAt}</span>
+        ),
+      },
+      {
+        className: `${headerCellClass} text-right`,
+        key: "actionButton",
+        label: "Action",
+        renderCell: (item) => (
+          <div className="flex justify-end">
+            <Button
+              radius="sm"
+              size="sm"
+              variant="bordered"
+              onPress={() => {
+                setSelectedActivity(item);
               }}
-              radius="full"
-              size="md"
-              value={(item.used / item.allocated) * 100}
-            />
+            >
+              View
+            </Button>
           </div>
-        ),
-      },
-      {
-        className: headerCellClass,
-        key: "allocated",
-        label: "Allocated",
-        renderCell: (item) => (
-          <span className="text-sm text-[#374151]">{item.allocated}</span>
-        ),
-      },
-      {
-        className: headerCellClass,
-        key: "lastUsage",
-        label: "Last Usage",
-        renderCell: (item) => (
-          <span className="text-sm text-[#4B5563]">{item.lastUsage}</span>
         ),
       },
     ],
@@ -198,105 +202,139 @@ export const SettingsCreditUsageContent = () => {
   );
 
   return (
-    <div className="space-y-4">
-      <Tabs
-        aria-label="Credit usage tabs"
-        classNames={{
-          base: "w-fit",
-          cursor: "bg-white shadow-none",
-          panel: "hidden",
-          tab: "h-10 px-4 data-[selected=true]:text-[#111827]",
-          tabContent:
-            "group-data-[selected=true]:text-[#111827] text-[#4B5563] font-medium",
-          tabList: "gap-1 rounded-xl bg-[#F3F4F6] p-1",
-        }}
-        color="primary"
-        radius="md"
-        selectedKey={activeTab}
-        onSelectionChange={(key) => setActiveTab(String(key))}
-      >
-        <Tab
-          key="scan-credits"
-          title={
-            <div className="flex items-center gap-2">
-              <ScanSearch size={16} />
-              <span>Scan Credits</span>
-            </div>
-          }
-        />
-        <Tab
-          key="ai-credits"
-          title={
-            <div className="flex items-center gap-2">
-              <Sparkles size={16} />
-              <span>AI Credits</span>
-            </div>
-          }
-        />
-        <Tab
-          key="media-storage"
-          title={
-            <div className="flex items-center gap-2">
-              <ImageIcon size={16} />
-              <HardDrive size={16} />
-              <span>Media Storage</span>
-            </div>
-          }
-        />
-      </Tabs>
+    <>
+      <DashboardDataTable
+        serverPagination
+        showPagination
+        ariaLabel="User activity logs table"
+        columns={columns}
+        currentPage={currentPage}
+        getRowKey={(item) => item.id}
+        headerRight={
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-end">
+            <Select
+              aria-label="Filter by user"
+              className="w-full sm:w-[220px]"
+              label="User"
+              labelPlacement="outside"
+              selectedKeys={[selectedActorId]}
+              size="sm"
+              onSelectionChange={(keys) => {
+                const nextActor = Array.from(keys as Set<string>)[0] ?? "all";
 
-      {activeTab === "scan-credits" ? (
-        <DashboardDataTable
-          ariaLabel="Credit usage table"
-          columns={columns}
-          currentPage={currentPage}
-          getRowKey={(item) => item.id}
-          headerRight={
-            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-              <Button startContent={<List size={18} />} variant="bordered">
-                Show 10
-              </Button>
-              <Input
-                className="w-full sm:w-[202px]"
-                placeholder="Search here"
-                radius="md"
-                startContent={<Search className="text-default-400" size={18} />}
-                value={searchValue}
-                onValueChange={setSearchValue}
-              />
-              <Button
-                className="bg-primary text-white"
-                onPress={() => setIsManageAllocationOpen(true)}
-              >
-                Manage Credits
-              </Button>
-            </div>
-          }
-          pageSize={10}
-          rows={filteredRows}
-          showPagination={true}
-          title="All Clients"
-          onPageChange={setCurrentPage}
-        />
-      ) : (
-        <div className="rounded-2xl border border-default-200 bg-white p-8 text-sm text-[#6B7280]">
-          {activeTab === "ai-credits"
-            ? "AI Credits content is not configured yet."
-            : "Media Storage content is not configured yet."}
-        </div>
-      )}
-
-      <ManageCreditAllocationModal
-        isOpen={isManageAllocationOpen}
-        rows={filteredRows.map((row) => ({
-          address: row.address,
-          allocated: 800,
-          clientName: row.clientName,
-          id: row.id,
-          used: 500,
-        }))}
-        onOpenChange={setIsManageAllocationOpen}
+                setSelectedActorId(nextActor);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectItem key="all">All Users</SelectItem>
+              {actorOptions.map((option) => (
+                <SelectItem key={option.id}>{option.label}</SelectItem>
+              ))}
+            </Select>
+            <Input
+              className="w-full sm:w-[260px]"
+              endContent={<Search className="text-default-400" size={16} />}
+              label="Search"
+              labelPlacement="outside"
+              placeholder="Search activity..."
+              radius="sm"
+              size="sm"
+              value={searchValue}
+              onValueChange={setSearchValue}
+            />
+          </div>
+        }
+        rows={filteredRows}
+        title="User Logs"
+        topContent={
+          <p className="text-sm text-default-500">
+            {isLoading
+              ? "Loading user activity logs..."
+              : `${rows.length} log item(s) on this page`}
+          </p>
+        }
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
       />
-    </div>
+
+      <Modal
+        isOpen={!!selectedActivity}
+        size="xl"
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedActivity(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>User Activity Details</ModalHeader>
+          <ModalBody>
+            {selectedActivity ? (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">User</p>
+                  <p className="font-medium text-[#111827]">
+                    {selectedActivity.actor}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">Activity</p>
+                  <p className="font-medium text-[#111827]">
+                    {selectedActivity.action}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">Resource</p>
+                  <p className="text-[#111827]">
+                    {selectedActivity.raw.resourceType}
+                    {selectedActivity.raw.resourceId
+                      ? ` (${selectedActivity.raw.resourceId})`
+                      : ""}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">Date & Time</p>
+                  <p className="text-[#111827]">
+                    {formatDateTime(selectedActivity.raw.createdAt)}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">IP Address</p>
+                  <p className="text-[#111827]">
+                    {selectedActivity.raw.ipAddress || "-"}
+                  </p>
+                </div>
+                <div className="grid grid-cols-[160px_1fr] gap-3">
+                  <p className="text-default-500">Request ID</p>
+                  <p className="text-[#111827]">
+                    {selectedActivity.raw.requestId || "-"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-default-200 p-3">
+                  <p className="mb-2 font-medium text-[#111827]">Metadata</p>
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs text-default-600">
+                    {JSON.stringify(
+                      selectedActivity.raw.metadata ?? {},
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => {
+                setSelectedActivity(null);
+              }}
+            >
+              Close
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 };

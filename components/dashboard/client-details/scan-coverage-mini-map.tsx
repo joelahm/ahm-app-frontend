@@ -35,7 +35,7 @@ const buildMarkerSvg = (rank?: number | null) => {
 
   const hasRank = typeof rank === "number" && Number.isFinite(rank);
   const fill = hasRank && rank <= 9 ? "#f5bf4c" : "#cb4f4f";
-  const text = hasRank ? String(rank) : "";
+  const text = hasRank ? String(rank) : "X";
   const fontSize = text.length >= 2 ? 12 : 14;
 
   return `
@@ -46,11 +46,7 @@ const buildMarkerSvg = (rank?: number | null) => {
         </filter>
       </defs>
       <circle cx="19" cy="19" r="13.5" fill="${fill}" stroke="#ffffff" stroke-width="1.7" filter="url(#pinShadow)"/>
-      ${
-        text
-          ? `<text x="19" y="23" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff">${text}</text>`
-          : ""
-      }
+      <text x="19" y="23" text-anchor="middle" font-family="Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff">${text}</text>
     </svg>
   `;
 };
@@ -171,7 +167,7 @@ export const ScanCoverageMiniMap = ({
         gestureHandling: "cooperative",
         mapTypeControl: false,
         streetViewControl: false,
-        zoom: 13,
+        zoom: 20,
         zoomControl: true,
       });
 

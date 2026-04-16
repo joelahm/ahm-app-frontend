@@ -22,6 +22,7 @@ interface AuthSession {
 
 interface AuthContextValue {
   error: string | null;
+  getValidAccessToken: () => Promise<string>;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (payload: LoginRequest) => Promise<void>;
@@ -119,6 +120,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     saveSession(null);
   }, []);
 
+  const refreshSession = useCallback(async (currentSession: AuthSession) => {
+    if (!currentSession.refreshToken) {
+      throw new Error("Missing refresh token.");
+    }
+
+    const refreshed = await authApi.refresh({
+      refreshToken: currentSession.refreshToken,
+    });
+
+    if (
+      !isNonEmptyString(refreshed.accessToken) ||
+      typeof refreshed.accessTokenExpiresIn !== "number"
+    ) {
+      throw new Error("Invalid refresh response.");
+    }
+
+    const user = await authApi.me(refreshed.accessToken);
+    const nextSession: AuthSession = {
+      accessToken: refreshed.accessToken,
+      accessTokenExpiresAt: resolveExpiryAt(refreshed),
+      refreshToken: refreshed.refreshToken ?? currentSession.refreshToken,
+      user,
+    };
+
+    setSession(nextSession);
+    saveSession(nextSession);
+
+    return nextSession;
+  }, []);
+
   const bootstrapSession = useCallback(async () => {
     const cachedSession = readSession();
 
@@ -129,63 +160,51 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (!isSessionExpired(cachedSession)) {
-      if (isProfileHydrated(cachedSession)) {
-        setSession(cachedSession);
-        setIsLoading(false);
-
-        return;
-      }
-
       try {
         const user = await authApi.me(cachedSession.accessToken);
         const nextSession: AuthSession = {
           ...cachedSession,
-          user,
+          user: isProfileHydrated(cachedSession) ? cachedSession.user : user,
         };
 
         setSession(nextSession);
         saveSession(nextSession);
+        setIsLoading(false);
+
+        return;
       } catch {
-        setSession(cachedSession);
+        // Cached access token might be revoked/invalid even if not expired.
+        // Fall through to refresh flow before clearing session.
       }
-
-      setIsLoading(false);
-
-      return;
     }
 
     try {
-      if (!cachedSession.refreshToken) {
-        throw new Error("Missing refresh token.");
-      }
-
-      const refreshed = await authApi.refresh({
-        refreshToken: cachedSession.refreshToken,
-      });
-
-      if (
-        !isNonEmptyString(refreshed.accessToken) ||
-        typeof refreshed.accessTokenExpiresIn !== "number"
-      ) {
-        throw new Error("Invalid refresh response.");
-      }
-
-      const user = await authApi.me(refreshed.accessToken);
-      const nextSession: AuthSession = {
-        accessToken: refreshed.accessToken,
-        accessTokenExpiresAt: resolveExpiryAt(refreshed),
-        refreshToken: refreshed.refreshToken ?? cachedSession.refreshToken,
-        user,
-      };
-
-      setSession(nextSession);
-      saveSession(nextSession);
+      await refreshSession(cachedSession);
     } catch {
       clearSession();
     }
 
     setIsLoading(false);
-  }, [clearSession]);
+  }, [clearSession, refreshSession]);
+
+  const getValidAccessToken = useCallback(async () => {
+    if (!session) {
+      throw new Error("You must be signed in.");
+    }
+
+    if (!isSessionExpired(session)) {
+      return session.accessToken;
+    }
+
+    try {
+      const refreshedSession = await refreshSession(session);
+
+      return refreshedSession.accessToken;
+    } catch {
+      clearSession();
+      throw new Error("Session expired. Please login again.");
+    }
+  }, [clearSession, refreshSession, session]);
 
   useEffect(() => {
     void bootstrapSession();
@@ -243,6 +262,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const contextValue = useMemo<AuthContextValue>(
     () => ({
       error,
+      getValidAccessToken,
       isAuthenticated: !!session,
       isLoading,
       login,
@@ -250,7 +270,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       session,
       updateSessionUser,
     }),
-    [error, isLoading, login, logout, session, updateSessionUser],
+    [
+      error,
+      getValidAccessToken,
+      isLoading,
+      login,
+      logout,
+      session,
+      updateSessionUser,
+    ],
   );
 
   return (

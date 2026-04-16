@@ -12,6 +12,7 @@ import {
   Sparkles,
   MapPin,
   TableCellsSplit,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -24,7 +25,8 @@ type SettingsNavKey =
   | "project-templates"
   | "ai-hub"
   | "citation-database"
-  | "credit-usage";
+  | "credit-usage"
+  | "tools";
 
 interface SettingsAsideProps {
   activeKey: SettingsNavKey;
@@ -79,7 +81,13 @@ const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         href: "/dashboard/settings/credit-usage",
         icon: TableCellsSplit,
         key: "credit-usage",
-        label: "Credit Usage",
+        label: "User Logs",
+      },
+      {
+        href: "/dashboard/settings/tools",
+        icon: Wrench,
+        key: "tools",
+        label: "Tools",
       },
     ],
     title: "Admin",

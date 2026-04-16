@@ -9,8 +9,8 @@ import { fontSans } from "@/config/fonts";
 
 export const metadata: Metadata = {
   title: {
-    default: siteConfig.name,
-    template: `%s - ${siteConfig.name}`,
+    default: "AHM App",
+    template: `%s - AHM App`,
   },
   description: siteConfig.description,
   icons: {

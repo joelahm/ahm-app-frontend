@@ -24,7 +24,6 @@ import {
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { authApi } from "@/apis/auth";
-import { keywordResearchApi } from "@/apis/keyword-research";
 import { useAuth } from "@/components/auth/auth-context";
 import { usersApi } from "@/apis/users";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -212,6 +211,7 @@ const getStoredAccessToken = () => {
 export const SettingsProfileContent = () => {
   const { session, updateSessionUser } = useAuth();
   const toast = useAppToast();
+  const toastRef = useRef(toast);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -221,13 +221,12 @@ export const SettingsProfileContent = () => {
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
   const [countrySearch, setCountrySearch] = useState("");
   const [memberId, setMemberId] = useState<string>("-");
-  const [profileError, setProfileError] = useState("");
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [isSyncingDataForSeo, setIsSyncingDataForSeo] = useState(false);
-  const [submitMessage, setSubmitMessage] = useState("");
   const [timeZoneSearch, setTimeZoneSearch] = useState("");
+
+  toastRef.current = toast;
   const countryAliases: Record<string, string> = {
     UAE: "United Arab Emirates",
     UK: "United Kingdom",
@@ -294,8 +293,6 @@ export const SettingsProfileContent = () => {
     let isMounted = true;
 
     const hydrateProfile = async () => {
-      setProfileError("");
-
       try {
         const profile = await usersApi.getCurrentUser(accessToken);
 
@@ -352,9 +349,10 @@ export const SettingsProfileContent = () => {
           return;
         }
 
-        setProfileError(
-          error instanceof Error ? error.message : "Failed to load profile.",
-        );
+        toastRef.current.danger("Failed to load profile", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
       }
     };
 
@@ -405,8 +403,6 @@ export const SettingsProfileContent = () => {
 
   const onSubmit = async (values: SettingsProfileFormValues) => {
     clearErrors();
-    setSubmitMessage("");
-    setProfileError("");
 
     try {
       const validatedValues = await settingsProfileSchema.validate(values, {
@@ -510,7 +506,7 @@ export const SettingsProfileContent = () => {
         });
       }
 
-      setSubmitMessage("Profile updated successfully.");
+      toast.success("Profile updated successfully.");
       setAvatarFile(null);
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -528,29 +524,10 @@ export const SettingsProfileContent = () => {
         return;
       }
 
-      setProfileError(
-        error instanceof Error ? error.message : "Failed to update profile.",
-      );
-    }
-  };
-
-  const handleSyncDataForSeo = async () => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    setIsSyncingDataForSeo(true);
-    try {
-      await keywordResearchApi.syncGoogleAdsReferenceData({
-        accessToken,
-        forceRefresh: true,
-      });
-      toast.success("DataForSEO locations/languages synced successfully.");
-    } catch (error) {
-      toast.danger("Failed to sync DataForSEO reference data.", {
+      toast.danger("Failed to update profile", {
         description:
           error instanceof Error ? error.message : "Please try again.",
       });
-    } finally {
-      setIsSyncingDataForSeo(false);
     }
   };
 
@@ -565,22 +542,6 @@ export const SettingsProfileContent = () => {
             <h2 className="font-semibold text-[#111827]">Basic Information</h2>
           </CardHeader>
           <CardBody className="space-y-3 px-4 py-4">
-            {profileError ? (
-              <Alert
-                color="danger"
-                description={profileError}
-                title="Failed to update profile"
-                variant="flat"
-              />
-            ) : null}
-            {submitMessage ? (
-              <Alert
-                color="success"
-                description={submitMessage}
-                title="Profile updated"
-                variant="flat"
-              />
-            ) : null}
             <div className="flex items-center gap-2">
               <UserCircle2 className="text-[#0568C9]" size={16} />
               <p className="text-sm text-[#4B5563]">Member ID</p>
@@ -963,19 +924,7 @@ export const SettingsProfileContent = () => {
         </Card>
       </div>
 
-      <div className="pt-2 flex items-center justify-between">
-        <Button
-          color="secondary"
-          isLoading={isSyncingDataForSeo}
-          radius="md"
-          type="button"
-          variant="flat"
-          onPress={() => {
-            void handleSyncDataForSeo();
-          }}
-        >
-          Sync DataForSEO Locations
-        </Button>
+      <div className="flex items-center justify-end pt-2">
         <Button
           className="bg-primary text-white"
           isLoading={isSubmitting}

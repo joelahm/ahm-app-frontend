@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -12,13 +12,7 @@ import {
 } from "@heroui/dropdown";
 import { Spinner } from "@heroui/spinner";
 import clsx from "clsx";
-import {
-  ChevronDown,
-  Download,
-  LayoutGrid,
-  Maximize2,
-  Star,
-} from "lucide-react";
+import { ChevronDown, LayoutGrid, Star } from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
 import { scansApi, type ScanComparisonRun } from "@/apis/scans";
@@ -31,14 +25,13 @@ interface ClientLocalRankingDetailsScreenProps {
 }
 
 type CompetitorRow = {
-  appearances: string;
   businessName: string;
-  bestRank: string;
-  previousAverageRank: string;
-  rating: string;
-  reviewScore: string;
-  subtitle: string;
-  website: string;
+  delta: number | null;
+  domain: string;
+  gridSize: string;
+  latestRank: string;
+  previousRank: string;
+  reviews: string;
 };
 
 type MiniMapPanelProps = {
@@ -59,7 +52,7 @@ type MiniMapPanelProps = {
 };
 
 const toolbarChipClass =
-  "h-10 rounded-lg border border-default-200 bg-white text-sm text-default-600 shadow-none";
+  "h-10 rounded-lg border border-default-200 bg-white text-xs text-default-600 shadow-none";
 const panelClass = "border border-default-200 bg-white shadow-none";
 
 const getStoredAccessToken = () => {
@@ -82,7 +75,7 @@ const getStoredAccessToken = () => {
   }
 };
 
-const formatAverageRank = (value?: number | null, fallback = "10.62") =>
+const formatAverageRank = (value?: number | null, fallback = "X") =>
   value === null || value === undefined ? fallback : value.toFixed(2);
 
 const formatRunTitle = (value?: string | null) => {
@@ -122,9 +115,6 @@ const formatRunSubtitle = (value?: string | null) => {
 
 const formatCompetitorMetric = (value?: number | null) =>
   value === null || value === undefined ? "-" : value.toFixed(2);
-
-const formatCompetitorRank = (value?: number | null) =>
-  value === null || value === undefined ? "-" : String(value);
 
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
@@ -192,10 +182,31 @@ const formatGridSizeLabel = (
   return `Grid Points ${coverage.length}`;
 };
 
-const scoreRing = {
-  background:
-    "conic-gradient(#c84b4a 0 36%, #f0bf4f 36% 82%, #61c27f 82% 100%)",
+const formatRankHeader = (value?: string | null) => {
+  if (!value) {
+    return "Rank";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Rank";
+  }
+
+  return `Rank (${new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date)})`;
 };
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 
 const MiniMapPanel = ({
   averageRank,
@@ -205,23 +216,66 @@ const MiniMapPanel = ({
   subtitle,
   title,
 }: MiniMapPanelProps) => {
+  const ringStyle = useMemo(() => {
+    const totals = points.reduce(
+      (accumulator, point) => {
+        const rank = point.rank;
+
+        if (typeof rank !== "number" || !Number.isFinite(rank)) {
+          accumulator.low += 1;
+
+          return accumulator;
+        }
+
+        if (rank === 1) {
+          accumulator.high += 1;
+        } else if (rank <= 9) {
+          accumulator.medium += 1;
+        } else {
+          accumulator.low += 1;
+        }
+
+        return accumulator;
+      },
+      { high: 0, low: 0, medium: 0 },
+    );
+    const totalPoints = totals.high + totals.medium + totals.low;
+
+    if (!totalPoints) {
+      return {
+        background: "conic-gradient(#e5e7eb 0 100%)",
+      };
+    }
+
+    const lowPercent = (totals.low / totalPoints) * 100;
+    const mediumPercent = (totals.medium / totalPoints) * 100;
+    const highPercent = (totals.high / totalPoints) * 100;
+    const lowEnd = lowPercent;
+    const mediumEnd = lowPercent + mediumPercent;
+    const highEnd = mediumEnd + highPercent;
+
+    return {
+      background: `conic-gradient(#c84b4a 0 ${lowEnd}%, #f0bf4f ${lowEnd}% ${mediumEnd}%, #61c27f ${mediumEnd}% ${highEnd}%)`,
+    };
+  }, [points]);
+
   return (
     <div className="relative overflow-hidden">
       <ScanCoverageMiniMap center={center} label={label} points={points} />
-      <div className="pointer-events-none absolute right-4 top-4 z-20 w-[212px] rounded-[24px] bg-white/96 p-5 shadow-[0_24px_48px_rgba(15,23,42,0.12)]">
-        <p className="text-sm font-medium text-default-500">{title}</p>
-        {subtitle ? (
-          <p className="mt-1 text-xs text-default-400">{subtitle}</p>
-        ) : null}
-        <div className="mt-2 flex items-center justify-between gap-4">
-          <p className="text-[3rem] font-semibold leading-none tracking-[-0.06em] text-[#111827]">
-            {averageRank}
-          </p>
-          <div className="relative h-20 w-20 rounded-full" style={scoreRing}>
+      <div className="pointer-events-none absolute right-4 top-4 z-10 w-[250px] rounded-[24px] bg-white/96 p-4 shadow-[0_24px_48px_rgba(15,23,42,0.12)]">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <span className="text-sm">Avg. Rank</span>
+            <p className="text-5xl font-semibold leading-none tracking-[-0.06em] text-[#111827]">
+              {averageRank}
+            </p>
+          </div>
+
+          <div className="relative h-20 w-20 rounded-full" style={ringStyle}>
             <div className="absolute inset-[22%] rounded-full bg-white" />
           </div>
         </div>
-        <div className="mt-5 flex gap-4 text-sm text-default-500">
+        <div className="mt-2 flex gap-4 text-sm text-default-500">
           <span className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-[#61c27f]" />
             High
@@ -234,6 +288,12 @@ const MiniMapPanel = ({
             <span className="h-2.5 w-2.5 rounded-full bg-[#c84b4a]" />
             Low
           </span>
+        </div>
+        <div className="mt-2">
+          <p className="text-xs font-medium text-default-400">
+            {title}
+            {subtitle ? <span> {subtitle}</span> : null}
+          </p>
         </div>
       </div>
     </div>
@@ -251,7 +311,6 @@ export const ClientLocalRankingDetailsScreen = ({
   >([]);
   const [coverageUnit, setCoverageUnit] = useState<string | null>(null);
   const [keywordLabel, setKeywordLabel] = useState("");
-  const [totalRuns, setTotalRuns] = useState(0);
   const [gbpCenter, setGbpCenter] = useState<{
     latitude: number;
     longitude: number;
@@ -259,6 +318,7 @@ export const ClientLocalRankingDetailsScreen = ({
   const [gbpLabel, setGbpLabel] = useState<string | null>(null);
   const [gridLayout, setGridLayout] = useState<1 | 2 | 3>(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const scanId = useMemo(() => {
     const parsed = Number(rankingId);
 
@@ -274,7 +334,6 @@ export const ClientLocalRankingDetailsScreen = ({
       setCoverage([]);
       setCoverageUnit(null);
       setKeywordLabel("");
-      setTotalRuns(0);
 
       return;
     }
@@ -324,7 +383,6 @@ export const ClientLocalRankingDetailsScreen = ({
         setCoverage(comparisonResponse.scan.coverage || []);
         setCoverageUnit(comparisonResponse.scan.coverageUnit || null);
         setKeywordLabel(comparisonResponse.comparison.keyword || "");
-        setTotalRuns(comparisonResponse.comparison.totalRuns || 0);
       } catch {
         if (!isMounted) {
           return;
@@ -334,7 +392,6 @@ export const ClientLocalRankingDetailsScreen = ({
         setCoverage([]);
         setCoverageUnit(null);
         setKeywordLabel("");
-        setTotalRuns(0);
         setGbpCenter(null);
         setGbpLabel(null);
       } finally {
@@ -352,7 +409,7 @@ export const ClientLocalRankingDetailsScreen = ({
   }, [clientId, scanId, session?.accessToken]);
 
   const mapPanels = comparisonRuns.map((run) => ({
-    averageRank: formatAverageRank(run.averageRank, "10.62"),
+    averageRank: formatAverageRank(run.averageRank, "X"),
     center: gbpCenter,
     label: gbpLabel,
     points: run.coordinates.map((coordinate, coordinateIndex) => ({
@@ -382,156 +439,244 @@ export const ClientLocalRankingDetailsScreen = ({
       return [];
     }
 
-    const latestEntries = new Map<
-      string,
-      {
-        address: string;
-        appearances: number;
-        bestRank: number | null;
-        businessName: string;
-        rankTotal: number;
-        rankedCount: number;
-        rating: number | null;
-        website: string;
+    const clientFoundInLatestRun =
+      latestRun.averageRank !== null &&
+      latestRun.averageRank !== undefined &&
+      Number.isFinite(Number(latestRun.averageRank));
+
+    if (!clientFoundInLatestRun) {
+      return [];
+    }
+
+    const latestCompetitors = latestRun.competitors || [];
+    const previousByKey = new Map(
+      (previousRun?.competitors || []).map((competitor) => [
+        competitor.key,
+        competitor,
+      ]),
+    );
+
+    return latestCompetitors.map((competitor) => {
+      const previousCompetitor = previousByKey.get(competitor.key);
+      const latestRank = competitor.averageRank ?? null;
+      const previousRank = previousCompetitor?.averageRank ?? null;
+      const delta =
+        latestRank !== null && previousRank !== null
+          ? Number((previousRank - latestRank).toFixed(2))
+          : null;
+      const ratingText =
+        competitor.rating === null || competitor.rating === undefined
+          ? "-"
+          : competitor.rating.toFixed(1);
+      const reviewsCountText =
+        competitor.reviewsCount === null ||
+        competitor.reviewsCount === undefined
+          ? "- Reviews"
+          : `${competitor.reviewsCount} Reviews`;
+
+      return {
+        businessName: competitor.businessName || "-",
+        delta,
+        domain: competitor.domain || "-",
+        gridSize: `${gridSizeLabel.replace("Grid Size ", "")} | ${areaLabel.replace("Area ", "")}`,
+        latestRank: formatCompetitorMetric(latestRank),
+        previousRank: formatCompetitorMetric(previousRank),
+        reviews: `${ratingText} | ${reviewsCountText}`,
+      };
+    });
+  }, [areaLabel, comparisonRuns, gridSizeLabel]);
+  const latestRankHeader = useMemo(
+    () =>
+      formatRankHeader(
+        comparisonRuns[0]?.finishedAt || comparisonRuns[0]?.startedAt,
+      ),
+    [comparisonRuns],
+  );
+  const previousRankHeader = useMemo(
+    () =>
+      formatRankHeader(
+        comparisonRuns[1]?.finishedAt || comparisonRuns[1]?.startedAt,
+      ),
+    [comparisonRuns],
+  );
+  const exportPdf = useCallback(() => {
+    if (!mapPanels.length && !competitorRows.length) {
+      return;
+    }
+
+    const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    const gridColumns =
+      gridLayout === 1 ? "1fr" : gridLayout === 2 ? "1fr 1fr" : "1fr 1fr 1fr";
+    const staticSize = gridLayout === 1 ? "960x540" : "640x360";
+
+    const buildMarkerColor = (rank?: number | null) => {
+      if (rank === 1) {
+        return "green";
       }
-    >();
-    const previousAverageByKey = new Map<string, number | null>();
 
-    for (const coordinate of latestRun.coordinates) {
-      const businessName = coordinate.matchedTitle?.trim();
-
-      if (!businessName) {
-        continue;
+      if (typeof rank === "number" && Number.isFinite(rank) && rank <= 9) {
+        return "yellow";
       }
 
-      const key =
-        coordinate.matchedPlaceId?.trim() ||
-        coordinate.matchedDomain?.trim() ||
-        businessName;
-      const existing = latestEntries.get(key) ?? {
-        address: coordinate.matchedAddress?.trim() || "-",
-        appearances: 0,
-        bestRank: null,
-        businessName,
-        rankTotal: 0,
-        rankedCount: 0,
-        rating: coordinate.matchedRating ?? null,
-        website: coordinate.matchedDomain?.trim() || "-",
+      return "red";
+    };
+    const buildStaticMapUrl = (panel: (typeof mapPanels)[number]) => {
+      if (!googleMapsApiKey || !panel.center) {
+        return "";
+      }
+
+      const markers = panel.points
+        .slice(0, 30)
+        .map((point) => {
+          const color = buildMarkerColor(point.rank);
+
+          return `markers=size:tiny%7Ccolor:${color}%7C${point.latitude},${point.longitude}`;
+        })
+        .join("&");
+      const centerMarker = `markers=color:blue%7C${panel.center.latitude},${panel.center.longitude}`;
+
+      return `https://maps.googleapis.com/maps/api/staticmap?size=${staticSize}&scale=2&maptype=roadmap&${centerMarker}${markers ? `&${markers}` : ""}&key=${encodeURIComponent(googleMapsApiKey)}`;
+    };
+
+    const mapsHtml = mapPanels
+      .map((panel) => {
+        const mapUrl = buildStaticMapUrl(panel);
+        const title = escapeHtml(panel.title);
+        const subtitle = escapeHtml(panel.subtitle || "");
+        const averageRank = escapeHtml(panel.averageRank);
+
+        return `
+          <article class="map-card">
+            ${mapUrl ? `<img src="${mapUrl}" alt="${title}" class="map-image" />` : `<div class="map-image no-map">Map preview unavailable</div>`}
+            <div class="map-meta">
+              <h3>${title}</h3>
+              <p>${subtitle}</p>
+              <strong>Avg. Rank: ${averageRank}</strong>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+    const competitorRowsHtml = competitorRows
+      .map(
+        (row) => `
+          <tr>
+            <td>${escapeHtml(row.businessName)}</td>
+            <td>${escapeHtml(row.domain)}</td>
+            <td>${escapeHtml(row.previousRank)}</td>
+            <td>${escapeHtml(row.latestRank)}</td>
+            <td>${row.delta !== null ? escapeHtml(row.delta > 0 ? `↗ +${row.delta}` : `↘ ${row.delta}`) : "-"}</td>
+            <td>${escapeHtml(row.gridSize)}</td>
+            <td>${escapeHtml(row.reviews)}</td>
+          </tr>
+        `,
+      )
+      .join("");
+
+    setIsExportingPdf(true);
+    const printWindow = window.open("", "_blank");
+
+    if (!printWindow) {
+      setIsExportingPdf(false);
+
+      return;
+    }
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Local Ranking Export</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111827; margin: 20px; }
+            h1 { margin: 0 0 8px; font-size: 20px; }
+            h2 { margin: 20px 0 10px; font-size: 18px; }
+            .sub { color: #6b7280; margin-bottom: 14px; }
+            .maps-grid { display: grid; grid-template-columns: ${gridColumns}; gap: 12px; }
+            .map-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; }
+            .map-image { width: 100%; display: block; background: #f3f4f6; min-height: 180px; object-fit: cover; }
+            .no-map { display: grid; place-items: center; color: #6b7280; }
+            .map-meta { padding: 10px 12px 14px; }
+            .map-meta h3 { margin: 0; font-size: 14px; }
+            .map-meta p { margin: 4px 0 8px; color: #6b7280; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+            th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+            th { background: #f9fafb; font-weight: 600; }
+            .muted { color: #6b7280; font-size: 11px; }
+          </style>
+        </head>
+        <body>
+          <h1>Local Ranking Report</h1>
+          <div class="sub">Keyword: ${escapeHtml(keywordLabel || "-")} | Grid View: ${gridLayout} column(s)</div>
+
+          <h2>Map Panels</h2>
+          <section class="maps-grid">
+            ${mapsHtml || `<p>No map data available.</p>`}
+          </section>
+
+          <h2>Competitor Analysis</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Business Name</th>
+                <th>Domain</th>
+                <th>${escapeHtml(previousRankHeader)}</th>
+                <th>${escapeHtml(latestRankHeader)}</th>
+                <th>Change</th>
+                <th>Grid Size</th>
+                <th>Reviews</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${competitorRowsHtml || `<tr><td colspan="7">No competitor data available.</td></tr>`}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    try {
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.focus();
+
+      let didTriggerPrint = false;
+      const handlePrint = () => {
+        if (didTriggerPrint) {
+          return;
+        }
+
+        didTriggerPrint = true;
+        window.setTimeout(() => {
+          try {
+            printWindow.focus();
+            printWindow.print();
+          } finally {
+            setIsExportingPdf(false);
+          }
+        }, 350);
       };
 
-      existing.appearances += 1;
-      existing.address =
-        existing.address === "-" && coordinate.matchedAddress?.trim()
-          ? coordinate.matchedAddress.trim()
-          : existing.address;
-      existing.website =
-        existing.website === "-" && coordinate.matchedDomain?.trim()
-          ? coordinate.matchedDomain.trim()
-          : existing.website;
-      existing.rating = existing.rating ?? coordinate.matchedRating ?? null;
-
-      if (
-        coordinate.rankAbsolute !== null &&
-        coordinate.rankAbsolute !== undefined
-      ) {
-        existing.bestRank =
-          existing.bestRank === null
-            ? coordinate.rankAbsolute
-            : Math.min(existing.bestRank, coordinate.rankAbsolute);
-        existing.rankTotal += coordinate.rankAbsolute;
-        existing.rankedCount += 1;
-      }
-
-      latestEntries.set(key, existing);
+      printWindow.addEventListener("load", handlePrint, { once: true });
+      window.setTimeout(() => {
+        if (!didTriggerPrint) {
+          handlePrint();
+        }
+      }, 1200);
+    } catch {
+      setIsExportingPdf(false);
+      printWindow.close();
     }
-
-    if (previousRun) {
-      const previousEntries = new Map<
-        string,
-        {
-          rankTotal: number;
-          rankedCount: number;
-        }
-      >();
-
-      for (const coordinate of previousRun.coordinates) {
-        const businessName = coordinate.matchedTitle?.trim();
-
-        if (
-          !businessName ||
-          coordinate.rankAbsolute === null ||
-          coordinate.rankAbsolute === undefined
-        ) {
-          continue;
-        }
-
-        const key =
-          coordinate.matchedPlaceId?.trim() ||
-          coordinate.matchedDomain?.trim() ||
-          businessName;
-        const existing = previousEntries.get(key) ?? {
-          rankTotal: 0,
-          rankedCount: 0,
-        };
-
-        existing.rankTotal += coordinate.rankAbsolute;
-        existing.rankedCount += 1;
-        previousEntries.set(key, existing);
-      }
-
-      for (const [key, value] of Array.from(previousEntries.entries())) {
-        previousAverageByKey.set(
-          key,
-          value.rankedCount
-            ? Number((value.rankTotal / value.rankedCount).toFixed(2))
-            : null,
-        );
-      }
-    }
-
-    return Array.from(latestEntries.entries())
-      .map(([key, entry]) => {
-        const averageRank = entry.rankedCount
-          ? Number((entry.rankTotal / entry.rankedCount).toFixed(2))
-          : null;
-
-        return {
-          appearances: String(entry.appearances),
-          bestRank: formatCompetitorRank(entry.bestRank),
-          businessName: entry.businessName,
-          previousAverageRank: formatCompetitorMetric(
-            previousAverageByKey.get(key) ?? null,
-          ),
-          rating:
-            entry.rating === null || entry.rating === undefined
-              ? "-"
-              : entry.rating.toFixed(1),
-          reviewScore: formatCompetitorMetric(averageRank),
-          subtitle: entry.address,
-          website: entry.website,
-        };
-      })
-      .sort((left, right) => {
-        const leftAppearances = Number(left.appearances);
-        const rightAppearances = Number(right.appearances);
-
-        if (rightAppearances !== leftAppearances) {
-          return rightAppearances - leftAppearances;
-        }
-
-        const leftAverage =
-          left.reviewScore === "-"
-            ? Number.POSITIVE_INFINITY
-            : Number(left.reviewScore);
-        const rightAverage =
-          right.reviewScore === "-"
-            ? Number.POSITIVE_INFINITY
-            : Number(right.reviewScore);
-
-        return leftAverage - rightAverage;
-      })
-      .slice(0, 10);
-  }, [comparisonRuns]);
+  }, [
+    competitorRows,
+    gridLayout,
+    keywordLabel,
+    latestRankHeader,
+    mapPanels,
+    previousRankHeader,
+  ]);
 
   return (
     <div className="space-y-5">
@@ -545,7 +690,7 @@ export const ClientLocalRankingDetailsScreen = ({
         <>
           <Card className={panelClass} shadow="none">
             <CardBody className="flex flex-col gap-4 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <h2 className="font-semibold tracking-[-0.03em] text-[#111827]">
                   Local Ranking
                 </h2>
@@ -554,14 +699,13 @@ export const ClientLocalRankingDetailsScreen = ({
                 <Chip className={toolbarChipClass}>
                   Keyword {keywordLabel || "-"}
                 </Chip>
-                <Chip className={toolbarChipClass}>Runs {totalRuns}</Chip>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
                 <Dropdown placement="bottom-end">
                   <DropdownTrigger>
                     <Button
-                      className="h-10 rounded-xl border border-default-200 bg-white px-4 text-sm font-medium text-[#111827]"
+                      className="h-10 rounded-xl border border-default-200 bg-white px-4 text-xs font-medium text-[#111827]"
                       endContent={<ChevronDown size={16} />}
                       startContent={<LayoutGrid size={16} />}
                       variant="bordered"
@@ -588,8 +732,10 @@ export const ClientLocalRankingDetailsScreen = ({
                   </DropdownMenu>
                 </Dropdown>
                 <Button
-                  className="h-10 rounded-xl bg-[#5446e8] px-4 text-sm font-semibold text-white"
-                  startContent={<Download size={16} />}
+                  className="h-10 rounded-xl bg-[#5446e8] px-4 text-xs font-semibold text-white"
+                  isDisabled={isExportingPdf || isLoading}
+                  isLoading={isExportingPdf}
+                  onPress={exportPdf}
                 >
                   Export PDF
                 </Button>
@@ -619,24 +765,21 @@ export const ClientLocalRankingDetailsScreen = ({
 
           <Card className={panelClass} shadow="none">
             <CardHeader className="flex items-center justify-between border-b border-default-200 px-4 py-4">
-              <h3 className="text-[1.65rem] font-semibold tracking-[-0.03em] text-[#111827]">
+              <h3 className="text-lg font-semibold tracking-[-0.03em] text-[#111827]">
                 Competitor Analysis
               </h3>
-              <Button isIconOnly radius="full" size="sm" variant="light">
-                <Maximize2 size={16} />
-              </Button>
             </CardHeader>
             <CardBody className="overflow-x-auto p-0">
               <table className="min-w-[980px] table-auto">
                 <thead>
                   <tr className="border-b border-default-200 bg-[#fbfcfe] text-left text-sm font-medium text-default-500">
                     <th className="px-4 py-3">Business Name</th>
-                    <th className="px-4 py-3">Best Rank</th>
-                    <th className="px-4 py-3">Avg. Rank</th>
-                    <th className="px-4 py-3">Previous Avg. Rank</th>
-                    <th className="px-4 py-3">Appearances</th>
-                    <th className="px-4 py-3">Rating</th>
-                    <th className="px-4 py-3">Website</th>
+                    <th className="px-4 py-3">Domain</th>
+                    <th className="px-4 py-3">{previousRankHeader}</th>
+                    <th className="px-4 py-3">{latestRankHeader}</th>
+                    <th className="px-4 py-3" />
+                    <th className="px-4 py-3">Grid Size</th>
+                    <th className="px-4 py-3">Reviews</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -647,26 +790,35 @@ export const ClientLocalRankingDetailsScreen = ({
                     >
                       <td className="px-4 py-4 align-top">
                         <p className="font-medium">{row.businessName}</p>
-                        <p className="mt-1 text-sm text-default-400">
-                          {row.subtitle}
-                        </p>
                       </td>
-                      <td className="px-4 py-4 align-top">{row.bestRank}</td>
-                      <td className="px-4 py-4 align-top">{row.reviewScore}</td>
+                      <td className="px-4 py-4 align-top">{row.domain}</td>
                       <td className="px-4 py-4 align-top">
-                        {row.previousAverageRank}
+                        {row.previousRank}
                       </td>
-                      <td className="px-4 py-4 align-top">{row.appearances}</td>
+                      <td className="px-4 py-4 align-top">{row.latestRank}</td>
                       <td className="px-4 py-4 align-top">
+                        {row.delta !== null ? (
+                          <Chip className="h-6 rounded-full bg-[#ecfdf3] px-2 text-xs font-semibold text-[#10b981]">
+                            {row.delta > 0
+                              ? `↗ +${row.delta}`
+                              : `↘ ${row.delta}`}
+                          </Chip>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 align-top">
+                        {row.gridSize}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 align-top">
                         <div className="flex items-center gap-2">
                           <Star
                             className="fill-[#f59e0b] text-[#f59e0b]"
                             size={16}
                           />
-                          <span>{row.rating}</span>
+                          <span>{row.reviews}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-4 align-top">{row.website}</td>
                     </tr>
                   ))}
                   {!competitorRows.length ? (

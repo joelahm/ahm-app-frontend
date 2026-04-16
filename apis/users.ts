@@ -136,6 +136,42 @@ export interface PermissionsSettingsResponse {
   sections: PermissionSectionSetting[];
 }
 
+export interface ActivityLogActor {
+  email: string;
+  firstName: string | null;
+  id: number;
+  lastName: string | null;
+  name: string;
+}
+
+export interface ActivityLogItem {
+  action: string;
+  actor: ActivityLogActor | null;
+  actorUserId: number | null;
+  createdAt: string;
+  id: number;
+  ipAddress: string | null;
+  metadata: Record<string, unknown> | null;
+  requestId: string | null;
+  resourceId: string | null;
+  resourceType: string;
+  userAgent: string | null;
+}
+
+export interface ActivityLogsResponse {
+  activityLogs: ActivityLogItem[];
+  pagination: {
+    hasNext: boolean;
+    hasPrev: boolean;
+    limit: number;
+    nextPage: number | null;
+    page: number;
+    prevPage: number | null;
+    total: number;
+    totalPages: number;
+  };
+}
+
 interface GetUsersResponse {
   pagination?: {
     hasNext?: boolean;
@@ -307,6 +343,34 @@ export const usersApi = {
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getActivityLogs: async (
+    accessToken: string,
+    options?: {
+      actorUserId?: number | string;
+      limit?: number;
+      page?: number;
+    },
+  ) => {
+    try {
+      const response = await usersApiClient.get<ActivityLogsResponse>(
+        "/api/v1/users/activity-logs",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          params: {
+            actorUserId: options?.actorUserId,
+            limit: options?.limit,
+            page: options?.page,
           },
         },
       );
