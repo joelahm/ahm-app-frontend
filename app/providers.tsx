@@ -31,7 +31,11 @@ export function Providers({ children, themeProps }: ProvidersProps) {
       <NextThemesProvider {...themeProps}>
         <AuthProvider>
           {children}
-          <ToastProvider maxVisibleToasts={4} placement="top-center" toastOffset={64} />
+          <ToastProvider
+            maxVisibleToasts={4}
+            placement="top-center"
+            toastOffset={64}
+          />
         </AuthProvider>
       </NextThemesProvider>
     </HeroUIProvider>

@@ -215,6 +215,13 @@ export const SettingsCreditUsageContent = () => {
             <Select
               aria-label="Filter by user"
               className="w-full sm:w-[220px]"
+              items={[
+                { id: "all", label: "All Users" },
+                ...actorOptions.map((option) => ({
+                  id: option.id,
+                  label: option.label,
+                })),
+              ]}
               label="User"
               labelPlacement="outside"
               selectedKeys={[selectedActorId]}
@@ -226,10 +233,7 @@ export const SettingsCreditUsageContent = () => {
                 setCurrentPage(1);
               }}
             >
-              <SelectItem key="all">All Users</SelectItem>
-              {actorOptions.map((option) => (
-                <SelectItem key={option.id}>{option.label}</SelectItem>
-              ))}
+              {(item) => <SelectItem key={item.id}>{item.label}</SelectItem>}
             </Select>
             <Input
               className="w-full sm:w-[260px]"

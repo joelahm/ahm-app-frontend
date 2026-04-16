@@ -116,7 +116,9 @@ export const ManageCreditAllocationModal = ({
 
         <ModalBody className="space-y-6 overflow-hidden py-5">
           <div>
-            <h3 className="text-lg font-medium text-[#1F2937] mb-3">AI Credits</h3>
+            <h3 className="text-lg font-medium text-[#1F2937] mb-3">
+              AI Credits
+            </h3>
 
             <div className="overflow-hidden rounded-[14px] border border-default-200">
               <div className="grid grid-cols-[2.2fr_1.5fr_1fr_1fr_100px]">
@@ -242,16 +244,10 @@ export const ManageCreditAllocationModal = ({
         </ModalBody>
 
         <ModalFooter className="justify-end gap-4 border-t border-default-200">
-          <Button
-            variant="bordered"
-            onPress={closeModal}
-          >
+          <Button variant="bordered" onPress={closeModal}>
             Cancel
           </Button>
-          <Button
-            className="bg-primary text-white"
-            onPress={closeModal}
-          >
+          <Button className="bg-primary text-white" onPress={closeModal}>
             Save Changes
           </Button>
         </ModalFooter>

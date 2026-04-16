@@ -9,7 +9,6 @@ import {
   Building2,
   ChartSpline,
   CheckCircle2,
-  CircleHelp,
   ClipboardCheck,
   ClipboardPen,
   Clock3,
@@ -62,7 +61,12 @@ const CLIENT_MENU: ClientMenuItem[] = [
     path: "/local-rankings",
   },
   { key: "gbp", label: "GBP", icon: Globe, path: "/gbp" },
-  { key: "content", label: "Website Content", icon: ClipboardPen, path: "/website-content" },
+  {
+    key: "content",
+    label: "Website Content",
+    icon: ClipboardPen,
+    path: "/website-content",
+  },
   { key: "gbp-posting", label: "GBP Postings", icon: CheckCircle2 },
   { key: "reviews", label: "Review Management", icon: Building2 },
   {

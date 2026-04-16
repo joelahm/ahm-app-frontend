@@ -179,9 +179,9 @@ export const AddProjectTemplateTaskModal = ({
       hideCloseButton
       isDismissable={false}
       isOpen={isOpen}
+      scrollBehavior="inside"
       size="xl"
       onOpenChange={onOpenChange}
-      scrollBehavior="inside"
     >
       <ModalContent>
         <ModalHeader className="flex items-center justify-between border-b border-default-200">
