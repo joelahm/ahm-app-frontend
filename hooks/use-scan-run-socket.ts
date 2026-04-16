@@ -54,7 +54,7 @@ export const useScanRunSocket = ({ runId, scanId }: UseScanRunSocketArgs) => {
     }
 
     let isActive = true;
-    let intervalId: ReturnType<typeof window.setInterval> | null = null;
+    let intervalId: number | null = null;
 
     const stopPolling = () => {
       if (!intervalId) {
