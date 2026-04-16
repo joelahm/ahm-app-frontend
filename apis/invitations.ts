@@ -12,9 +12,13 @@ const invitationsApiClient = axios.create({
 
 const parseError = (error: unknown) => {
   if (axios.isAxiosError(error)) {
-    const message =
-      (error.response?.data as { message?: string } | undefined)?.message ??
-      error.message;
+    const data = error.response?.data as
+      | {
+          message?: string;
+          error?: { message?: string };
+        }
+      | undefined;
+    const message = data?.error?.message ?? data?.message ?? error.message;
 
     return message || "Something went wrong.";
   }
@@ -114,28 +118,16 @@ export const invitationsApi = {
     }
   },
   validateToken: async (token: string) => {
-    const payload = { token };
-
     try {
       const response =
         await invitationsApiClient.post<ValidateInvitationResponse>(
           "/api/v1/auth/invitations/validate",
-          payload,
+          { token },
         );
 
       return parseValidation(response.data);
-    } catch (apiV1Error) {
-      try {
-        const response =
-          await invitationsApiClient.post<ValidateInvitationResponse>(
-            "/auth/invitations/validate",
-            payload,
-          );
-
-        return parseValidation(response.data);
-      } catch (error) {
-        throw new Error(parseError(error ?? apiV1Error));
-      }
+    } catch (error) {
+      throw new Error(parseError(error));
     }
   },
   register: async (payload: RegisterInvitationRequestBody) => {
@@ -146,17 +138,8 @@ export const invitationsApi = {
       );
 
       return response.data;
-    } catch (apiV1Error) {
-      try {
-        const response = await invitationsApiClient.post(
-          "/auth/invitations/register",
-          payload,
-        );
-
-        return response.data;
-      } catch (error) {
-        throw new Error(parseError(error ?? apiV1Error));
-      }
+    } catch (error) {
+      throw new Error(parseError(error));
     }
   },
 };
