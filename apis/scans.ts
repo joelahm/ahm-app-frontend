@@ -372,6 +372,26 @@ export const scansApi = {
       throw new Error(parseError(error));
     }
   },
+  getScanRunById: async (
+    accessToken: string,
+    scanId: number | string,
+    runId: number | string,
+  ) => {
+    try {
+      const response = await scansApiClient.get<{ run: ScanRecord }>(
+        `/api/v1/scans/${scanId}/runs/${runId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data.run;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   deleteScanById: async (accessToken: string, scanId: number | string) => {
     try {
       const response = await scansApiClient.delete<{

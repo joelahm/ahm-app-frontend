@@ -466,7 +466,16 @@ export const ClientLocalRankingsTable = ({
           return;
         }
 
-        setRows(response.keywords.map(mapRankingRow));
+        setRows((currentRows) => {
+          const fetchedRows = response.keywords.map(mapRankingRow);
+          const optimisticProcessingRows = currentRows.filter(
+            (row) =>
+              row.isProcessing &&
+              !fetchedRows.some((fetchedRow) => fetchedRow.id === row.id),
+          );
+
+          return [...optimisticProcessingRows, ...fetchedRows];
+        });
         setTotalPages(Math.max(1, response.pagination.totalPages));
       } catch {
         if (!isMounted) {
@@ -617,6 +626,12 @@ export const ClientLocalRankingsTable = ({
             scanId: response.run.scanId,
           });
         }
+
+        setRows((currentRows) =>
+          currentRows.map((row) =>
+            row.id === scanId ? { ...row, isProcessing: true } : row,
+          ),
+        );
 
         toast.success("Scan queued successfully.");
       } catch (error) {

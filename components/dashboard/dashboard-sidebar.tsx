@@ -14,8 +14,6 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
-  LayoutGrid,
-  LifeBuoy,
   List,
   Megaphone,
   RefreshCw,
@@ -25,6 +23,8 @@ import {
   Star,
   Trash2,
   House,
+  LayoutGrid,
+  LifeBuoy,
   MessageSquareMore,
   FileText,
 } from "lucide-react";
@@ -148,6 +148,7 @@ const SidebarNavItem = ({
       color={isActive ? "primary" : "default"}
       href={href}
       isIconOnly={collapsed}
+      prefetch={false}
       radius="sm"
       variant={isActive ? "flat" : "light"}
     >
