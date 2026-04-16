@@ -70,6 +70,13 @@ const SOCKET_BACKEND_URL =
   "";
 
 let scanSocket: ScanSocket | null = null;
+const SOCKET_TRANSPORT_MODE =
+  process.env.NEXT_PUBLIC_SOCKET_TRANSPORT_MODE?.toLowerCase() ?? "polling";
+const SOCKET_TRANSPORTS =
+  SOCKET_TRANSPORT_MODE === "websocket"
+    ? (["websocket", "polling"] as const)
+    : (["polling"] as const);
+const SOCKET_UPGRADE_ENABLED = SOCKET_TRANSPORT_MODE === "websocket";
 
 export const getScanSocketClient = () => {
   if (typeof window === "undefined") {
@@ -87,7 +94,8 @@ export const getScanSocketClient = () => {
       autoConnect: false,
       reconnection: true,
       reconnectionAttempts: 5,
-      transports: ["websocket", "polling"],
+      transports: [...SOCKET_TRANSPORTS],
+      upgrade: SOCKET_UPGRADE_ENABLED,
       withCredentials: true,
     });
   }
