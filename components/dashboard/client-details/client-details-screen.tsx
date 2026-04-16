@@ -1266,7 +1266,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
 
                       field.onChange(selectedCountry?.label ?? "");
                       setCountrySearch(selectedCountry?.label ?? "");
-                      setRegionQuery("");
                       setValue("cityState", "", { shouldValidate: true });
                       setValue("visibleArea", "", { shouldValidate: true });
                     }}
