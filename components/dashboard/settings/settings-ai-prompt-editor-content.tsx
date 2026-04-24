@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type Key, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Button } from "@heroui/button";
@@ -14,6 +14,9 @@ import { useRouter } from "next/navigation";
 import { aiPromptsApi } from "@/apis/ai-prompts";
 import { clientsApi } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
+import { DynamicValuePillsPicker } from "@/components/dashboard/settings/dynamic-value-pills-picker";
+import { useAppToast } from "@/hooks/use-app-toast";
+import { getDynamicPromptValuesByPostType } from "@/lib/ai-prompt-dynamic-values";
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
 
@@ -32,18 +35,6 @@ const typeOfPostOptions = [
 ];
 
 const statusOptions = ["Active", "Draft"] as const;
-
-const customValueOptions = [
-  "Business Name",
-  "Service",
-  "Content up to 1500 characters",
-];
-
-const customValueTokenMap: Record<string, string> = {
-  "Business Name": "[BUSINESS_NAME]",
-  Service: "[SERVICE]",
-  "Content up to 1500 characters": "[CONTENT_UP_TO_1500_CHARACTERS]",
-};
 
 const aiPromptSchema = yup.object({
   clientId: yup.string().required("Client name is required"),
@@ -84,10 +75,11 @@ export const SettingsAIPromptEditorContent = ({
   mode = "create",
   promptId,
 }: SettingsAIPromptEditorContentProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
   const router = useRouter();
   const [loadError, setLoadError] = useState("");
-  const [saveError, setSaveError] = useState("");
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(
     null,
   );
@@ -98,6 +90,8 @@ export const SettingsAIPromptEditorContent = ({
   const [selectedCustomValues, setSelectedCustomValues] = useState<string[]>(
     [],
   );
+  const [dynamicValuesSourceFilter, setDynamicValuesSourceFilter] =
+    useState<string>("all");
   const [promptSelection, setPromptSelection] = useState({
     start: 0,
     end: 0,
@@ -124,7 +118,35 @@ export const SettingsAIPromptEditorContent = ({
     mode: "onBlur",
   });
   const promptValue = watch("prompt");
+  const selectedTypeOfPost = watch("typeOfPost");
   const title = mode === "edit" ? "Edit Prompt" : "Add New Prompt";
+  const customValueOptions = useMemo(
+    () => getDynamicPromptValuesByPostType(selectedTypeOfPost),
+    [selectedTypeOfPost],
+  );
+  const customValuesForSelectedSource = useMemo(
+    () =>
+      dynamicValuesSourceFilter === "all"
+        ? customValueOptions
+        : customValueOptions.filter(
+            (option) => option.source === dynamicValuesSourceFilter,
+          ),
+    [customValueOptions, dynamicValuesSourceFilter],
+  );
+  const dynamicValueSourceFilterOptions = useMemo(
+    () => [
+      "all",
+      "Client Details",
+      "Keyword Research",
+      "Web Content",
+      "GBP Postings",
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -135,7 +157,8 @@ export const SettingsAIPromptEditorContent = ({
 
     const loadClients = async () => {
       try {
-        const response = await clientsApi.getClients(session.accessToken);
+        const accessToken = await getValidAccessToken();
+        const response = await clientsApi.getClients(accessToken);
 
         if (!isMounted) {
           return;
@@ -169,15 +192,15 @@ export const SettingsAIPromptEditorContent = ({
         }
 
         setClientOptions([]);
+        toastRef.current.warning("Failed to load clients.");
       }
     };
 
     const loadCreateDefaults = async () => {
       try {
         setLoadError("");
-        const response = await aiPromptsApi.reserveUniqueId(
-          session.accessToken,
-        );
+        const accessToken = await getValidAccessToken();
+        const response = await aiPromptsApi.reserveUniqueId(accessToken);
 
         if (!isMounted) {
           return;
@@ -189,11 +212,15 @@ export const SettingsAIPromptEditorContent = ({
           return;
         }
 
-        setLoadError(
+        const message =
           error instanceof Error
             ? error.message
-            : "Failed to load unique prompt ID.",
-        );
+            : "Failed to load unique prompt ID.";
+
+        setLoadError(message);
+        toastRef.current.danger("Failed to load prompt defaults.", {
+          description: message,
+        });
       }
     };
 
@@ -206,7 +233,8 @@ export const SettingsAIPromptEditorContent = ({
 
       try {
         setLoadError("");
-        const response = await aiPromptsApi.getPrompts(session.accessToken);
+        const accessToken = await getValidAccessToken();
+        const response = await aiPromptsApi.getPrompts(accessToken);
         const prompt = response.aiPrompts.find((item) => item.id === promptId);
 
         if (!isMounted) {
@@ -215,6 +243,7 @@ export const SettingsAIPromptEditorContent = ({
 
         if (!prompt) {
           setLoadError("Prompt not found.");
+          toastRef.current.danger("Prompt not found.");
 
           return;
         }
@@ -243,9 +272,13 @@ export const SettingsAIPromptEditorContent = ({
           return;
         }
 
-        setLoadError(
-          error instanceof Error ? error.message : "Failed to load prompt.",
-        );
+        const message =
+          error instanceof Error ? error.message : "Failed to load prompt.";
+
+        setLoadError(message);
+        toastRef.current.danger("Failed to load prompt.", {
+          description: message,
+        });
       }
     };
 
@@ -260,7 +293,7 @@ export const SettingsAIPromptEditorContent = ({
     return () => {
       isMounted = false;
     };
-  }, [mode, promptId, session?.accessToken, setValue]);
+  }, [getValidAccessToken, mode, promptId, session?.accessToken, setValue]);
 
   const updatePromptSelection = () => {
     const textarea = promptRef.current;
@@ -275,14 +308,7 @@ export const SettingsAIPromptEditorContent = ({
     });
   };
 
-  const handleCustomValueInsert = (key: Key | null) => {
-    if (!key) {
-      return;
-    }
-
-    const tokenLabel = String(key);
-    const token = customValueTokenMap[tokenLabel];
-
+  const handleCustomValueInsert = (token: string) => {
     if (!token) {
       return;
     }
@@ -298,7 +324,7 @@ export const SettingsAIPromptEditorContent = ({
       shouldValidate: true,
     });
     setSelectedCustomValues((current) =>
-      current.includes(tokenLabel) ? current : [...current, tokenLabel],
+      current.includes(token) ? current : [...current, token],
     );
     setPromptSelection({
       start: nextCursorPosition,
@@ -365,10 +391,9 @@ export const SettingsAIPromptEditorContent = ({
 
   const submitPrompt = async (values: AiPromptFormValues) => {
     clearErrors();
-    setSaveError("");
 
     if (!session?.accessToken) {
-      setSaveError("You must be signed in to save prompts.");
+      toastRef.current.danger("You must be signed in to save prompts.");
 
       return;
     }
@@ -393,12 +418,15 @@ export const SettingsAIPromptEditorContent = ({
         uniqueId: validatedValues.uniqueId,
       };
 
+      const accessToken = await getValidAccessToken();
+
       if (mode === "edit" && promptId) {
-        await aiPromptsApi.updatePrompt(session.accessToken, promptId, payload);
+        await aiPromptsApi.updatePrompt(accessToken, promptId, payload);
       } else {
-        await aiPromptsApi.createPrompt(session.accessToken, payload);
+        await aiPromptsApi.createPrompt(accessToken, payload);
       }
 
+      toastRef.current.success("AI prompt saved.");
       router.push("/dashboard/settings/ai-hub");
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -413,12 +441,15 @@ export const SettingsAIPromptEditorContent = ({
           });
         });
 
+        toastRef.current.warning("Please check the highlighted fields.");
+
         return;
       }
 
-      setSaveError(
-        error instanceof Error ? error.message : "Failed to save prompt.",
-      );
+      toastRef.current.danger("Failed to save prompt.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
     }
   };
 
@@ -454,10 +485,6 @@ export const SettingsAIPromptEditorContent = ({
         </CardHeader>
 
         <CardBody className="space-y-5 px-5 py-5">
-          {saveError ? (
-            <p className="text-sm text-danger">{saveError}</p>
-          ) : null}
-
           <div>
             <p className={labelClassName}>Unique ID Prompt</p>
             <Controller
@@ -535,19 +562,26 @@ export const SettingsAIPromptEditorContent = ({
             <div>
               <p className={labelClassName}>Custom Values</p>
               <Select
-                placeholder="Select custom values"
+                aria-label="Select dynamic values source"
+                placeholder="Select source"
                 radius="sm"
-                selectedKeys={[]}
+                selectedKeys={
+                  dynamicValuesSourceFilter ? [dynamicValuesSourceFilter] : []
+                }
                 size="sm"
                 onSelectionChange={(keys) => {
                   const selectedKey =
                     keys === "all" ? null : (keys.currentKey ?? null);
 
-                  handleCustomValueInsert(selectedKey);
+                  setDynamicValuesSourceFilter(
+                    selectedKey ? String(selectedKey) : "all",
+                  );
                 }}
               >
-                {customValueOptions.map((option) => (
-                  <SelectItem key={option}>{option}</SelectItem>
+                {dynamicValueSourceFilterOptions.map((option) => (
+                  <SelectItem key={option}>
+                    {option === "all" ? "All Sources" : option}
+                  </SelectItem>
                 ))}
               </Select>
             </div>
@@ -574,6 +608,21 @@ export const SettingsAIPromptEditorContent = ({
                     }}
                   />
                 )}
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className={labelClassName}>Mapped Keys</p>
+            <div className="rounded-xl border border-default-200 bg-default-100 p-3">
+              <DynamicValuePillsPicker
+                items={customValuesForSelectedSource}
+                pillsContainerClassName="max-h-44 overflow-y-auto rounded-lg bg-default-100 p-1"
+                selectedSourceFilter={dynamicValuesSourceFilter}
+                showSourceSelect={false}
+                sourceFilterOptions={dynamicValueSourceFilterOptions}
+                onSourceFilterChange={setDynamicValuesSourceFilter}
+                onTokenClick={handleCustomValueInsert}
               />
             </div>
           </div>

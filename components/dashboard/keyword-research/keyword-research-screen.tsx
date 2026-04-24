@@ -2,7 +2,7 @@
 
 import type { Selection } from "@react-types/shared";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "@heroui/alert";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
@@ -28,9 +28,11 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Download,
   ListPlus,
   Search,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -129,6 +131,58 @@ const DEFAULT_LANGUAGE_OPTION: KeywordResearchLanguageOption = {
   value: "en",
 };
 
+const SEARCH_VOLUME_RANGES = [
+  { label: "100,001+", max: null, min: 100001, value: "100001:" },
+  { label: "10,001–100,000", max: 100000, min: 10001, value: "10001:100000" },
+  { label: "1,001–10,000", max: 10000, min: 1001, value: "1001:10000" },
+  { label: "101–1,000", max: 1000, min: 101, value: "101:1000" },
+  { label: "11–100", max: 100, min: 11, value: "11:100" },
+  { label: "1–10", max: 10, min: 1, value: "1:10" },
+] as const;
+
+const getSearchVolumeRangeLabel = (value: string) => {
+  if (!value) {
+    return "Search Volume";
+  }
+
+  const preset = SEARCH_VOLUME_RANGES.find((item) => item.value === value);
+
+  if (preset) {
+    return preset.label;
+  }
+
+  const [from = "", to = ""] = value.split(":");
+
+  if (from && to) {
+    return `${formatMetric(Number(from))}-${formatMetric(Number(to))}`;
+  }
+
+  if (from) {
+    return `${formatMetric(Number(from))}+`;
+  }
+
+  if (to) {
+    return `Up to ${formatMetric(Number(to))}`;
+  }
+
+  return "Search Volume";
+};
+
+const parseSearchVolumeRange = (value: string) => {
+  if (!value) {
+    return { max: null, min: null };
+  }
+
+  const [minValue = "", maxValue = ""] = value.split(":");
+  const min = minValue ? Number(minValue) : null;
+  const max = maxValue ? Number(maxValue) : null;
+
+  return {
+    max: Number.isFinite(max) ? max : null,
+    min: Number.isFinite(min) ? min : null,
+  };
+};
+
 export const KeywordResearchScreen = () => {
   const router = useRouter();
   const toast = useAppToast();
@@ -154,6 +208,11 @@ export const KeywordResearchScreen = () => {
   const [pageSearch, setPageSearch] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
   const [selectedSearchVolume, setSelectedSearchVolume] = useState("");
+  const [isSearchVolumeFilterOpen, setIsSearchVolumeFilterOpen] =
+    useState(false);
+  const searchVolumeFilterRef = useRef<HTMLDivElement | null>(null);
+  const [customSearchVolumeFrom, setCustomSearchVolumeFrom] = useState("");
+  const [customSearchVolumeTo, setCustomSearchVolumeTo] = useState("");
   const [selectedKeywordDifficulty, setSelectedKeywordDifficulty] =
     useState("");
   const [selectedCpc, setSelectedCpc] = useState("");
@@ -380,6 +439,27 @@ export const KeywordResearchScreen = () => {
     setPage(1);
   }, [pageSearch]);
 
+  useEffect(() => {
+    if (!isSearchVolumeFilterOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        searchVolumeFilterRef.current &&
+        !searchVolumeFilterRef.current.contains(event.target as Node)
+      ) {
+        setIsSearchVolumeFilterOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isSearchVolumeFilterOpen]);
+
   const activeResults = useMemo(
     () =>
       keywordMode === "similar-keywords"
@@ -399,24 +479,6 @@ export const KeywordResearchScreen = () => {
       item.label.toLowerCase().includes(query),
     );
   }, [countryOptions, searchCountryLabel]);
-
-  const searchVolumeOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          activeResults
-            .map((item) => item.searchVolume)
-            .filter((value): value is number => value !== null),
-        ),
-      )
-        .sort((a, b) => b - a)
-        .map((value) => ({
-          key: String(value),
-          label: formatMetric(value),
-          value: String(value),
-        })),
-    [activeResults],
-  );
 
   const keywordDifficultyOptions = useMemo(
     () =>
@@ -486,9 +548,7 @@ export const KeywordResearchScreen = () => {
 
   const filteredRows = useMemo(() => {
     const query = pageSearch.trim().toLowerCase();
-    const normalizedSearchVolume = selectedSearchVolume
-      ? Number(selectedSearchVolume)
-      : null;
+    const searchVolumeRange = parseSearchVolumeRange(selectedSearchVolume);
     const normalizedKeywordDifficulty = selectedKeywordDifficulty
       ? Number(selectedKeywordDifficulty)
       : null;
@@ -502,9 +562,13 @@ export const KeywordResearchScreen = () => {
           );
 
       const matchesSearchVolume =
-        normalizedSearchVolume === null
+        searchVolumeRange.min === null && searchVolumeRange.max === null
           ? true
-          : row.searchVolume === normalizedSearchVolume;
+          : row.searchVolume !== null &&
+            (searchVolumeRange.min === null ||
+              row.searchVolume >= searchVolumeRange.min) &&
+            (searchVolumeRange.max === null ||
+              row.searchVolume <= searchVolumeRange.max);
       const matchesKeywordDifficulty =
         normalizedKeywordDifficulty === null
           ? true
@@ -908,9 +972,9 @@ export const KeywordResearchScreen = () => {
                 </div>
               </CardBody>
             </Card>
-            <Card className="border border-default-200 shadow-none">
-              <CardBody className="p-4">
-                <div className="flex items-center gap-3">
+            <Card className="overflow-visible border border-default-200 shadow-none">
+              <CardBody className="overflow-visible p-4">
+                <div className="relative z-20 flex items-center gap-3 overflow-visible">
                   <Tabs
                     fullWidth
                     aria-label="Keyword mode"
@@ -933,20 +997,136 @@ export const KeywordResearchScreen = () => {
                       title="Keyword Suggestions"
                     />
                   </Tabs>
-                  <Select
-                    isClearable
-                    items={searchVolumeOptions}
-                    placeholder="Search Volume"
-                    radius="md"
-                    selectedKeys={
-                      selectedSearchVolume ? [selectedSearchVolume] : []
-                    }
-                    onSelectionChange={(keys) => {
-                      setSelectedSearchVolume(normalizeSelection(keys) ?? "");
-                    }}
+                  <div
+                    ref={searchVolumeFilterRef}
+                    className="relative z-50 min-w-[220px] overflow-visible"
                   >
-                    {(item) => <SelectItem>{item.label}</SelectItem>}
-                  </Select>
+                    <Button
+                      className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
+                      endContent={
+                        <span className="flex items-center gap-1">
+                          {selectedSearchVolume ? (
+                            <span
+                              aria-label="Clear search volume filter"
+                              className="grid h-5 w-5 place-items-center rounded-full text-default-500 hover:bg-default-100 hover:text-[#111827]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedSearchVolume("");
+                                setCustomSearchVolumeFrom("");
+                                setCustomSearchVolumeTo("");
+                                setIsSearchVolumeFilterOpen(false);
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Enter" &&
+                                  event.key !== " "
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedSearchVolume("");
+                                setCustomSearchVolumeFrom("");
+                                setCustomSearchVolumeTo("");
+                                setIsSearchVolumeFilterOpen(false);
+                              }}
+                            >
+                              <X size={14} />
+                            </span>
+                          ) : null}
+                          <ChevronDown className="text-default-500" size={16} />
+                        </span>
+                      }
+                      radius="md"
+                      variant="bordered"
+                      onPress={() => {
+                        setIsSearchVolumeFilterOpen((current) => !current);
+                      }}
+                    >
+                      <span className="truncate">
+                        {getSearchVolumeRangeLabel(selectedSearchVolume)}
+                      </span>
+                    </Button>
+
+                    {isSearchVolumeFilterOpen ? (
+                      <div className="absolute left-0 top-12 z-[999] w-[250px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                        <div className="py-2">
+                          {SEARCH_VOLUME_RANGES.map((range) => {
+                            const isSelected =
+                              selectedSearchVolume === range.value;
+
+                            return (
+                              <button
+                                key={range.value}
+                                className={`block w-full px-3 py-2.5 text-left text-base text-[#111827] hover:bg-[#F3F4F6] ${
+                                  isSelected ? "bg-[#F3F4F6]" : ""
+                                }`}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSearchVolume(range.value);
+                                  setIsSearchVolumeFilterOpen(false);
+                                }}
+                              >
+                                {range.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="border-t border-default-200 p-4">
+                          <p className="mb-3 text-base font-semibold leading-7 text-[#111827]">
+                            Custom range
+                          </p>
+                          <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg border border-default-300">
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 shadow-none",
+                              }}
+                              min={0}
+                              placeholder="From"
+                              radius="none"
+                              type="number"
+                              value={customSearchVolumeFrom}
+                              variant="flat"
+                              onValueChange={setCustomSearchVolumeFrom}
+                            />
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 border-l border-default-300 shadow-none",
+                              }}
+                              min={0}
+                              placeholder="To"
+                              radius="none"
+                              type="number"
+                              value={customSearchVolumeTo}
+                              variant="flat"
+                              onValueChange={setCustomSearchVolumeTo}
+                            />
+                          </div>
+                          <Button
+                            className="w-full rounded-lg bg-primary text-base font-semibold text-white"
+                            onPress={() => {
+                              const from = customSearchVolumeFrom.trim();
+                              const to = customSearchVolumeTo.trim();
+
+                              setSelectedSearchVolume(
+                                from || to ? `${from}:${to}` : "",
+                              );
+                              setIsSearchVolumeFilterOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                   <Select
                     isClearable
                     items={keywordDifficultyOptions}

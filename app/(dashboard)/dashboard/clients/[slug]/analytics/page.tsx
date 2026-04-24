@@ -9,10 +9,10 @@ const ClientAnalyticsPage = async ({
   const { slug } = await params;
 
   return (
-    <section className="relative space-y-4 pl-64">
+    <section className="client-details-shell relative space-y-4">
       <ClientProfileAside activeKey="analytics" slug={slug} />
       <div className="pl-6">
-        <ClientAnalyticsScreen />
+        <ClientAnalyticsScreen clientId={slug} />
       </div>
     </section>
   );

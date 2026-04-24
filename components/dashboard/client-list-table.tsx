@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
@@ -10,6 +10,13 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import {
   CirclePause,
   CirclePlay,
@@ -86,6 +93,11 @@ export const ClientListTable = ({
   onRemove,
   onSetStatus,
 }: ClientListTableProps) => {
+  const [pendingRemoveClient, setPendingRemoveClient] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
   const defaultColumns = useMemo<DashboardDataTableColumn<ClientRecord>[]>(
     () => [
       {
@@ -196,40 +208,53 @@ export const ClientListTable = ({
                   <EllipsisVertical size={14} />
                 </Button>
               </DropdownTrigger>
-              <DropdownMenu aria-label={`Client ${item.clientName} actions`}>
+              <DropdownMenu
+                aria-label={`Client ${item.clientName} actions`}
+                onAction={(actionKey) => {
+                  if (actionKey === "set-inactive") {
+                    onSetStatus?.(item.id, "Inactive");
+
+                    return;
+                  }
+
+                  if (actionKey === "set-active") {
+                    onSetStatus?.(item.id, "Active");
+
+                    return;
+                  }
+
+                  if (actionKey === "remove") {
+                    setPendingRemoveClient({
+                      id: item.id,
+                      name: item.clientName,
+                    });
+                  }
+                }}
+              >
                 {item.status.trim().toLowerCase() === "active" ? (
                   <DropdownItem
-                    key={`${item.id}-set-inactive`}
+                    key="set-inactive"
                     startContent={
                       <CirclePause className="text-[#0568C9]" size={16} />
                     }
-                    onPress={() => {
-                      onSetStatus?.(item.id, "Inactive");
-                    }}
                   >
                     Set Inactive
                   </DropdownItem>
                 ) : (
                   <DropdownItem
-                    key={`${item.id}-set-active`}
+                    key="set-active"
                     startContent={
                       <CirclePlay className="text-[#0568C9]" size={16} />
                     }
-                    onPress={() => {
-                      onSetStatus?.(item.id, "Active");
-                    }}
                   >
                     Set Active
                   </DropdownItem>
                 )}
                 <DropdownItem
-                  key={`${item.id}-remove`}
+                  key="remove"
                   className="text-danger"
                   color="danger"
                   startContent={<Trash2 className="text-danger" size={16} />}
-                  onPress={() => {
-                    onRemove?.(item.id);
-                  }}
                 >
                   Remove
                 </DropdownItem>
@@ -243,16 +268,71 @@ export const ClientListTable = ({
   );
 
   return (
-    <DashboardDataTable
-      enableSelection
-      showPagination
-      ariaLabel="Client list"
-      columns={columns ?? defaultColumns}
-      getRowKey={(item) => item.id}
-      headerActions={headerActions}
-      pageSize={8}
-      rows={rows}
-      title={title}
-    />
+    <>
+      <DashboardDataTable
+        enableSelection
+        showPagination
+        ariaLabel="Client list"
+        columns={columns ?? defaultColumns}
+        getRowKey={(item) => item.id}
+        headerActions={headerActions}
+        pageSize={8}
+        rows={rows}
+        title={title}
+      />
+
+      <Modal
+        isDismissable
+        isOpen={Boolean(pendingRemoveClient)}
+        placement="center"
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingRemoveClient(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="text-lg font-semibold text-[#111827]">
+            Confirm Delete
+          </ModalHeader>
+          <ModalBody className="pb-2 pt-0 text-sm text-[#4B5563]">
+            {pendingRemoveClient ? (
+              <p>
+                Are you sure you want to remove{" "}
+                <span className="font-medium text-[#111827]">
+                  {pendingRemoveClient.name}
+                </span>
+                ? This action cannot be undone.
+              </p>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              radius="md"
+              variant="bordered"
+              onPress={() => {
+                setPendingRemoveClient(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-danger text-white"
+              color="danger"
+              radius="md"
+              onPress={() => {
+                if (pendingRemoveClient) {
+                  onRemove?.(pendingRemoveClient.id);
+                }
+
+                setPendingRemoveClient(null);
+              }}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 };

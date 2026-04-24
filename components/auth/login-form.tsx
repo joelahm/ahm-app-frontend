@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import * as yup from "yup";
-import { Alert } from "@heroui/alert";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
@@ -11,6 +10,7 @@ import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/auth-context";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const loginSchema = yup.object({
   email: yup
@@ -29,8 +29,8 @@ interface LoginFormProps {
 export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
   const router = useRouter();
   const { login } = useAuth();
+  const toast = useAppToast();
   const [showPassword, setShowPassword] = useState(false);
-  const [submitError, setSubmitError] = useState("");
   const {
     register,
     handleSubmit,
@@ -47,11 +47,13 @@ export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
 
   const onSubmit = async (values: LoginFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       await loginSchema.validate(values, { abortEarly: false });
       await login(values);
+      toast.success("Welcome back!", {
+        description: "You’re now signed in.",
+      });
       router.replace(redirectTo);
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -69,7 +71,27 @@ export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
         return;
       }
 
-      setSubmitError(error instanceof Error ? error.message : "Login failed.");
+      const rawMessage =
+        error instanceof Error ? error.message : "Unable to sign in.";
+      const normalizedMessage = rawMessage.toLowerCase();
+
+      if (
+        normalizedMessage.includes("invalid") ||
+        normalizedMessage.includes("unauthorized") ||
+        normalizedMessage.includes("credential") ||
+        normalizedMessage.includes("email or password")
+      ) {
+        toast.danger("Email or password is incorrect.", {
+          description: "Please check your details and try again.",
+        });
+
+        return;
+      }
+
+      toast.danger("Sign-in failed.", {
+        description:
+          "We couldn’t sign you in right now. Please try again in a moment.",
+      });
     }
   };
 
@@ -85,9 +107,6 @@ export const LoginForm = ({ redirectTo = "/dashboard" }: LoginFormProps) => {
         </p>
       </CardHeader>
       <CardBody className="space-y-4 px-6 pb-6">
-        {submitError ? (
-          <Alert color="danger" title={submitError} variant="flat" />
-        ) : null}
         <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
           <Input
             {...register("email")}

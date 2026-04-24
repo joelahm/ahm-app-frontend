@@ -52,7 +52,7 @@ const sidebarSections: SidebarSection[] = [
         label: "Notifications",
         Icon: MessageSquareMore,
       },
-      { href: "/dashboard/projects", label: "My Projects", Icon: House },
+      { href: "/dashboard/my-task-list", label: "My Tasks", Icon: House },
       { href: "/dashboard/clients", label: "Clients", Icon: Briefcase },
       { href: "/dashboard/projects-list", label: "Projects", Icon: LayoutGrid },
     ],

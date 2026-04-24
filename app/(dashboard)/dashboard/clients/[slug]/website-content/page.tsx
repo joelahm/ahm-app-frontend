@@ -13,7 +13,7 @@ const ClientWebsiteContentPage = async ({
   await searchParams;
 
   return (
-    <section className="relative space-y-4 pl-64">
+    <section className="client-details-shell relative space-y-4">
       <ClientProfileAside activeKey="content" slug={slug} />
       <div className="pl-6">
         <ClientWebsiteContentScreen clientId={slug} />

@@ -9,7 +9,9 @@ interface ScanCoverageMiniMapProps {
     latitude: number;
     longitude: number;
   } | null;
+  height?: number;
   label?: string | null;
+  onMapReady?: () => void;
   points?: Array<{
     label: string;
     latitude: number;
@@ -77,7 +79,9 @@ const createMarkerIcon = (rank?: number | null) => {
 
 export const ScanCoverageMiniMap = ({
   center,
+  height = 512,
   label,
+  onMapReady,
   points = [],
 }: ScanCoverageMiniMapProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -219,6 +223,7 @@ export const ScanCoverageMiniMap = ({
         lat: center.latitude,
         lng: center.longitude,
       });
+      onMapReady?.();
 
       resizeObserver = new ResizeObserver(() => {
         if (!mapInstanceRef.current) {
@@ -249,7 +254,7 @@ export const ScanCoverageMiniMap = ({
       pointMarkersRef.current = [];
       mapInstanceRef.current = null;
     };
-  }, [center, isReady, label, points]);
+  }, [center, isReady, label, onMapReady, points]);
 
   if (!center) {
     return null;
@@ -259,7 +264,7 @@ export const ScanCoverageMiniMap = ({
     <div
       ref={containerRef}
       className="overflow-hidden rounded-xl border border-default-200"
-      style={{ height: 512, minHeight: 512 }}
+      style={{ height, minHeight: height }}
     >
       {mapError ? (
         <div className="grid h-full w-full place-items-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef2ff_100%)] px-4 text-center text-xs text-danger">
@@ -269,7 +274,7 @@ export const ScanCoverageMiniMap = ({
         <div
           ref={mapRef}
           className="h-full w-full"
-          style={{ height: 512, minHeight: 512 }}
+          style={{ height, minHeight: height }}
         />
       ) : (
         <div className="grid h-full w-full place-items-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef2ff_100%)] text-xs text-default-500">

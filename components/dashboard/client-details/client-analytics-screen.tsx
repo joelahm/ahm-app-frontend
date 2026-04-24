@@ -12,6 +12,7 @@ import {
   Columns3,
   EllipsisVertical,
   Eye,
+  Link2,
   List,
   Monitor,
   Search,
@@ -24,6 +25,8 @@ import {
   DashboardDataTable,
   type DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+
+import Image from "next/image";
 
 type RankingRow = {
   dateAdded: string;
@@ -395,7 +398,38 @@ const AnalyticsCardShell = ({
   </Card>
 );
 
-export const ClientAnalyticsScreen = () => {
+const ConnectGoogleAnalyticsState = () => (
+  <div className="flex min-h-[520px] items-center justify-center rounded-2xl bg-white px-4 py-16">
+    <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
+      <div className="grid h-[58px] w-[58px] place-items-center rounded-xl border border-default-200 bg-white text-[30px] font-semibold text-[#4F46E5] shadow-sm">
+        <Image alt="Google" height={28} src="/images/google-icon.svg" width={28} />
+      </div>
+      <h1 className="mt-14 text-2xl font-semibold tracking-[-0.03em] text-[#111827]">
+        Connect Google to See Analytics
+      </h1>
+      <p className="mt-4 max-w-[720px] text-base text-[#6B7280]">
+        To view Google Business Profile analytics, this location needs to be
+        connected through Google Business Profile API.
+      </p>
+      <Button
+        className="mt-14 h-14 min-w-[270px] rounded-lg bg-[#4F46E5] px-8 text-base font-semibold text-white"
+        startContent={<Link2 size={19} />}
+      >
+        Connect with Google
+      </Button>
+    </div>
+  </div>
+);
+
+export const ClientAnalyticsScreen = ({ clientId }: { clientId?: string }) => {
+  const isGoogleConnected = false;
+
+  void clientId;
+
+  if (!isGoogleConnected) {
+    return <ConnectGoogleAnalyticsState />;
+  }
+
   return (
     <div className="space-y-5 pb-8">
       <Card className="border border-default-200 shadow-none">
@@ -554,26 +588,30 @@ export const ClientAnalyticsScreen = () => {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {metricCards.map((item) => (
-          <Card
-            key={item.label}
-            className="border border-default-200 shadow-none"
-          >
-            <CardBody className="flex flex-row items-center justify-between p-5">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#98A2B3]">
-                  {item.label}
-                </p>
-                <p className="mt-2 text-[28px] font-semibold leading-none text-[#111827]">
-                  {item.value}
-                </p>
-              </div>
-              <div className={`rounded-2xl p-3 ${item.accent}`}>
-                <item.icon />
-              </div>
-            </CardBody>
-          </Card>
-        ))}
+        {metricCards.map((item) => {
+          const MetricIcon = item.icon;
+
+          return (
+            <Card
+              key={item.label}
+              className="border border-default-200 shadow-none"
+            >
+              <CardBody className="flex flex-row items-center justify-between p-5">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#98A2B3]">
+                    {item.label}
+                  </p>
+                  <p className="mt-2 text-[28px] font-semibold leading-none text-[#111827]">
+                    {item.value}
+                  </p>
+                </div>
+                <div className={`rounded-2xl p-3 ${item.accent}`}>
+                  <MetricIcon />
+                </div>
+              </CardBody>
+            </Card>
+          );
+        })}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.06fr_1.1fr_0.86fr]">
@@ -591,37 +629,41 @@ export const ClientAnalyticsScreen = () => {
           title="Interaction By Devices"
         >
           <div className="space-y-4">
-            {deviceBreakdown.map((device) => (
-              <div key={device.label} className="space-y-2.5">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 text-[#111827]">
-                    <div
-                      className="rounded-full p-2 text-white"
-                      style={{ backgroundColor: device.color }}
-                    >
-                      <device.icon size={14} />
+            {deviceBreakdown.map((device) => {
+              const DeviceIcon = device.icon;
+
+              return (
+                <div key={device.label} className="space-y-2.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 text-[#111827]">
+                      <div
+                        className="rounded-full p-2 text-white"
+                        style={{ backgroundColor: device.color }}
+                      >
+                        <DeviceIcon size={14} />
+                      </div>
+                      <span>{device.label}</span>
                     </div>
-                    <span>{device.label}</span>
+                    <span className="font-medium text-[#111827]">
+                      {device.value}
+                    </span>
                   </div>
-                  <span className="font-medium text-[#111827]">
-                    {device.value}
-                  </span>
+                  <Progress
+                    aria-label={device.label}
+                    classNames={{
+                      indicator: "rounded-full",
+                      track: "h-2.5 bg-[#EAECEF]",
+                    }}
+                    color="primary"
+                    value={
+                      (Number(device.value.replaceAll(",", "")) /
+                        Number(deviceBreakdown[1].value.replaceAll(",", ""))) *
+                      100
+                    }
+                  />
                 </div>
-                <Progress
-                  aria-label={device.label}
-                  classNames={{
-                    indicator: "rounded-full",
-                    track: "h-2.5 bg-[#EAECEF]",
-                  }}
-                  color="primary"
-                  value={
-                    (Number(device.value.replaceAll(",", "")) /
-                      Number(deviceBreakdown[1].value.replaceAll(",", ""))) *
-                    100
-                  }
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </AnalyticsCardShell>
 

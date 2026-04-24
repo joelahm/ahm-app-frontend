@@ -26,9 +26,10 @@ export interface AddClientRequestBody {
   businessName: string;
   businessPhone: string;
   clientName: string;
-  country: string;
   niche: string;
   personalEmail: string;
+  personalPhone?: string;
+  profession?: string;
   practiceEmail: string;
   website: string;
 }
@@ -36,23 +37,28 @@ export interface AddClientRequestBody {
 export interface AddClientProjectRequestBody {
   accountManagerId: number | string;
   clientSuccessManagerId: number | string;
+  dueDate?: string | null;
   phase: string;
   progress: string;
   project: string;
+  startDate?: string | null;
 }
 
 export interface UpdateClientProjectRequestBody {
   accountManagerId?: number | string;
   clientSuccessManagerId?: number | string;
+  dueDate?: string | null;
   phase?: string;
   progress?: string;
   project?: string;
+  startDate?: string | null;
 }
 
 export interface AddProjectTaskRequestBody {
   assigneeId: number | string;
   description: string;
   dueDate: string;
+  parentTaskId?: number | string;
   projectId: number | string;
   startDate: string;
   status?: string;
@@ -61,12 +67,14 @@ export interface AddProjectTaskRequestBody {
 }
 
 export interface AddClientCitationRequestBody {
+  citationDatabaseEntryId?: string | null;
   directoryName: string;
   notes?: string;
   password?: string;
   profileUrl?: string;
   status?: string;
   username?: string;
+  verificationStatus?: ClientCitationVerificationStatus | null;
 }
 
 export interface SyncGbpDetailsRequestBody {
@@ -103,6 +111,7 @@ export interface ClientGbpDetails {
   phone: string | null;
   primaryCategory: string | null;
   rating: string | null;
+  ratingSummary: ClientGbpRatingSummaryItem[];
   reviewCount: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -119,6 +128,136 @@ export interface ClientGbpDetails {
     title: string;
   }>;
   website: string | null;
+}
+
+export interface ClientGbpRatingSummaryItem {
+  amount: number;
+  stars: number;
+}
+
+export interface ClientGbpReview {
+  date: string | null;
+  id: string;
+  images: string[];
+  likes: number;
+  name: string;
+  rating: number;
+  reply: string | null;
+  review: string;
+  userAvatar: string | null;
+}
+
+export interface ClientGbpReviewDraft {
+  clientId: number | string;
+  createdAt: string | null;
+  createdBy: number | string | null;
+  id: number | string;
+  rating: number | null;
+  replyText: string;
+  reviewId: string;
+  reviewerName: string | null;
+  reviewText: string | null;
+  status: string;
+  updatedAt: string | null;
+  updatedBy: number | string | null;
+}
+
+export interface ClientGbpReviewsResponse {
+  drafts: ClientGbpReviewDraft[];
+  nextPageToken: string | null;
+  reviews: ClientGbpReview[];
+  total: number;
+}
+
+export interface SaveClientGbpReviewDraftRequestBody {
+  rating?: number | null;
+  replyText: string;
+  reviewerName?: string | null;
+  reviewText?: string | null;
+}
+
+export interface ClientGbpPosting {
+  assignee: {
+    avatar: string | null;
+    email: string | null;
+    id: number | string | null;
+    name: string | null;
+  } | null;
+  assigneeId: number | string | null;
+  audience: string | null;
+  buttonType: string | null;
+  clientId: number | string;
+  contentType: string;
+  createdAt: string | null;
+  createdBy: number | string | null;
+  creator: {
+    avatar: string | null;
+    email: string | null;
+    id: number | string | null;
+    name: string | null;
+  } | null;
+  description: string | null;
+  id: number | string;
+  images: string[];
+  keyword: string;
+  language: string;
+  languageCode: string;
+  liveLink: string | null;
+  postContent: string | null;
+  publishedAt: string | null;
+  scheduledAt: string | null;
+  status: string;
+  updatedAt: string | null;
+}
+
+export interface ClientGbpPostingComment {
+  author: {
+    avatar: string | null;
+    email: string | null;
+    firstName: string | null;
+    id: number | string | null;
+    lastName: string | null;
+  } | null;
+  comment: string;
+  createdAt: string | null;
+  createdBy: number | string | null;
+  id: number | string;
+  postingId: number | string;
+  updatedAt: string | null;
+}
+
+export interface ClientGbpPostingCommentsResponse {
+  comments: ClientGbpPostingComment[];
+  total: number;
+}
+
+export interface CreateClientGbpPostingsRequestBody {
+  audience?: string | null;
+  language: string;
+  languageCode: string;
+  items: Array<{
+    contentType: string;
+    keyword: string;
+    numberOfPosts: number;
+  }>;
+}
+
+export interface ClientGbpPostingsResponse {
+  postings: ClientGbpPosting[];
+  total: number;
+}
+
+export interface GenerateClientGbpPostingContentResponse {
+  content: string;
+  generation: {
+    keyword: string;
+    logId: number | string | null;
+    postingId: number | string;
+    promptId: string;
+    promptType: string;
+    provider: string;
+    taskId: string | null;
+  } | null;
 }
 
 export interface ProjectTask {
@@ -207,14 +346,17 @@ export interface ClientProject {
   clientSuccessManagerId: number | string | null;
   createdAt: string | null;
   createdBy: number | string | null;
+  dueDate: string | null;
   id: number | string;
   phase: string | null;
   progress: string | null;
   project: string | null;
+  startDate: string | null;
   updatedAt: string | null;
 }
 
 export interface ClientCitation {
+  citationDatabaseEntryId?: string | null;
   clientId: number | string;
   createdAt: string | null;
   createdBy: number | string | null;
@@ -223,9 +365,24 @@ export interface ClientCitation {
   notes: string | null;
   password: string | null;
   profileUrl: string | null;
+  source?: string | null;
   status: string | null;
+  type?: string | null;
   updatedAt: string | null;
   username: string | null;
+  verificationStatus: ClientCitationVerificationStatus;
+}
+
+export type ClientCitationVerificationValue =
+  | "Match"
+  | "Incorrect"
+  | "Not Synced";
+
+export interface ClientCitationVerificationStatus {
+  address: ClientCitationVerificationValue;
+  businessName: ClientCitationVerificationValue;
+  phone: ClientCitationVerificationValue;
+  zipCode: ClientCitationVerificationValue;
 }
 
 export interface ClientCitationsResponse {
@@ -271,6 +428,7 @@ export interface ClientDetails {
   assignedTo: number | string | null;
   addressLine1: string | null;
   addressLine2: string | null;
+  buildingName: string | null;
   businessName: string | null;
   businessPhone: string | null;
   cityState: string | null;
@@ -278,8 +436,10 @@ export interface ClientDetails {
   country: string | null;
   createdAt: string | null;
   createdBy: number | string | null;
+  credentials: string | null;
   facebook: string | null;
   gbpLink: string | null;
+  gmcRegistrationNumber: string | null;
   googleAnalytics: string | null;
   googleSearchConsole: string | null;
   highQualityHeadshot: string[];
@@ -287,10 +447,14 @@ export interface ClientDetails {
   instagram: string | null;
   linkedin: string | null;
   niche: string | null;
+  nearbyAreasServed: string | null;
   otherMedicalSpecialties: string[];
+  otherImages: string[];
   postCode: string | null;
   personalEmail: string | null;
+  personalPhone: string | null;
   profession: string | null;
+  practiceStructure: string | null;
   practiceHours: Array<{
     day: string;
     enabled: boolean;
@@ -309,6 +473,10 @@ export interface ClientDetails {
   topTreatments: string[];
   treatmentAndServices: string[];
   typeOfPractice: string | null;
+  majorAccomplishments: string | null;
+  region: string | null;
+  streetAddress: string | null;
+  unitNumber: string | null;
   updatedAt: string | null;
   uniqueToCompetitors: string | null;
   visibleArea: string | null;
@@ -328,6 +496,7 @@ export interface UpdateClientRequestBody {
   addressLine2: string;
   businessName: string;
   businessPhone: string;
+  buildingName: string;
   cityState: string;
   clientName: string;
   country: string;
@@ -337,11 +506,15 @@ export interface UpdateClientRequestBody {
   googleAnalytics: string;
   googleSearchConsole: string;
   highQualityHeadshot: string[];
+  gmcRegistrationNumber: string;
+  credentials: string;
   instagram: string;
   linkedin: string;
   niche: string;
   otherMedicalSpecialties: string[];
+  otherImages: string[];
   personalEmail: string;
+  personalPhone: string;
   postCode: string;
   practiceEmail: string;
   practiceHours: Array<{
@@ -356,12 +529,18 @@ export interface UpdateClientRequestBody {
   practiceLocationExteriorPhoto: string[];
   practiceLocationInteriorPhoto: string[];
   profession: string;
+  practiceStructure: string;
+  nearbyAreasServed: string;
   specialInterests: string[];
+  streetAddress: string;
   subSpecialties: string[];
   topMedicalSpecialties: string[];
   topTreatments: string[];
   treatmentAndServices: string[];
   typeOfPractice: string;
+  majorAccomplishments: string;
+  region: string;
+  unitNumber: string;
   uniqueToCompetitors: string;
   visibleArea: string;
   website: string;
@@ -591,6 +770,7 @@ const parseClientDetailsResponse = (value: unknown): ClientDetails => {
       asId(source.assignedTo),
     addressLine1: asString(source.addressLine1),
     addressLine2: asString(source.addressLine2),
+    buildingName: asString(source.buildingName),
     businessName: asString(source.businessName),
     businessPhone: asString(source.businessPhone),
     cityState: asString(source.cityState),
@@ -602,19 +782,26 @@ const parseClientDetailsResponse = (value: unknown): ClientDetails => {
       typeof source.createdBy === "string"
         ? source.createdBy
         : null,
+    credentials: asString(source.credentials),
     facebook: asString(source.facebook),
     gbpLink: asString(source.gbpLink),
+    gmcRegistrationNumber: asString(source.gmcRegistrationNumber),
     googleAnalytics: asString(source.googleAnalytics),
     googleSearchConsole: asString(source.googleSearchConsole),
     highQualityHeadshot: asStringArray(source.highQualityHeadshot),
     id,
     instagram: asString(source.instagram),
     linkedin: asString(source.linkedin),
+    majorAccomplishments: asString(source.majorAccomplishments),
     niche: asString(source.niche),
+    nearbyAreasServed: asString(source.nearbyAreasServed),
     otherMedicalSpecialties: asStringArray(source.otherMedicalSpecialties),
+    otherImages: asStringArray(source.otherImages),
     postCode: asString(source.postCode),
     personalEmail: asString(source.personalEmail),
+    personalPhone: asString(source.personalPhone),
     profession: asString(source.profession),
+    practiceStructure: asString(source.practiceStructure),
     practiceHours: parsePracticeHours(source.practiceHours),
     practiceIntroduction: asString(source.practiceIntroduction),
     practiceLocationExteriorPhoto: asStringArray(
@@ -630,6 +817,9 @@ const parseClientDetailsResponse = (value: unknown): ClientDetails => {
     topTreatments: asStringArray(source.topTreatments),
     treatmentAndServices: asStringArray(source.treatmentAndServices),
     typeOfPractice: asString(source.typeOfPractice),
+    region: asString(source.region),
+    streetAddress: asString(source.streetAddress),
+    unitNumber: asString(source.unitNumber),
     updatedAt: asString(source.updatedAt),
     uniqueToCompetitors: asString(source.uniqueToCompetitors),
     visibleArea: asString(source.visibleArea),
@@ -829,6 +1019,47 @@ const parseAttributeGroups = (
     );
 };
 
+const parseRatingSummary = (value: unknown): ClientGbpRatingSummaryItem[] => {
+  const counts = new Map<number, number>();
+  const setCount = (stars: unknown, amount: unknown) => {
+    const parsedStars = Number(stars);
+    const parsedAmount = Number(amount);
+
+    if (
+      Number.isInteger(parsedStars) &&
+      parsedStars >= 1 &&
+      parsedStars <= 5 &&
+      Number.isFinite(parsedAmount) &&
+      parsedAmount >= 0
+    ) {
+      counts.set(parsedStars, parsedAmount);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => {
+      const record = asObject(item);
+      setCount(
+        record.stars ?? record.rating ?? record.star,
+        record.amount ?? record.count ?? record.reviews,
+      );
+    });
+  } else {
+    const record = asObject(value);
+    Object.entries(record).forEach(([key, amount]) => {
+      const keyMatch = key.match(/[1-5]/);
+      if (keyMatch) {
+        setCount(Number(keyMatch[0]), amount);
+      }
+    });
+  }
+
+  return [5, 4, 3, 2, 1].map((stars) => ({
+    amount: counts.get(stars) ?? 0,
+    stars,
+  }));
+};
+
 const parseClientGbpDetailsResponse = (value: unknown): ClientGbpDetails => {
   const root = asObject(value);
   const nested = asObject(root.data);
@@ -946,6 +1177,12 @@ const parseClientGbpDetailsResponse = (value: unknown): ClientGbpDetails => {
       (asNumber(gbpRecord.rating) !== null
         ? String(asNumber(gbpRecord.rating))
         : null),
+    ratingSummary: parseRatingSummary(
+      placeResults.rating_summary ??
+        rawRecord.rating_summary ??
+        gbpRecord.ratingSummary ??
+        gbpRecord.rating_summary,
+    ),
     reviewCount:
       reviewCountNumber !== null ? `(${reviewCountNumber} reviews)` : null,
     secondaryCategories: resolvedSecondaryCategories,
@@ -1003,6 +1240,285 @@ const parseClientGbpDetailsResponse = (value: unknown): ClientGbpDetails => {
   };
 };
 
+const parseReviewText = (value: unknown) => {
+  const direct = asString(value);
+  if (direct !== null) {
+    return direct;
+  }
+
+  const record = asObject(value);
+
+  return asString(record.original) ?? asString(record.value) ?? null;
+};
+
+const parseReviewImages = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      const record = asObject(item);
+
+      return (
+        asString(item) ??
+        asString(record.thumbnail) ??
+        asString(record.link) ??
+        asString(record.image) ??
+        asString(record.url)
+      );
+    })
+    .filter((item): item is string => Boolean(item));
+};
+
+const parseClientGbpReviewsResponse = (
+  value: unknown,
+): ClientGbpReviewsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const raw = asObject(payload.raw);
+  const pagination = asObject(raw.serpapi_pagination);
+  const drafts = asArray(payload.drafts).map((item) => {
+    const record = asObject(item);
+
+    return {
+      clientId: asId(record.clientId) ?? "",
+      createdAt: asString(record.createdAt),
+      createdBy: asId(record.createdBy),
+      id: asId(record.id) ?? "",
+      rating: asNumber(record.rating),
+      replyText: asString(record.replyText) ?? "",
+      reviewId: asString(record.reviewId) ?? "",
+      reviewerName: asString(record.reviewerName),
+      reviewText: asString(record.reviewText),
+      status: asString(record.status) ?? "DRAFT",
+      updatedAt: asString(record.updatedAt),
+      updatedBy: asId(record.updatedBy),
+    };
+  });
+  const reviews = asArray(raw.reviews).map((item, index) => {
+    const record = asObject(item);
+    const user = asObject(record.user);
+    const response = asObject(record.response);
+    const rating = asNumber(record.rating);
+
+    return {
+      date:
+        asString(record.iso_date) ??
+        asString(record.date) ??
+        asString(record.relative_time_description),
+      id:
+        asString(record.review_id) ??
+        asString(record.id) ??
+        `review-${index + 1}`,
+      images: parseReviewImages(record.images),
+      likes: asNumber(record.likes) ?? 0,
+      name: asString(user.name) ?? asString(record.name) ?? "Google User",
+      rating: rating ?? 0,
+      reply:
+        asString(response.snippet) ??
+        parseReviewText(response.extracted_snippet) ??
+        null,
+      review:
+        asString(record.snippet) ??
+        parseReviewText(record.extracted_snippet) ??
+        "-",
+      userAvatar:
+        asString(user.thumbnail) ??
+        asString(user.avatar) ??
+        asString(record.user_thumbnail),
+    };
+  });
+
+  return {
+    drafts,
+    nextPageToken: asString(pagination.next_page_token),
+    reviews,
+    total: reviews.length,
+  };
+};
+
+const parseClientGbpReviewDraftResponse = (
+  value: unknown,
+): ClientGbpReviewDraft => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const draft = asObject(payload.draft);
+  const source = Object.keys(draft).length > 0 ? draft : payload;
+
+  return {
+    clientId: asId(source.clientId) ?? "",
+    createdAt: asString(source.createdAt),
+    createdBy: asId(source.createdBy),
+    id: asId(source.id) ?? "",
+    rating: asNumber(source.rating),
+    replyText: asString(source.replyText) ?? "",
+    reviewId: asString(source.reviewId) ?? "",
+    reviewerName: asString(source.reviewerName),
+    reviewText: asString(source.reviewText),
+    status: asString(source.status) ?? "DRAFT",
+    updatedAt: asString(source.updatedAt),
+    updatedBy: asId(source.updatedBy),
+  };
+};
+
+const parseClientGbpPosting = (value: unknown): ClientGbpPosting | null => {
+  const record = asObject(value);
+  const id = asId(record.id);
+  const creator = asObject(record.creator);
+  const assignee = asObject(record.assignee);
+
+  if (id === null) {
+    return null;
+  }
+
+  return {
+    assignee:
+      Object.keys(assignee).length > 0
+        ? {
+            avatar: asString(assignee.avatar),
+            email: asString(assignee.email),
+            id: asId(assignee.id),
+            name: asString(assignee.name),
+          }
+        : null,
+    assigneeId: asId(record.assigneeId),
+    audience: asString(record.audience),
+    buttonType: asString(record.buttonType),
+    clientId: asId(record.clientId) ?? "",
+    contentType: asString(record.contentType) ?? "Update",
+    createdAt: asString(record.createdAt),
+    createdBy: asId(record.createdBy),
+    creator:
+      Object.keys(creator).length > 0
+        ? {
+            avatar: asString(creator.avatar),
+            email: asString(creator.email),
+            id: asId(creator.id),
+            name: asString(creator.name),
+          }
+        : null,
+    description: asString(record.description),
+    id,
+    images: asStringArray(record.images),
+    keyword: asString(record.keyword) ?? "",
+    language: asString(record.language) ?? "English",
+    languageCode: asString(record.languageCode) ?? "en",
+    liveLink: asString(record.liveLink),
+    postContent: asString(record.postContent),
+    publishedAt: asString(record.publishedAt),
+    scheduledAt: asString(record.scheduledAt),
+    status: asString(record.status) ?? "Draft",
+    updatedAt: asString(record.updatedAt),
+  };
+};
+
+const parseClientGbpPostingComment = (
+  value: unknown,
+): ClientGbpPostingComment | null => {
+  const record = asObject(value);
+  const id = asId(record.id);
+  const author = asObject(record.author);
+  if (id === null) {
+    return null;
+  }
+
+  return {
+    author:
+      Object.keys(author).length > 0
+        ? {
+            avatar: asString(author.avatar),
+            email: asString(author.email),
+            firstName: asString(author.firstName),
+            id: asId(author.id),
+            lastName: asString(author.lastName),
+          }
+        : null,
+    comment: asString(record.comment) ?? "",
+    createdAt: asString(record.createdAt),
+    createdBy: asId(record.createdBy),
+    id,
+    postingId: asId(record.postingId) ?? "",
+    updatedAt: asString(record.updatedAt),
+  };
+};
+
+const parseClientGbpPostingCommentsResponse = (
+  value: unknown,
+): ClientGbpPostingCommentsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const comments = asArray(payload.comments)
+    .map(parseClientGbpPostingComment)
+    .filter((comment): comment is ClientGbpPostingComment => comment !== null);
+
+  return {
+    comments,
+    total: asNumber(payload.total) ?? comments.length,
+  };
+};
+
+const parseClientGbpPostingCommentResponse = (
+  value: unknown,
+): ClientGbpPostingComment => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const comment = parseClientGbpPostingComment(
+    Object.keys(asObject(payload.comment)).length > 0
+      ? payload.comment
+      : payload,
+  );
+  if (!comment) {
+    throw new Error("Invalid GBP posting comment response.");
+  }
+  return comment;
+};
+
+const parseClientGbpPostingsResponse = (
+  value: unknown,
+): ClientGbpPostingsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const postings = asArray(payload.postings)
+    .map(parseClientGbpPosting)
+    .filter((posting): posting is ClientGbpPosting => posting !== null);
+
+  return {
+    postings,
+    total: asNumber(payload.total) ?? postings.length,
+  };
+};
+
+const parseGenerateClientGbpPostingContentResponse = (
+  value: unknown,
+): GenerateClientGbpPostingContentResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const generation = asObject(payload.generation);
+
+  return {
+    content: asString(payload.content) ?? "",
+    generation:
+      Object.keys(generation).length > 0
+        ? {
+            keyword: asString(generation.keyword) ?? "",
+            logId: asId(generation.logId),
+            postingId: asId(generation.postingId) ?? "",
+            promptId: asString(generation.promptId) ?? "",
+            promptType: asString(generation.promptType) ?? "",
+            provider: asString(generation.provider) ?? "",
+            taskId: asString(generation.taskId),
+          }
+        : null,
+  };
+};
+
 const parseClientProjectResponse = (value: unknown): ClientProject => {
   const root = asObject(value);
   const nested = asObject(root.data);
@@ -1040,10 +1556,12 @@ const parseClientProjectResponse = (value: unknown): ClientProject => {
     clientSuccessManagerId: asId(source.clientSuccessManagerId),
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
+    dueDate: asString(source.dueDate),
     id,
     phase: asString(source.phase),
     progress: asString(source.progress),
     project: asString(source.project),
+    startDate: asString(source.startDate),
     updatedAt: asString(source.updatedAt),
   };
 };
@@ -1275,6 +1793,7 @@ const parseClientCitationResponse = (value: unknown): ClientCitation => {
   }
 
   return {
+    citationDatabaseEntryId: asString(source.citationDatabaseEntryId),
     clientId: asId(source.clientId) ?? "",
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
@@ -1283,9 +1802,42 @@ const parseClientCitationResponse = (value: unknown): ClientCitation => {
     notes: asString(source.notes),
     password: asString(source.password),
     profileUrl: asString(source.profileUrl),
+    source: asString(source.source),
     status: asString(source.status),
+    type: asString(source.type),
     updatedAt: asString(source.updatedAt),
     username: asString(source.username),
+    verificationStatus: parseClientCitationVerificationStatus(
+      source.verificationStatus,
+    ),
+  };
+};
+
+const isClientCitationVerificationValue = (
+  value: string | null,
+): value is ClientCitationVerificationValue =>
+  value === "Match" || value === "Incorrect" || value === "Not Synced";
+
+const parseClientCitationVerificationValue = (
+  value: unknown,
+): ClientCitationVerificationValue => {
+  const stringValue = asString(value);
+
+  return isClientCitationVerificationValue(stringValue)
+    ? stringValue
+    : "Not Synced";
+};
+
+const parseClientCitationVerificationStatus = (
+  value: unknown,
+): ClientCitationVerificationStatus => {
+  const source = asObject(value);
+
+  return {
+    address: parseClientCitationVerificationValue(source.address),
+    businessName: parseClientCitationVerificationValue(source.businessName),
+    phone: parseClientCitationVerificationValue(source.phone),
+    zipCode: parseClientCitationVerificationValue(source.zipCode),
   };
 };
 
@@ -1374,6 +1926,51 @@ export const clientsApi = {
 
       return response.data;
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        try {
+          const response = await clientsApiClient.patch(
+            `/api/v1/clients/${clientId}/status`,
+            {
+              status: "Deleted",
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+              },
+            },
+          );
+
+          return {
+            ...response.data,
+            softDeleted: true,
+          };
+        } catch (statusError) {
+          if (
+            axios.isAxiosError(statusError) &&
+            statusError.response?.status === 404
+          ) {
+            const fallbackResponse = await clientsApiClient.patch(
+              `/api/v1/clients/${clientId}`,
+              {
+                status: "Deleted",
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                },
+              },
+            );
+
+            return {
+              ...fallbackResponse.data,
+              softDeleted: true,
+            };
+          }
+
+          throw new Error(parseError(statusError));
+        }
+      }
+
       throw new Error(parseError(error));
     }
   },
@@ -1435,6 +2032,260 @@ export const clientsApi = {
       );
 
       return parseClientGbpDetailsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getClientGbpReviews: async (
+    accessToken: string,
+    clientId: string | number,
+    params?: {
+      nextPageToken?: string | null;
+      sortBy?: string | null;
+    },
+  ) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/clients/${clientId}/reviews`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          params: {
+            nextPageToken: params?.nextPageToken || undefined,
+            sortBy: params?.sortBy || undefined,
+          },
+        },
+      );
+
+      return parseClientGbpReviewsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  saveClientGbpReviewDraft: async (
+    accessToken: string,
+    clientId: string | number,
+    reviewId: string,
+    payload: SaveClientGbpReviewDraftRequestBody,
+  ) => {
+    try {
+      const response = await clientsApiClient.put<unknown>(
+        `/api/v1/clients/${clientId}/reviews/${encodeURIComponent(reviewId)}/draft`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpReviewDraftResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listClientGbpPostings: async (
+    accessToken: string,
+    clientId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpPostingsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createClientGbpPostings: async (
+    accessToken: string,
+    clientId: string | number,
+    payload: CreateClientGbpPostingsRequestBody,
+  ) => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpPostingsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  generateClientGbpPostings: async (
+    accessToken: string,
+    clientId: string | number,
+    payload: CreateClientGbpPostingsRequestBody,
+  ) => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings/generate-from-keywords`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpPostingsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  generateClientGbpPostingContent: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+    payload: Partial<{
+      audience: string | null;
+      contentType: string;
+      keyword: string;
+      language: string;
+      languageCode: string;
+    }>,
+  ) => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}/generate-content`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseGenerateClientGbpPostingContentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateClientGbpPosting: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+    payload: Partial<{
+      assigneeId: number | string | null;
+      buttonType: string | null;
+      contentType: string;
+      description: string | null;
+      images: string[];
+      liveLink: string | null;
+      postContent: string | null;
+      status: string;
+    }>,
+  ) => {
+    try {
+      const response = await clientsApiClient.patch<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+      const root = asObject(response.data);
+      const nested = asObject(root.data);
+      const payloadRecord = Object.keys(nested).length > 0 ? nested : root;
+      const posting = parseClientGbpPosting(payloadRecord.posting);
+      if (!posting) {
+        throw new Error("Invalid GBP posting response.");
+      }
+      return posting;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientGbpPosting: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+  ) => {
+    try {
+      await clientsApiClient.delete(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getClientGbpPostingComments: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}/comments`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpPostingCommentsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createClientGbpPostingComment: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+    payload: { comment: string },
+  ) => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}/comments`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientGbpPostingCommentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientGbpPostingComment: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+    commentId: string | number,
+  ) => {
+    try {
+      await clientsApiClient.delete(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}/comments/${commentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
     } catch (error) {
       throw new Error(parseError(error));
     }
@@ -1868,7 +2719,13 @@ export const clientsApi = {
         },
       });
 
-      return parseClientsResponse(response.data);
+      const clients = parseClientsResponse(response.data);
+
+      return clients.filter((client) => {
+        const normalizedStatus = (client.status ?? "").trim().toLowerCase();
+
+        return normalizedStatus === "active" || normalizedStatus === "inactive";
+      });
     } catch (error) {
       throw new Error(parseError(error));
     }

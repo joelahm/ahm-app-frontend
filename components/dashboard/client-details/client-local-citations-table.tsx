@@ -14,37 +14,57 @@ import {
 } from "@heroui/dropdown";
 import { Input } from "@heroui/input";
 import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleX,
   Columns3,
   EllipsisVertical,
   Eye,
+  EyeOff,
   List,
   Plus,
   Search,
+  SquareDashedMousePointer,
   Trash2,
 } from "lucide-react";
 
 import {
   type AddClientCitationRequestBody,
   type ClientCitation,
+  type ClientCitationVerificationStatus,
   clientsApi,
 } from "@/apis/clients";
+import {
+  citationDatabaseApi,
+  type CitationDatabaseItem,
+} from "@/apis/citation-database";
 import { useAuth } from "@/components/auth/auth-context";
 import { AddCitationModal } from "@/components/dashboard/client-details/add-citation-modal";
 import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 type CitationStatus =
+  | "Complete"
   | "Pending"
-  | "Rejected"
-  | "Not Synced"
-  | "Live Citation"
-  | "In Review";
+  | "Incomplete"
+  | "Missing"
+  | "Error";
+
+const citationStatuses = [
+  "Complete",
+  "Pending",
+  "Incomplete",
+  "Missing",
+  "Error",
+] as const satisfies readonly CitationStatus[];
 
 type LocalCitationRow = {
   address: string;
   citationId: string | null;
+  citationDatabaseEntryId: string | null;
   dateAdded: string;
   directory: string;
   id: string;
@@ -53,9 +73,12 @@ type LocalCitationRow = {
   password: string;
   phone: string;
   profileUrl: string;
+  source: "Database" | "Custom";
   status: CitationStatus;
   type: string;
   username: string;
+  validationLink: string;
+  verificationStatus: ClientCitationVerificationStatus;
   zipCode: string;
 };
 
@@ -64,127 +87,48 @@ interface ClientLocalCitationsTableProps {
 }
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+const defaultVerificationStatus: ClientCitationVerificationStatus = {
+  address: "Not Synced",
+  businessName: "Not Synced",
+  phone: "Not Synced",
+  zipCode: "Not Synced",
+};
 
-const citationDirectories = [
-  "Google Business Profile",
-  "Apple Business Connect",
-  "LinkedIn",
-  "Facebook",
-  "Instagram",
-  "WebMD",
-  "YELP (Country Variants)",
-  "Yelp (Country Variants)",
-  "ZoomInfo",
-  "Psychology Today",
-  "Trustpilot",
-  "Evening Standard",
-  "TripAdvisor",
-  "LII (Legal Information Institute)",
-  "Foursquare",
-  "Crunchbase",
-  "White Pages",
-  "MapQuest",
-  "Waze",
-  "Better Business Bureau",
-  "Yellow Pages",
-  "BBB",
-  "Superpages",
-  "Chamber of Commerce",
-  "BBB (Better Business Bureaus)",
-  "Manta",
-  "Yellowbook",
-  "google.com.au",
-  "MerchantCircle",
-  "DexKnows",
-  "Citysearch",
-  "Local.com",
-  "OpenTable",
-  "Trip.com",
-  "Healthgrades",
-  "Houzz",
-  "Angi (formerly Angie's List)",
-  "Travelocity",
-  "Manchester Evening News Directory",
-  "EZlocal",
-  "Expedia",
-  "HotFrog",
-  "Booking.com",
-  "Priceline",
-  "Hotels.com",
-  "HomeAdvisor",
-  "Justia",
-  "Lawyers.com",
-  "Thumbtack",
-  "Zocdoc",
-  "Avvo",
-  "FindLaw",
-  "Zomato",
-  "Insider Pages",
-  "Kudzu",
-  "OpenStreetMap",
-  "Yell.com",
-  "Martindale-Hubbell",
-  "Nolo",
-  "Houzz (Country Variants)",
-  "Liverpool Echo Directory",
-  "Whitepages",
-  "FindLaw.com",
-  "Chronicle Live Directory",
-  "HappyCow",
-  "Hotfrog",
-  "Here",
-  "Find us here",
-  "Nextdoor Canada",
-  "Hostelworld",
-  "Nextdoor Australia",
-  "Nextdoor (Country Variants)",
-  "Tuugo",
-  "AAO",
-  "Hull Daily Mail Directory",
-  "Lacartes",
-  "TomTom",
-  "Bristol Post Directory",
-  "Nottingham Post Directory",
-  "eLocal",
-  "Gazette Live Directory",
-  "Where To Go",
-  "True Local",
-  "Bizcommunity",
-  "Care.com",
-  "SaleSpider",
-  "My Local Services",
-  "ThomasNet",
-  "Local Yahoo",
-  "LocalDatabase",
-  "USCity.net",
-  "All-Biz",
-  "Stoke Sentinel Directory",
-  "GoLocal247",
-  "GoodTherapy",
-  "Awwwards",
-  "RateBeer",
-  "Fyple",
-  "Angi",
-] as const;
+type CitationTemplate = {
+  id: string;
+  name: string;
+  type: string;
+  validationLink: string;
+};
 
-const rowsSeed: LocalCitationRow[] = citationDirectories.map(
-  (directory, index) => ({
-    id: String(index + 1),
-    citationId: null,
-    directory,
-    name: "-",
-    notes: "",
-    password: "",
-    address: "-",
-    zipCode: "-",
-    phone: "-",
-    profileUrl: "",
-    status: "Not Synced",
-    type: "-",
-    username: "",
-    dateAdded: "-",
-  }),
-);
+const statusSummaryConfig = {
+  Complete: {
+    icon: CheckCircle2,
+    iconClassName: "bg-[#D1FAE5] text-[#10B981]",
+  },
+  Pending: {
+    icon: SquareDashedMousePointer,
+    iconClassName: "bg-[#FEF3C7] text-[#F59E0B]",
+  },
+  Incomplete: {
+    icon: AlertTriangle,
+    iconClassName: "bg-[#CFFAFE] text-[#06B6D4]",
+  },
+  Missing: {
+    icon: EyeOff,
+    iconClassName: "bg-[#E0E7FF] text-[#6366F1]",
+  },
+  Error: {
+    icon: CircleX,
+    iconClassName: "bg-[#FCE7F3] text-[#EC4899]",
+  },
+} satisfies Record<
+  CitationStatus,
+  {
+    icon: typeof CheckCircle2;
+    iconClassName: string;
+  }
+>;
 
 const buildClientAddress = ({
   addressLine1,
@@ -213,20 +157,20 @@ const extractZipCode = (value?: string | null) => {
 };
 
 const getStatusChipClassName = (status: CitationStatus) => {
-  if (status === "Live Citation") {
+  if (status === "Complete") {
     return "bg-[#DCFCE7] text-[#059669]";
   }
 
-  if (status === "Rejected") {
+  if (status === "Incomplete") {
+    return "bg-[#FFEDD5] text-[#EA580C]";
+  }
+
+  if (status === "Error") {
     return "bg-[#FEE2E2] text-[#DC2626]";
   }
 
-  if (status === "Not Synced") {
-    return "bg-[#EEF2FF] text-[#4338CA]";
-  }
-
-  if (status === "In Review") {
-    return "bg-[#E0F2FE] text-[#0369A1]";
+  if (status === "Missing") {
+    return "bg-[#F3F4F6] text-[#4B5563]";
   }
 
   return "bg-[#FEF3C7] text-[#D97706]";
@@ -252,7 +196,7 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
     renderCell: (item) => (
       <div className="flex items-center gap-3">
         <Avatar
-          className={`h-10 w-10 text-sm font-semibold ${getDirectoryTone(item.directory)}`}
+          className={`flex-none h-10 w-10 text-sm font-semibold ${getDirectoryTone(item.directory)}`}
           name={item.directory}
         />
         <span className="text-sm text-[#111827]">{item.directory}</span>
@@ -273,11 +217,31 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
     ),
   },
   {
+    key: "address",
+    label: "Address",
+    className: thClassName,
+    renderCell: (item) => (
+      <span className="block max-w-[260px] truncate text-sm text-[#111827]">
+        {item.address}
+      </span>
+    ),
+  },
+  {
+    key: "zipCode",
+    label: "Zip Code",
+    className: thClassName,
+    renderCell: (item) => (
+      <span className="text-sm text-[#111827]">{item.zipCode}</span>
+    ),
+  },
+  {
     key: "phone",
     label: "Phone",
     className: thClassName,
     renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.phone}</span>
+      <span className="whitespace-nowrap text-sm text-[#111827]">
+        {item.phone}
+      </span>
     ),
   },
   {
@@ -304,6 +268,16 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
     ),
   },
   {
+    key: "phoneSecondary",
+    label: "Phone",
+    className: thClassName,
+    renderCell: (item) => (
+      <span className="whitespace-nowrap text-sm text-[#111827]">
+        {item.phone}
+      </span>
+    ),
+  },
+  {
     key: "action",
     label: "Action",
     className: thClassName,
@@ -324,7 +298,7 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
           >
             View
           </DropdownItem>
-          <DropdownItem
+          {/*  <DropdownItem
             key="delete"
             className="text-danger"
             color="danger"
@@ -332,7 +306,7 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
             startContent={<Trash2 size={16} />}
           >
             Delete
-          </DropdownItem>
+          </DropdownItem> */}
         </DropdownMenu>
       </Dropdown>
     ),
@@ -368,7 +342,7 @@ const buildColumns = ({
             >
               View
             </DropdownItem>
-            <DropdownItem
+            {/* <DropdownItem
               key="delete"
               className="text-danger"
               color="danger"
@@ -377,7 +351,7 @@ const buildColumns = ({
               onPress={() => onDelete(item)}
             >
               Delete
-            </DropdownItem>
+            </DropdownItem> */}
           </DropdownMenu>
         </Dropdown>
       ),
@@ -387,8 +361,12 @@ const buildColumns = ({
 export const ClientLocalCitationsTable = ({
   clientId,
 }: ClientLocalCitationsTableProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
   const [citations, setCitations] = useState<ClientCitation[]>([]);
+  const [citationTemplates, setCitationTemplates] = useState<
+    CitationTemplate[]
+  >([]);
   const [isAddCitationModalOpen, setIsAddCitationModalOpen] = useState(false);
   const [activeCitation, setActiveCitation] = useState<LocalCitationRow | null>(
     null,
@@ -403,27 +381,33 @@ export const ClientLocalCitationsTable = ({
   });
 
   const openAddCitationModal = () => {
+    const firstTemplate = citationTemplates[0];
+
     setActiveCitation({
       address: clientContext.address,
       citationId: null,
+      citationDatabaseEntryId: firstTemplate?.id ?? null,
       dateAdded: "-",
-      directory: "Google Business Profile",
+      directory: firstTemplate?.name ?? "Citation",
       id: "new-citation",
       name: clientContext.name,
       notes: "",
       password: "",
       phone: clientContext.phone,
       profileUrl: "",
-      status: "Not Synced",
-      type: "-",
+      source: firstTemplate ? "Database" : "Custom",
+      status: "Pending",
+      type: firstTemplate?.type ?? "-",
       username: "",
+      validationLink: firstTemplate?.validationLink ?? "",
+      verificationStatus: defaultVerificationStatus,
       zipCode: clientContext.zipCode,
     });
     setIsAddCitationModalOpen(true);
   };
 
   useEffect(() => {
-    if (!session?.accessToken || !clientId) {
+    if (!session || !clientId) {
       return;
     }
 
@@ -431,15 +415,19 @@ export const ClientLocalCitationsTable = ({
 
     const loadClientContext = async () => {
       try {
-        const [clientDetails, gbpDetails, citationsResponse] =
+        const accessToken = await getValidAccessToken();
+        const [clientDetails, gbpDetails, citationsResponse, citationDatabase] =
           await Promise.all([
-            clientsApi.getClientById(session.accessToken, clientId),
+            clientsApi.getClientById(accessToken, clientId),
             clientsApi
-              .getClientGbpDetails(session.accessToken, clientId)
+              .getClientGbpDetails(accessToken, clientId)
               .catch(() => null),
             clientsApi
-              .getClientCitations(session.accessToken, clientId)
+              .getClientCitations(accessToken, clientId)
               .catch(() => ({ citations: [], total: 0 })),
+            citationDatabaseApi
+              .listCitations(accessToken)
+              .catch(() => ({ citations: [] as CitationDatabaseItem[] })),
           ]);
 
         if (!isMounted) {
@@ -468,6 +456,16 @@ export const ClientLocalCitationsTable = ({
           zipCode,
         });
         setCitations(citationsResponse.citations);
+        setCitationTemplates(
+          citationDatabase.citations
+            .filter((citation) => citation.status === "Published")
+            .map((citation) => ({
+              id: String(citation.id),
+              name: citation.name,
+              type: citation.type,
+              validationLink: citation.validationLink,
+            })),
+        );
       } catch {
         if (!isMounted) {
           return;
@@ -480,6 +478,7 @@ export const ClientLocalCitationsTable = ({
           zipCode: "-",
         });
         setCitations([]);
+        setCitationTemplates([]);
       }
     };
 
@@ -488,31 +487,77 @@ export const ClientLocalCitationsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
     const citationMap = new Map(
-      citations.map((citation) => [citation.directoryName, citation]),
+      citations
+        .filter((citation) => citation.citationDatabaseEntryId)
+        .map((citation) => [
+          citation.citationDatabaseEntryId as string,
+          citation,
+        ]),
     );
-    const hydratedRows = rowsSeed.map((row) => {
-      const matchedCitation = citationMap.get(row.directory);
+    const templateRows = citationTemplates.map((template, index) => {
+      const matchedCitation = citationMap.get(template.id);
 
       return {
-        ...row,
         address: clientContext.address,
         citationId: matchedCitation ? String(matchedCitation.id) : null,
+        citationDatabaseEntryId: template.id,
+        dateAdded: matchedCitation?.createdAt?.slice(0, 10) ?? "-",
+        directory: template.name,
+        id: `template-${template.id}-${index}`,
         name: clientContext.name,
         notes: matchedCitation?.notes ?? "",
         password: matchedCitation?.password ?? "",
         phone: clientContext.phone,
         profileUrl: matchedCitation?.profileUrl ?? "",
-        status:
-          (matchedCitation?.status as CitationStatus | null) ?? "Not Synced",
+        source: "Database",
+        status: (matchedCitation?.status as CitationStatus | null) ?? "Pending",
+        type: template.type || "-",
         username: matchedCitation?.username ?? "",
+        validationLink: template.validationLink,
+        verificationStatus:
+          matchedCitation?.verificationStatus ?? defaultVerificationStatus,
         zipCode: clientContext.zipCode,
-      };
+      } satisfies LocalCitationRow;
     });
+    const templateIds = new Set(
+      citationTemplates.map((template) => template.id),
+    );
+    const extraSavedRows = citations
+      .filter(
+        (citation) =>
+          !citation.citationDatabaseEntryId ||
+          !templateIds.has(citation.citationDatabaseEntryId),
+      )
+      .map(
+        (citation, index) =>
+          ({
+            address: clientContext.address,
+            citationId: String(citation.id),
+            citationDatabaseEntryId: citation.citationDatabaseEntryId ?? null,
+            dateAdded: citation.createdAt?.slice(0, 10) ?? "-",
+            directory: citation.directoryName,
+            id: `saved-${citation.id}-${index}`,
+            name: clientContext.name,
+            notes: citation.notes ?? "",
+            password: citation.password ?? "",
+            phone: clientContext.phone,
+            profileUrl: citation.profileUrl ?? "",
+            source: "Custom",
+            status: (citation.status as CitationStatus | null) ?? "Pending",
+            type: citation.type ?? "-",
+            username: citation.username ?? "",
+            validationLink: "",
+            verificationStatus:
+              citation.verificationStatus ?? defaultVerificationStatus,
+            zipCode: clientContext.zipCode,
+          }) satisfies LocalCitationRow,
+      );
+    const hydratedRows = [...templateRows, ...extraSavedRows];
 
     if (!query) {
       return hydratedRows;
@@ -526,26 +571,55 @@ export const ClientLocalCitationsTable = ({
         row.zipCode,
         row.phone,
         row.status,
+        row.source,
         row.type,
         row.dateAdded,
       ].some((value) => value.toLowerCase().includes(query)),
     );
-  }, [citations, clientContext, searchValue]);
+  }, [citations, citationTemplates, clientContext, searchValue]);
+
+  const statusSummaryItems = useMemo(() => {
+    const counts = citationStatuses.reduce(
+      (result, status) => ({
+        ...result,
+        [status]: 0,
+      }),
+      {} as Record<CitationStatus, number>,
+    );
+
+    filteredRows.forEach((row) => {
+      counts[row.status] += 1;
+    });
+
+    return citationStatuses.map((status) => ({
+      count: counts[status],
+      status,
+      ...statusSummaryConfig[status],
+    }));
+  }, [filteredRows]);
 
   const tableColumns = useMemo(
     () =>
       buildColumns({
         onDelete: (row) => {
-          if (!row.citationId || !session?.accessToken) {
+          if (!row.citationId || !session) {
             return;
           }
 
-          void clientsApi
-            .deleteClientCitation(session.accessToken, clientId, row.citationId)
+          const citationId = row.citationId;
+
+          void getValidAccessToken()
+            .then((accessToken) =>
+              clientsApi.deleteClientCitation(
+                accessToken,
+                clientId,
+                citationId,
+              ),
+            )
             .then(() => {
               setCitations((current) =>
                 current.filter(
-                  (citation) => String(citation.id) !== row.citationId,
+                  (citation) => String(citation.id) !== citationId,
                 ),
               );
             })
@@ -556,7 +630,7 @@ export const ClientLocalCitationsTable = ({
           setIsAddCitationModalOpen(true);
         },
       }),
-    [clientId, session?.accessToken],
+    [clientId, getValidAccessToken, session],
   );
 
   const handleSaveCitation = async (payload: {
@@ -565,46 +639,85 @@ export const ClientLocalCitationsTable = ({
     profileUrl?: string;
     status?: string;
     username?: string;
+    verificationStatus: ClientCitationVerificationStatus;
   }) => {
-    if (!session?.accessToken) {
+    if (!session) {
       throw new Error("Missing access token.");
     }
 
     const directoryName =
       activeCitation?.directory ?? "Google Business Profile";
     const requestPayload: AddClientCitationRequestBody = {
+      citationDatabaseEntryId: activeCitation?.citationDatabaseEntryId ?? null,
       directoryName,
       notes: payload.notes,
       password: payload.password,
       profileUrl: payload.profileUrl,
       status: payload.status,
       username: payload.username,
+      verificationStatus: payload.verificationStatus,
     };
 
-    const savedCitation = activeCitation?.citationId
-      ? await clientsApi.updateClientCitation(
-          session.accessToken,
-          clientId,
-          activeCitation.citationId,
-          requestPayload,
-        )
-      : await clientsApi.createClientCitation(
-          session.accessToken,
-          clientId,
-          requestPayload,
+    try {
+      const accessToken = await getValidAccessToken();
+      const savedCitation = activeCitation?.citationId
+        ? await clientsApi.updateClientCitation(
+            accessToken,
+            clientId,
+            activeCitation.citationId,
+            requestPayload,
+          )
+        : await clientsApi.createClientCitation(
+            accessToken,
+            clientId,
+            requestPayload,
+          );
+
+      setCitations((current) => {
+        const filtered = current.filter(
+          (citation) => String(citation.id) !== String(savedCitation.id),
         );
 
-    setCitations((current) => {
-      const filtered = current.filter(
-        (citation) => String(citation.id) !== String(savedCitation.id),
-      );
+        return [...filtered, savedCitation];
+      });
+      toast.success("Citation saved successfully.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save citation.";
 
-      return [...filtered, savedCitation];
-    });
+      toast.danger("Failed to save citation.", {
+        description: message,
+      });
+      throw error;
+    }
   };
 
   return (
     <>
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {statusSummaryItems.map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <div
+              key={item.status}
+              className="min-h-[132px] rounded-xl border border-default-200 bg-white px-4 py-3 shadow-sm"
+            >
+              <div
+                className={`mb-3 grid h-12 w-12 place-items-center rounded-xl ${item.iconClassName}`}
+              >
+                <Icon size={24} strokeWidth={2} />
+              </div>
+              <p className="text-base font-medium text-[#111827]">
+                {item.status}
+              </p>
+              <p className="mt-3 text-3xl font-semibold leading-none text-[#111827]">
+                {item.count}
+              </p>
+            </div>
+          );
+        })}
+      </div>
       <DashboardDataTable
         enableSelection
         showPagination
@@ -635,13 +748,13 @@ export const ClientLocalCitationsTable = ({
               value={searchValue}
               onValueChange={setSearchValue}
             />
-            <Button
+            {/* <Button
               className="bg-[#022279] text-white"
               startContent={<Plus size={14} />}
               onPress={openAddCitationModal}
             >
               Add Citation
-            </Button>
+            </Button> */}
           </div>
         }
         rows={filteredRows}
@@ -654,6 +767,7 @@ export const ClientLocalCitationsTable = ({
           address: activeCitation?.address ?? clientContext.address,
           businessName: activeCitation?.name ?? clientContext.name,
           phone: activeCitation?.phone ?? clientContext.phone,
+          validationLink: activeCitation?.validationLink ?? "",
           zipCode: activeCitation?.zipCode ?? clientContext.zipCode,
         }}
         initialValues={
@@ -664,13 +778,15 @@ export const ClientLocalCitationsTable = ({
                 profileUrl: activeCitation.profileUrl,
                 status: activeCitation.status,
                 username: activeCitation.username,
+                verificationStatus: activeCitation.verificationStatus,
               }
             : {
                 notes: "",
                 password: "",
                 profileUrl: "",
-                status: "Not Synced",
+                status: "Pending",
                 username: "",
+                verificationStatus: defaultVerificationStatus,
               }
         }
         isOpen={isAddCitationModalOpen}

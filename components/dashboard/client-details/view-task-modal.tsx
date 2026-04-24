@@ -31,6 +31,19 @@ import Image from "next/image";
 import { clientsApi, TaskComment } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
 import { useAppToast } from "@/hooks/use-app-toast";
+import {
+  buildCommentMessage,
+  buildPendingAttachmentsFromFileList,
+  MAX_COMMENT_ATTACHMENT_BYTES,
+  MAX_COMMENT_ATTACHMENTS,
+  MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES,
+  MAX_COMMENT_PAYLOAD_BYTES,
+  parseCommentAttachments,
+  PendingAttachmentItem,
+  ParsedCommentAttachment,
+  validateCommentPayloadSize,
+} from "@/lib/comment-attachments";
+import { normalizeTaskStatus } from "@/lib/task-statuses";
 
 type SubtaskRow = {
   assignee: {
@@ -47,6 +60,7 @@ interface ViewTaskModalProps {
   clientAddress: string;
   clientName: string;
   isOpen: boolean;
+  onTaskSaved?: (taskId: string) => void | Promise<void>;
   onOpenChange: (isOpen: boolean) => void;
   projectOptions: Array<{ id: string; label: string }>;
   statusOptions: string[];
@@ -66,25 +80,6 @@ interface ViewTaskModalProps {
   users: Array<{ avatar?: string; id: string; name: string }>;
 }
 
-interface PendingAttachmentItem {
-  id: string;
-  isImage: boolean;
-  mimeType?: string;
-  name: string;
-  previewUrl?: string;
-}
-
-interface ParsedCommentAttachment {
-  id?: string;
-  name: string;
-}
-
-interface ParsedCommentContent {
-  attachments: ParsedCommentAttachment[];
-  body: string;
-  richHtml?: string;
-}
-
 const toCalendarDate = (value?: string) => {
   if (!value || value === "-") {
     return null;
@@ -97,24 +92,6 @@ const toCalendarDate = (value?: string) => {
   } catch {
     return null;
   }
-};
-
-const normalizeTaskStatus = (value?: string | null) => {
-  const normalized = (value ?? "").trim().toUpperCase();
-
-  if (normalized === "DONE" || normalized === "COMPLETED") {
-    return "Completed";
-  }
-
-  if (normalized === "IN PROGRESS") {
-    return "In Progress";
-  }
-
-  if (normalized === "ON HOLD") {
-    return "On Hold";
-  }
-
-  return "To Do";
 };
 
 const toFriendlyDate = (value?: string) => {
@@ -232,62 +209,6 @@ const extractSelectedLines = (range: Range) => {
     .filter(Boolean);
 };
 
-const parseCommentAttachments = (message: string): ParsedCommentContent => {
-  let workingMessage = message;
-  let richHtml: string | undefined;
-  const richHtmlMatch = workingMessage.match(
-    /\[COMMENT_HTML\]([\s\S]*?)\[\/COMMENT_HTML\]/i,
-  );
-
-  if (richHtmlMatch?.[1]) {
-    try {
-      richHtml = decodeURIComponent(richHtmlMatch[1]);
-    } catch {
-      richHtml = richHtmlMatch[1];
-    }
-
-    workingMessage = workingMessage.replace(richHtmlMatch[0], "").trim();
-  }
-
-  const lines = workingMessage.split(/\r?\n/);
-  const attachments: ParsedCommentAttachment[] = [];
-  const bodyLines: string[] = [];
-
-  lines.forEach((line) => {
-    const normalized = line.trim();
-    const structuredMatch = normalized.match(
-      /^\[Attachment:([^:\]]+):(.+)\]$/i,
-    );
-
-    if (structuredMatch) {
-      attachments.push({
-        id: structuredMatch[1]?.trim(),
-        name: structuredMatch[2]?.trim() || "Attachment",
-      });
-
-      return;
-    }
-
-    const legacyMatch = normalized.match(/^\[Attachment\]\s+(.+)$/i);
-
-    if (legacyMatch) {
-      attachments.push({
-        name: legacyMatch[1]?.trim() || "Attachment",
-      });
-
-      return;
-    }
-
-    bodyLines.push(line);
-  });
-
-  return {
-    attachments,
-    body: bodyLines.join("\n").trim(),
-    richHtml,
-  };
-};
-
 const sanitizeCommentHtml = (html: string) => {
   if (typeof window === "undefined" || !html) {
     return "";
@@ -362,6 +283,7 @@ export const ViewTaskModal = ({
   clientAddress,
   clientName,
   isOpen,
+  onTaskSaved,
   onOpenChange,
   projectOptions,
   statusOptions,
@@ -733,7 +655,7 @@ export const ViewTaskModal = ({
     });
   };
 
-  const handleAddPendingFiles = (
+  const handleAddPendingFiles = async (
     fileList: FileList | null,
     options?: { imageOnly?: boolean },
   ) => {
@@ -741,28 +663,68 @@ export const ViewTaskModal = ({
       return;
     }
 
-    const attachments = Array.from(fileList)
-      .filter((file) =>
-        options?.imageOnly ? file.type.startsWith("image/") : true,
-      )
-      .map((file) => {
-        const isImageFile = file.type.startsWith("image/");
-
-        return {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          isImage: isImageFile,
-          mimeType: file.type,
-          name: file.name,
-          previewUrl: URL.createObjectURL(file),
-        } satisfies PendingAttachmentItem;
-      })
-      .filter((attachment) => Boolean(attachment.name));
+    const {
+      attachments,
+      countExceededFiles,
+      oversizedFiles,
+      totalSizeExceededFiles,
+      unsupportedFiles,
+    } = await buildPendingAttachmentsFromFileList(fileList, {
+      currentAttachments: pendingAttachments,
+      imageOnly: options?.imageOnly,
+    });
 
     if (attachments.length === 0) {
+      if (unsupportedFiles.length > 0) {
+        toast.warning("Unsupported file type.", {
+          description: options?.imageOnly
+            ? "Please upload image files only."
+            : "Please upload a supported file format.",
+        });
+      }
+
+      if (oversizedFiles.length > 0) {
+        toast.warning("File is too large.", {
+          description: `Each file must be ${Math.floor(MAX_COMMENT_ATTACHMENT_BYTES / 1024)}KB or less.`,
+        });
+      }
+
+      if (totalSizeExceededFiles.length > 0) {
+        toast.warning("Total attachment size exceeded.", {
+          description: `Combined attachments must stay under ${Math.floor(
+            MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES / 1024,
+          )}KB.`,
+        });
+      }
+
+      if (countExceededFiles.length > 0) {
+        toast.warning("Attachment limit reached.", {
+          description: `You can attach up to ${MAX_COMMENT_ATTACHMENTS} files per comment.`,
+        });
+      }
+
       return;
     }
 
     setPendingAttachments((previous) => [...previous, ...attachments]);
+
+    if (unsupportedFiles.length > 0) {
+      toast.warning("Some files were skipped because they are not images.");
+    }
+
+    if (oversizedFiles.length > 0) {
+      toast.warning("Some files were skipped for size limits.");
+    }
+
+    if (totalSizeExceededFiles.length > 0) {
+      toast.warning("Some files were skipped because total size is too large.");
+    }
+
+    if (countExceededFiles.length > 0) {
+      toast.warning(
+        "Some files were skipped because attachment limit is reached.",
+      );
+    }
   };
 
   const handleRemovePendingAttachment = (indexToRemove: number) => {
@@ -777,42 +739,31 @@ export const ViewTaskModal = ({
     });
   };
 
-  useEffect(() => {
-    return () => {
-      Object.values(commentAttachmentLibrary).forEach((attachment) => {
-        if (attachment.previewUrl) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-
-      pendingAttachments.forEach((attachment) => {
-        if (attachment.previewUrl) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-    };
-  }, [commentAttachmentLibrary, pendingAttachments]);
-
   const handleOpenAttachment = (attachment: ParsedCommentAttachment) => {
     const mapped = attachment.id
       ? (commentAttachmentLibrary[attachment.id] ?? null)
       : null;
+    const attachmentUrl = attachment.dataUrl ?? mapped?.previewUrl;
+    const attachmentName = mapped?.name ?? attachment.name;
+    const isImage = attachment.isImage ?? mapped?.isImage;
 
-    if (!mapped?.previewUrl) {
+    if (!attachmentUrl) {
+      toast.warning("Attachment is unavailable.");
+
       return;
     }
 
-    if (mapped.isImage) {
+    if (isImage) {
       setPreviewAttachment({
-        name: mapped.name,
-        url: mapped.previewUrl,
+        name: attachmentName,
+        url: attachmentUrl,
       });
 
       return;
     }
 
     const openedWindow = window.open(
-      mapped.previewUrl,
+      attachmentUrl,
       "_blank",
       "noopener,noreferrer",
     );
@@ -823,8 +774,8 @@ export const ViewTaskModal = ({
 
     const link = document.createElement("a");
 
-    link.href = mapped.previewUrl;
-    link.download = mapped.name;
+    link.href = attachmentUrl;
+    link.download = attachmentName;
     link.click();
   };
 
@@ -853,6 +804,10 @@ export const ViewTaskModal = ({
         status: localStatus,
       });
 
+      if (onTaskSaved) {
+        await onTaskSaved(String(task.id));
+      }
+
       toast.success("Task updated successfully.");
     } catch (error) {
       toast.danger("Failed to update task", {
@@ -867,18 +822,25 @@ export const ViewTaskModal = ({
   const handleAddComment = async () => {
     const accessToken = session?.accessToken || getStoredAccessToken();
     const editorHtml = commentEditorRef.current?.innerHTML?.trim() ?? "";
-    const attachmentLines = pendingAttachments.map(
-      (attachment) => `[Attachment:${attachment.id}:${attachment.name}]`,
-    );
-    const htmlBlock =
-      editorHtml && editorHtml !== "<br>"
-        ? `[COMMENT_HTML]${encodeURIComponent(editorHtml)}[/COMMENT_HTML]`
-        : "";
-    const message = [htmlBlock || commentInput.trim(), ...attachmentLines]
-      .filter(Boolean)
-      .join("\n");
+    const message = buildCommentMessage({
+      editorHtml,
+      pendingAttachments,
+      plainText: commentInput,
+    });
 
     if (!accessToken || !task?.id || !message || isSendingComment) {
+      return;
+    }
+
+    const payloadValidation = validateCommentPayloadSize(message);
+
+    if (!payloadValidation.isValid) {
+      toast.warning("Comment is too large to send.", {
+        description: `Please reduce text or attachments (max ${Math.floor(
+          MAX_COMMENT_PAYLOAD_BYTES / 1024,
+        )}KB payload).`,
+      });
+
       return;
     }
 
@@ -895,7 +857,7 @@ export const ViewTaskModal = ({
         const next = { ...previous };
 
         pendingAttachments.forEach((attachment) => {
-          if (!attachment.previewUrl) {
+          if (!attachment.previewUrl && !attachment.dataUrl) {
             return;
           }
 
@@ -903,7 +865,7 @@ export const ViewTaskModal = ({
             isImage: attachment.isImage,
             mimeType: attachment.mimeType,
             name: attachment.name,
-            previewUrl: attachment.previewUrl,
+            previewUrl: attachment.dataUrl ?? attachment.previewUrl ?? "",
           };
         });
 
@@ -1451,7 +1413,7 @@ export const ViewTaskModal = ({
                   className="hidden"
                   type="file"
                   onChange={(event) => {
-                    handleAddPendingFiles(event.target.files);
+                    void handleAddPendingFiles(event.target.files);
                     event.target.value = "";
                   }}
                 />
@@ -1462,7 +1424,7 @@ export const ViewTaskModal = ({
                   className="hidden"
                   type="file"
                   onChange={(event) => {
-                    handleAddPendingFiles(event.target.files, {
+                    void handleAddPendingFiles(event.target.files, {
                       imageOnly: true,
                     });
                     event.target.value = "";

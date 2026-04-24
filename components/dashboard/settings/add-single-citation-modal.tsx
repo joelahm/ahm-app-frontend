@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Button } from "@heroui/button";
@@ -14,11 +14,12 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { X } from "lucide-react";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
 
-const citationTypeOptions = ["General Directory", "Medical Directory"];
-const paymentOptions = ["Free", "Paid"];
+const citationTypeOptions = ["General", "Industry", "Location"];
+const paymentOptions = ["Free", "Paid", "Free/Paid"];
 
 const addSingleCitationSchema = yup.object({
   da: yup
@@ -29,11 +30,19 @@ const addSingleCitationSchema = yup.object({
   niche: yup.string().trim().required("Niche is required"),
   payment: yup.string().required("Payment is required"),
   type: yup.string().required("Type is required"),
-  validationLink: yup.string().trim().required("Validation link is required"),
+  validationLink: yup
+    .string()
+    .trim()
+    .url("Validation link must be a valid URL")
+    .required("Validation link is required"),
 });
 
 export type AddSingleCitationFormValues = yup.InferType<
   typeof addSingleCitationSchema
+>;
+
+type CitationFieldErrors = Partial<
+  Record<keyof AddSingleCitationFormValues, string>
 >;
 
 interface AddSingleCitationModalProps {
@@ -53,7 +62,7 @@ export const AddSingleCitationModal = ({
   submitLabel = "Save",
   title = "Add Single Citation to Database",
 }: AddSingleCitationModalProps) => {
-  const [submitError, setSubmitError] = useState("");
+  const toast = useAppToast();
   const {
     control,
     clearErrors,
@@ -67,7 +76,7 @@ export const AddSingleCitationModal = ({
       name: "",
       niche: "",
       payment: "Free",
-      type: "General Directory",
+      type: "General",
       validationLink: "",
     },
     mode: "onBlur",
@@ -83,23 +92,20 @@ export const AddSingleCitationModal = ({
       name: initialValues?.name ?? "",
       niche: initialValues?.niche ?? "",
       payment: initialValues?.payment ?? "Free",
-      type: initialValues?.type ?? "General Directory",
+      type: initialValues?.type ?? "General",
       validationLink: initialValues?.validationLink ?? "",
     });
-    setSubmitError("");
     clearErrors();
   }, [clearErrors, initialValues, isOpen, reset]);
 
   const closeModal = () => {
     onOpenChange(false);
-    setSubmitError("");
     reset();
     clearErrors();
   };
 
   const submitCitation = async (values: AddSingleCitationFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       const validatedValues = await addSingleCitationSchema.validate(values, {
@@ -109,10 +115,30 @@ export const AddSingleCitationModal = ({
       await onSubmit(validatedValues);
       closeModal();
     } catch (error) {
+      const fieldErrors = (error as { fieldErrors?: CitationFieldErrors })
+        ?.fieldErrors;
+
+      if (fieldErrors && typeof fieldErrors === "object") {
+        Object.entries(fieldErrors).forEach(([field, message]) => {
+          if (!message) {
+            return;
+          }
+
+          setError(field as keyof AddSingleCitationFormValues, {
+            message,
+            type: "manual",
+          });
+        });
+
+        return;
+      }
+
       if (!(error instanceof yup.ValidationError)) {
-        setSubmitError(
-          error instanceof Error ? error.message : "Failed to save citation.",
-        );
+        const message =
+          error instanceof Error ? error.message : "Failed to save citation.";
+        toast.danger("Failed to save citation.", {
+          description: message,
+        });
 
         return;
       }
@@ -153,9 +179,6 @@ export const AddSingleCitationModal = ({
         </ModalHeader>
 
         <ModalBody className="space-y-4 py-5">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
           <div>
             <p className={labelClassName}>Name</p>
             <Controller
@@ -232,6 +255,7 @@ export const AddSingleCitationModal = ({
                   isInvalid={!!errors.validationLink}
                   radius="sm"
                   size="sm"
+                  type="url"
                   value={field.value}
                   onBlur={field.onBlur}
                   onValueChange={field.onChange}

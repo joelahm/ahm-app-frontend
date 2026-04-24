@@ -6,16 +6,20 @@ const ClientTaskListsPage = async ({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ projectId?: string }>;
+  searchParams: Promise<{ projectId?: string; taskId?: string }>;
 }) => {
   const { slug } = await params;
-  const { projectId } = await searchParams;
+  const { projectId, taskId } = await searchParams;
 
   return (
-    <section className="relative space-y-4 pl-64">
+    <section className="client-details-shell relative space-y-4">
       <ClientProfileAside activeKey="tasks" slug={slug} />
       <div className="pl-6">
-        <ClientTaskListsTable clientId={slug} projectId={projectId} />
+        <ClientTaskListsTable
+          clientId={slug}
+          initialTaskId={taskId}
+          projectId={projectId}
+        />
       </div>
     </section>
   );

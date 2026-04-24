@@ -2,13 +2,17 @@
 
 import type { ComponentType } from "react";
 
+import { useEffect, useState } from "react";
 import { Button } from "@heroui/button";
+import { Tooltip } from "@heroui/tooltip";
 import clsx from "clsx";
 import {
   Briefcase,
   Building2,
   ChartSpline,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   ClipboardPen,
   Clock3,
@@ -40,7 +44,7 @@ interface ClientProfileAsideProps {
 interface ClientMenuItem {
   key: ClientMenuKey;
   label: string;
-  icon: ComponentType<{ size?: string | number }>;
+  icon: ComponentType<{ className?: string; size?: string | number }>;
   path?: string;
 }
 
@@ -67,8 +71,18 @@ const CLIENT_MENU: ClientMenuItem[] = [
     icon: ClipboardPen,
     path: "/website-content",
   },
-  { key: "gbp-posting", label: "GBP Postings", icon: CheckCircle2 },
-  { key: "reviews", label: "Review Management", icon: Building2 },
+  {
+    key: "gbp-posting",
+    label: "GBP Postings",
+    icon: CheckCircle2,
+    path: "/gbp-postings",
+  },
+  {
+    key: "reviews",
+    label: "Review Management",
+    icon: Building2,
+    path: "/review-management",
+  },
   {
     key: "citations",
     label: "Local Citations",
@@ -83,56 +97,128 @@ export const ClientProfileAside = ({
   clientName = "",
   slug,
 }: ClientProfileAsideProps) => {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    const storedValue = window.localStorage.getItem("client-menu-collapsed");
+    const nextIsCollapsed = storedValue === "true";
+
+    setIsCollapsed(nextIsCollapsed);
+    document.documentElement.dataset.clientMenuCollapsed = nextIsCollapsed
+      ? "true"
+      : "false";
+  }, []);
+
+  const toggleCollapsed = () => {
+    setIsCollapsed((current) => {
+      const nextValue = !current;
+
+      window.localStorage.setItem(
+        "client-menu-collapsed",
+        nextValue ? "true" : "false",
+      );
+      document.documentElement.dataset.clientMenuCollapsed = nextValue
+        ? "true"
+        : "false";
+
+      return nextValue;
+    });
+  };
+
   return (
-    <aside className="space-y-3 absolute left-0 top-0 h-full w-64 border-r border-default-200 p-4">
-      <div className="mb-6">
-        <h2 className="text-lg font-semibold text-[#111827]">{clientName}</h2>
-        <p className="text-xs text-default-500">{clientAddress}</p>
+    <aside
+      className={clsx(
+        "absolute left-0 top-0 h-full space-y-3 border-r border-default-200 p-4 transition-[width] duration-300",
+        isCollapsed ? "w-20" : "w-64",
+      )}
+    >
+      <div
+        className={clsx(
+          "mb-6 flex items-start gap-2",
+          isCollapsed ? "justify-center" : "justify-between",
+        )}
+      >
+        {!isCollapsed ? (
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold text-[#111827]">
+              {clientName}
+            </h2>
+            <p className="truncate text-xs text-default-500">{clientAddress}</p>
+          </div>
+        ) : null}
+        <Button
+          isIconOnly
+          aria-label={
+            isCollapsed ? "Expand client menu" : "Collapse client menu"
+          }
+          radius="full"
+          size="sm"
+          variant="light"
+          onPress={toggleCollapsed}
+        >
+          {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </Button>
       </div>
 
       <div className="space-y-1">
-        <p className="text-xs font-semibold uppercase tracking-wide text-default-400 mb-2">
-          Menu
-        </p>
+        {!isCollapsed ? (
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-default-400">
+            Menu
+          </p>
+        ) : null}
         {CLIENT_MENU.map((item) => {
           const Icon = item.icon;
           const isActive = item.key === activeKey;
           const className = clsx(
-            "justify-start w-full",
+            "w-full",
+            isCollapsed ? "min-w-0 justify-center px-0" : "justify-start",
             isActive && "text-[#022279]",
           );
-
-          if (item.path) {
-            return (
-              <Link
+          const buttonContent = (
+            <>
+              <Icon className="shrink-0" size={15} />
+              {!isCollapsed ? (
+                <span className="truncate">{item.label}</span>
+              ) : null}
+            </>
+          );
+          const menuButton = item.path ? (
+            <Link
+              key={item.key}
+              className="block"
+              href={`/dashboard/clients/${slug}${item.path}`}
+            >
+              <Button
                 key={item.key}
-                className="block"
-                href={`/dashboard/clients/${slug}${item.path}`}
+                className={className}
+                color="default"
+                isIconOnly={isCollapsed}
+                variant={isActive ? "flat" : "light"}
               >
-                <Button
-                  key={item.key}
-                  className={className}
-                  color="default"
-                  startContent={<Icon size={15} />}
-                  variant={isActive ? "flat" : "light"}
-                >
-                  {item.label}
-                </Button>
-              </Link>
-            );
-          }
-
-          return (
+                {buttonContent}
+              </Button>
+            </Link>
+          ) : (
             <Button
               key={item.key}
               className={className}
               color="default"
-              startContent={<Icon size={15} />}
+              isIconOnly={isCollapsed}
               type="button"
               variant={isActive ? "flat" : "light"}
             >
-              {item.label}
+              {buttonContent}
             </Button>
+          );
+
+          if (!isCollapsed) {
+            return menuButton;
+          }
+
+          return (
+            <Tooltip key={item.key} content={item.label} placement="right">
+              {menuButton}
+            </Tooltip>
           );
         })}
       </div>

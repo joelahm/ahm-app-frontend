@@ -34,6 +34,7 @@ export interface CitationDatabaseItem {
   name: string;
   niche: string;
   payment: string;
+  status: string;
   type: string;
   updatedAt: string;
   validationLink: string;
@@ -92,11 +93,15 @@ export const citationDatabaseApi = {
       const response = await citationDatabaseApiClient.patch<{
         citation: CitationDatabaseItem;
         success?: boolean;
-      }>(`/api/v1/citation-database/${citationId}`, payload, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+      }>(
+        `/api/v1/citation-database/${citationId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         },
-      });
+      );
 
       return response.data;
     } catch (error) {

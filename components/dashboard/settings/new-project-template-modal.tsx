@@ -230,7 +230,7 @@ export const NewProjectTemplateModal = ({
   onCreated,
   onOpenChange,
 }: NewProjectTemplateModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
@@ -263,7 +263,7 @@ export const NewProjectTemplateModal = ({
   const isEditing = Boolean(initialTemplate);
 
   useEffect(() => {
-    if (!isOpen || !session?.accessToken) {
+    if (!isOpen || !session) {
       return;
     }
 
@@ -271,10 +271,9 @@ export const NewProjectTemplateModal = ({
 
     const loadStatusOptions = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response =
-          await projectTemplatesApi.listProjectTemplateStatusOptions(
-            session.accessToken,
-          );
+          await projectTemplatesApi.listProjectTemplateStatusOptions(accessToken);
         const nextOptions = response.statusOptions.length
           ? response.statusOptions
           : defaultProjectTemplateStatusOptions;
@@ -302,13 +301,7 @@ export const NewProjectTemplateModal = ({
     return () => {
       isMounted = false;
     };
-  }, [
-    getValues,
-    initialTemplate?.status,
-    isOpen,
-    session?.accessToken,
-    setValue,
-  ]);
+  }, [getValidAccessToken, getValues, initialTemplate?.status, isOpen, session, setValue]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -347,7 +340,7 @@ export const NewProjectTemplateModal = ({
   }, [clearErrors, initialTemplate, isOpen, reset]);
 
   useEffect(() => {
-    if (!isOpen || !session?.accessToken) {
+    if (!isOpen || !session) {
       return;
     }
 
@@ -355,7 +348,8 @@ export const NewProjectTemplateModal = ({
 
     const loadUsers = async () => {
       try {
-        const response = await usersApi.getUsers(session.accessToken, {
+        const accessToken = await getValidAccessToken();
+        const response = await usersApi.getUsers(accessToken, {
           limit: 100,
           page: 1,
         });
@@ -386,7 +380,7 @@ export const NewProjectTemplateModal = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, session?.accessToken]);
+  }, [getValidAccessToken, isOpen, session]);
 
   const resetModal = () => {
     setCurrentStep(1);
@@ -720,7 +714,7 @@ export const NewProjectTemplateModal = ({
 
   const submitProjectTemplate = () => {
     void handleSubmit(async () => {
-      if (!session?.accessToken) {
+      if (!session) {
         const message = "You must be signed in to create a project template.";
 
         setSubmitError(message);
@@ -733,6 +727,7 @@ export const NewProjectTemplateModal = ({
 
       try {
         setSubmitError("");
+        const accessToken = await getValidAccessToken();
 
         const payload = {
           description: getValues("description") ?? "",
@@ -761,13 +756,13 @@ export const NewProjectTemplateModal = ({
 
         if (isEditing && initialTemplate?.id) {
           await projectTemplatesApi.updateProjectTemplate(
-            session.accessToken,
+            accessToken,
             initialTemplate.id,
             payload,
           );
         } else {
           await projectTemplatesApi.createProjectTemplate(
-            session.accessToken,
+            accessToken,
             payload,
           );
         }
@@ -901,7 +896,7 @@ export const NewProjectTemplateModal = ({
             </>
           )}
 
-          {currentStep === 2 ? renderTaskTable() : null}
+          {currentStep === 2 ? renderTaskTable({ isFullHeight: true }) : null}
           {currentStep === 3 ? renderTaskTable({ isFullHeight: true }) : null}
         </ModalBody>
         <ModalFooter className="justify-between border-t border-default-200">

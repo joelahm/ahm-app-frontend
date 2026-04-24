@@ -10,9 +10,15 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalHeader,
+} from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
 import clsx from "clsx";
-import { ChevronDown, LayoutGrid, Star } from "lucide-react";
+import { ChevronDown, LayoutGrid, Star, Users } from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
 import { scansApi, type ScanComparisonRun } from "@/apis/scans";
@@ -47,6 +53,12 @@ type MiniMapPanelProps = {
     longitude: number;
     rank?: number | null;
   }>;
+  runOptions: Array<{ label: string; value: string }>;
+  selectedRunId: string | null;
+  slotLabel: string;
+  isPanelVisible: boolean;
+  onRunChange: (runId: string) => void;
+  onSeeCompetitor: () => void;
   subtitle?: string | null;
   title: string;
 };
@@ -91,6 +103,26 @@ const formatRunTitle = (value?: string | null) => {
 
   return new Intl.DateTimeFormat("en-US", {
     day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+};
+
+const formatRunDateTimeLabel = (value?: string | null) => {
+  if (!value) {
+    return "Latest Run";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Latest Run";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     month: "short",
     year: "numeric",
   }).format(date);
@@ -200,19 +232,17 @@ const formatRankHeader = (value?: string | null) => {
   }).format(date)})`;
 };
 
-const escapeHtml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
 const MiniMapPanel = ({
   averageRank,
   center,
+  isPanelVisible,
   label,
+  onRunChange,
+  onSeeCompetitor,
   points = [],
+  runOptions,
+  selectedRunId,
+  slotLabel,
   subtitle,
   title,
 }: MiniMapPanelProps) => {
@@ -262,40 +292,79 @@ const MiniMapPanel = ({
   return (
     <div className="relative overflow-hidden">
       <ScanCoverageMiniMap center={center} label={label} points={points} />
-      <div className="pointer-events-none absolute right-4 top-4 z-10 w-[250px] rounded-[24px] bg-white/96 p-4 shadow-[0_24px_48px_rgba(15,23,42,0.12)]">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <span className="text-sm">Avg. Rank</span>
-            <p className="text-5xl font-semibold leading-none tracking-[-0.06em] text-[#111827]">
-              {averageRank}
+      {isPanelVisible ? (
+        <div className="pointer-events-auto absolute right-4 top-4 z-10 w-[320px] rounded-[24px] bg-white/96 p-4 shadow-[0_24px_48px_rgba(15,23,42,0.12)]">
+          <div className="mb-3 flex items-center gap-2">
+            <Button
+              className="h-9 rounded-lg border border-default-200 bg-white px-3 text-xs font-medium text-[#111827]"
+              startContent={<Users size={14} />}
+              variant="bordered"
+              onPress={onSeeCompetitor}
+            >
+              See competitor
+            </Button>
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  className="h-9 rounded-lg border border-default-200 bg-white px-3 text-xs font-medium text-[#111827]"
+                  endContent={<ChevronDown size={14} />}
+                  variant="bordered"
+                >
+                  {selectedRunId
+                    ? runOptions.find((option) => option.value === selectedRunId)
+                        ?.label || "Select Date"
+                    : "Select Date"}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label={`${slotLabel} run date`}
+                disallowEmptySelection
+                selectedKeys={selectedRunId ? [selectedRunId] : []}
+                selectionMode="single"
+                onAction={(key) => {
+                  onRunChange(String(key));
+                }}
+              >
+                {runOptions.map((option) => (
+                  <DropdownItem key={option.value}>{option.label}</DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <span className="text-sm">Avg. Rank</span>
+              <p className="text-5xl font-semibold leading-none tracking-[-0.06em] text-[#111827]">
+                {averageRank}
+              </p>
+            </div>
+
+            <div className="relative h-20 w-20 rounded-full" style={ringStyle}>
+              <div className="absolute inset-[22%] rounded-full bg-white" />
+            </div>
+          </div>
+          <div className="mt-2 flex gap-4 text-sm text-default-500">
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#61c27f]" />
+              High
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#f0bf4f]" />
+              Medium
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#c84b4a]" />
+              Low
+            </span>
+          </div>
+          <div className="mt-2">
+            <p className="text-xs font-medium text-default-400">
+              {title}
+              {subtitle ? <span> {subtitle}</span> : null}
             </p>
           </div>
-
-          <div className="relative h-20 w-20 rounded-full" style={ringStyle}>
-            <div className="absolute inset-[22%] rounded-full bg-white" />
-          </div>
         </div>
-        <div className="mt-2 flex gap-4 text-sm text-default-500">
-          <span className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#61c27f]" />
-            High
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#f0bf4f]" />
-            Medium
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#c84b4a]" />
-            Low
-          </span>
-        </div>
-        <div className="mt-2">
-          <p className="text-xs font-medium text-default-400">
-            {title}
-            {subtitle ? <span> {subtitle}</span> : null}
-          </p>
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 };
@@ -316,7 +385,12 @@ export const ClientLocalRankingDetailsScreen = ({
     longitude: number;
   } | null>(null);
   const [gbpLabel, setGbpLabel] = useState<string | null>(null);
-  const [gridLayout, setGridLayout] = useState<1 | 2 | 3>(1);
+  const [gridLayout, setGridLayout] = useState<1 | 2>(1);
+  const [panelRunSelections, setPanelRunSelections] = useState<string[]>([]);
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  const [competitorModalRunId, setCompetitorModalRunId] = useState<
+    string | null
+  >(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const scanId = useMemo(() => {
@@ -380,6 +454,10 @@ export const ClientLocalRankingDetailsScreen = ({
         }
 
         setComparisonRuns(comparisonResponse.comparison.runs);
+        const defaultSelections = (comparisonResponse.comparison.runs || [])
+          .slice(0, 2)
+          .map((run) => String(run.runId));
+        setPanelRunSelections(defaultSelections);
         setCoverage(comparisonResponse.scan.coverage || []);
         setCoverageUnit(comparisonResponse.scan.coverageUnit || null);
         setKeywordLabel(comparisonResponse.comparison.keyword || "");
@@ -389,6 +467,7 @@ export const ClientLocalRankingDetailsScreen = ({
         }
 
         setComparisonRuns([]);
+        setPanelRunSelections([]);
         setCoverage([]);
         setCoverageUnit(null);
         setKeywordLabel("");
@@ -408,21 +487,48 @@ export const ClientLocalRankingDetailsScreen = ({
     };
   }, [clientId, scanId, session?.accessToken]);
 
-  const mapPanels = comparisonRuns.map((run) => ({
-    averageRank: formatAverageRank(run.averageRank, "X"),
-    center: gbpCenter,
-    label: gbpLabel,
-    points: run.coordinates.map((coordinate, coordinateIndex) => ({
-      label: coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
-      latitude: coordinate.latitude,
-      longitude: coordinate.longitude,
-      rank: coordinate.rankAbsolute,
-    })),
-    subtitle:
-      formatRunSubtitle(run.finishedAt || run.startedAt) || `Run #${run.runId}`,
-    title: formatRunTitle(run.finishedAt || run.startedAt || null),
-    runId: run.runId,
-  }));
+  const mapPanels = useMemo(() => {
+    if (!comparisonRuns.length) {
+      return [];
+    }
+
+    const runsById = new Map(
+      comparisonRuns.map((run) => [String(run.runId), run] as const),
+    );
+
+    return comparisonRuns.slice(0, 2).map((fallbackRun, index) => {
+      const selectedRunId = panelRunSelections[index] || String(fallbackRun.runId);
+      const selectedRun = runsById.get(selectedRunId) || fallbackRun;
+
+      return {
+        averageRank: formatAverageRank(selectedRun.averageRank, "X"),
+        center: gbpCenter,
+        label: gbpLabel,
+        points: selectedRun.coordinates.map((coordinate, coordinateIndex) => ({
+          label: coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
+          latitude: coordinate.latitude,
+          longitude: coordinate.longitude,
+          rank: coordinate.rankAbsolute,
+        })),
+        selectedRunId,
+        slotIndex: index,
+        slotLabel: `Map ${index + 1}`,
+        subtitle:
+          formatRunSubtitle(selectedRun.finishedAt || selectedRun.startedAt) ||
+          `Run #${selectedRun.runId}`,
+        title: formatRunTitle(selectedRun.finishedAt || selectedRun.startedAt || null),
+        runId: selectedRun.runId,
+      };
+    });
+  }, [comparisonRuns, gbpCenter, gbpLabel, panelRunSelections]);
+  const runDateOptions = useMemo(
+    () =>
+      comparisonRuns.map((run) => ({
+        label: formatRunDateTimeLabel(run.finishedAt || run.startedAt || null),
+        value: String(run.runId),
+      })),
+    [comparisonRuns],
+  );
   const gridSizeLabel = useMemo(
     () => formatGridSizeLabel(coverage),
     [coverage],
@@ -499,184 +605,63 @@ export const ClientLocalRankingDetailsScreen = ({
       ),
     [comparisonRuns],
   );
-  const exportPdf = useCallback(() => {
-    if (!mapPanels.length && !competitorRows.length) {
-      return;
+  const selectedCompetitorRun = useMemo(
+    () =>
+      comparisonRuns.find(
+        (run) => String(run.runId) === String(competitorModalRunId),
+      ) || null,
+    [comparisonRuns, competitorModalRunId],
+  );
+  const selectedCompetitorRows = useMemo(() => {
+    if (!selectedCompetitorRun) {
+      return [];
     }
 
-    const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-    const gridColumns =
-      gridLayout === 1 ? "1fr" : gridLayout === 2 ? "1fr 1fr" : "1fr 1fr 1fr";
-    const staticSize = gridLayout === 1 ? "960x540" : "640x360";
+    return (selectedCompetitorRun.competitors || []).map((competitor) => {
+      const ratingText =
+        competitor.rating === null || competitor.rating === undefined
+          ? "-"
+          : competitor.rating.toFixed(1);
+      const reviewsCountText =
+        competitor.reviewsCount === null ||
+        competitor.reviewsCount === undefined
+          ? "- Reviews"
+          : `${competitor.reviewsCount} Reviews`;
 
-    const buildMarkerColor = (rank?: number | null) => {
-      if (rank === 1) {
-        return "green";
-      }
-
-      if (typeof rank === "number" && Number.isFinite(rank) && rank <= 9) {
-        return "yellow";
-      }
-
-      return "red";
-    };
-    const buildStaticMapUrl = (panel: (typeof mapPanels)[number]) => {
-      if (!googleMapsApiKey || !panel.center) {
-        return "";
-      }
-
-      const markers = panel.points
-        .slice(0, 30)
-        .map((point) => {
-          const color = buildMarkerColor(point.rank);
-
-          return `markers=size:tiny%7Ccolor:${color}%7C${point.latitude},${point.longitude}`;
-        })
-        .join("&");
-      const centerMarker = `markers=color:blue%7C${panel.center.latitude},${panel.center.longitude}`;
-
-      return `https://maps.googleapis.com/maps/api/staticmap?size=${staticSize}&scale=2&maptype=roadmap&${centerMarker}${markers ? `&${markers}` : ""}&key=${encodeURIComponent(googleMapsApiKey)}`;
-    };
-
-    const mapsHtml = mapPanels
-      .map((panel) => {
-        const mapUrl = buildStaticMapUrl(panel);
-        const title = escapeHtml(panel.title);
-        const subtitle = escapeHtml(panel.subtitle || "");
-        const averageRank = escapeHtml(panel.averageRank);
-
-        return `
-          <article class="map-card">
-            ${mapUrl ? `<img src="${mapUrl}" alt="${title}" class="map-image" />` : `<div class="map-image no-map">Map preview unavailable</div>`}
-            <div class="map-meta">
-              <h3>${title}</h3>
-              <p>${subtitle}</p>
-              <strong>Avg. Rank: ${averageRank}</strong>
-            </div>
-          </article>
-        `;
-      })
-      .join("");
-    const competitorRowsHtml = competitorRows
-      .map(
-        (row) => `
-          <tr>
-            <td>${escapeHtml(row.businessName)}</td>
-            <td>${escapeHtml(row.domain)}</td>
-            <td>${escapeHtml(row.previousRank)}</td>
-            <td>${escapeHtml(row.latestRank)}</td>
-            <td>${row.delta !== null ? escapeHtml(row.delta > 0 ? `↗ +${row.delta}` : `↘ ${row.delta}`) : "-"}</td>
-            <td>${escapeHtml(row.gridSize)}</td>
-            <td>${escapeHtml(row.reviews)}</td>
-          </tr>
-        `,
-      )
-      .join("");
-
-    setIsExportingPdf(true);
-    const printWindow = window.open("", "_blank");
-
-    if (!printWindow) {
-      setIsExportingPdf(false);
-
+      return {
+        businessName: competitor.businessName || "-",
+        domain: competitor.domain || "-",
+        rank: formatCompetitorMetric(competitor.averageRank),
+        reviews: `${ratingText} | ${reviewsCountText}`,
+      };
+    });
+  }, [selectedCompetitorRun]);
+  const exportPdf = useCallback(async () => {
+    if (!scanId) {
       return;
     }
-
-    const html = `
-      <!doctype html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Local Ranking Export</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #111827; margin: 20px; }
-            h1 { margin: 0 0 8px; font-size: 20px; }
-            h2 { margin: 20px 0 10px; font-size: 18px; }
-            .sub { color: #6b7280; margin-bottom: 14px; }
-            .maps-grid { display: grid; grid-template-columns: ${gridColumns}; gap: 12px; }
-            .map-card { border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; background: #fff; }
-            .map-image { width: 100%; display: block; background: #f3f4f6; min-height: 180px; object-fit: cover; }
-            .no-map { display: grid; place-items: center; color: #6b7280; }
-            .map-meta { padding: 10px 12px 14px; }
-            .map-meta h3 { margin: 0; font-size: 14px; }
-            .map-meta p { margin: 4px 0 8px; color: #6b7280; font-size: 12px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
-            th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
-            th { background: #f9fafb; font-weight: 600; }
-            .muted { color: #6b7280; font-size: 11px; }
-          </style>
-        </head>
-        <body>
-          <h1>Local Ranking Report</h1>
-          <div class="sub">Keyword: ${escapeHtml(keywordLabel || "-")} | Grid View: ${gridLayout} column(s)</div>
-
-          <h2>Map Panels</h2>
-          <section class="maps-grid">
-            ${mapsHtml || `<p>No map data available.</p>`}
-          </section>
-
-          <h2>Competitor Analysis</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Business Name</th>
-                <th>Domain</th>
-                <th>${escapeHtml(previousRankHeader)}</th>
-                <th>${escapeHtml(latestRankHeader)}</th>
-                <th>Change</th>
-                <th>Grid Size</th>
-                <th>Reviews</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${competitorRowsHtml || `<tr><td colspan="7">No competitor data available.</td></tr>`}
-            </tbody>
-          </table>
-        </body>
-      </html>
-    `;
 
     try {
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      printWindow.focus();
+      setIsExportingPdf(true);
+      const params = new URLSearchParams();
+      const leftRunId = panelRunSelections[0];
+      const rightRunId = panelRunSelections[1];
 
-      let didTriggerPrint = false;
-      const handlePrint = () => {
-        if (didTriggerPrint) {
-          return;
-        }
+      if (leftRunId) {
+        params.set("leftRunId", leftRunId);
+      }
 
-        didTriggerPrint = true;
-        window.setTimeout(() => {
-          try {
-            printWindow.focus();
-            printWindow.print();
-          } finally {
-            setIsExportingPdf(false);
-          }
-        }, 350);
-      };
+      if (rightRunId) {
+        params.set("rightRunId", rightRunId);
+      }
 
-      printWindow.addEventListener("load", handlePrint, { once: true });
-      window.setTimeout(() => {
-        if (!didTriggerPrint) {
-          handlePrint();
-        }
-      }, 1200);
-    } catch {
+      const exportUrl = `/print/scan-report/${encodeURIComponent(String(scanId))}${params.toString() ? `?${params.toString()}` : ""}`;
+
+      window.open(exportUrl, "_blank", "noopener,noreferrer");
+    } finally {
       setIsExportingPdf(false);
-      printWindow.close();
     }
-  }, [
-    competitorRows,
-    gridLayout,
-    keywordLabel,
-    latestRankHeader,
-    mapPanels,
-    previousRankHeader,
-  ]);
+  }, [panelRunSelections, scanId]);
 
   return (
     <div className="space-y-5">
@@ -721,14 +706,13 @@ export const ClientLocalRankingDetailsScreen = ({
                     onAction={(key) => {
                       const layout = Number(key);
 
-                      if (layout === 1 || layout === 2 || layout === 3) {
+                      if (layout === 1 || layout === 2) {
                         setGridLayout(layout);
                       }
                     }}
                   >
                     <DropdownItem key="1">1</DropdownItem>
                     <DropdownItem key="2">2</DropdownItem>
-                    <DropdownItem key="3">3</DropdownItem>
                   </DropdownMenu>
                 </Dropdown>
                 <Button
@@ -737,7 +721,16 @@ export const ClientLocalRankingDetailsScreen = ({
                   isLoading={isExportingPdf}
                   onPress={exportPdf}
                 >
-                  Export PDF
+                  Open Export Page
+                </Button>
+                <Button
+                  className="h-10 rounded-xl border border-default-200 bg-white px-4 text-xs font-medium text-[#111827]"
+                  variant="bordered"
+                  onPress={() => {
+                    setIsPanelVisible((previous) => !previous);
+                  }}
+                >
+                  {isPanelVisible ? "Hide panel" : "Show panel"}
                 </Button>
               </div>
             </CardBody>
@@ -747,7 +740,6 @@ export const ClientLocalRankingDetailsScreen = ({
             className={clsx("grid gap-5", {
               "grid-cols-1": gridLayout === 1,
               "grid-cols-1 lg:grid-cols-2": gridLayout === 2,
-              "grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3": gridLayout === 3,
             })}
           >
             {mapPanels.map((panel, index) => (
@@ -755,8 +747,23 @@ export const ClientLocalRankingDetailsScreen = ({
                 key={`${panel.runId}-${panel.title}-${index}`}
                 averageRank={panel.averageRank}
                 center={panel.center}
+                isPanelVisible={isPanelVisible}
                 label={panel.label}
+                onRunChange={(runId) => {
+                  setPanelRunSelections((previous) => {
+                    const next = [...previous];
+                    next[panel.slotIndex] = runId;
+
+                    return next;
+                  });
+                }}
+                onSeeCompetitor={() => {
+                  setCompetitorModalRunId(panel.selectedRunId);
+                }}
                 points={panel.points}
+                runOptions={runDateOptions}
+                selectedRunId={panel.selectedRunId}
+                slotLabel={panel.slotLabel}
                 subtitle={panel.subtitle}
                 title={panel.title}
               />
@@ -835,6 +842,68 @@ export const ClientLocalRankingDetailsScreen = ({
               </table>
             </CardBody>
           </Card>
+          <Modal
+            hideCloseButton={false}
+            isOpen={Boolean(competitorModalRunId)}
+            placement="center"
+            size="5xl"
+            scrollBehavior="inside"
+            onClose={() => {
+              setCompetitorModalRunId(null);
+            }}
+          >
+            <ModalContent>
+              <ModalHeader className="border-b border-default-200">
+                Competitors -{" "}
+                {selectedCompetitorRun
+                  ? formatRunDateTimeLabel(
+                      selectedCompetitorRun.finishedAt ||
+                        selectedCompetitorRun.startedAt ||
+                        null,
+                    )
+                  : "Selected Run"}
+              </ModalHeader>
+              <ModalBody className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="min-w-[780px] table-auto">
+                    <thead>
+                      <tr className="border-b border-default-200 bg-[#fbfcfe] text-left text-sm font-medium text-default-500">
+                        <th className="px-4 py-3">Business Name</th>
+                        <th className="px-4 py-3">Domain</th>
+                        <th className="px-4 py-3">Rank</th>
+                        <th className="px-4 py-3">Grid Size</th>
+                        <th className="px-4 py-3">Reviews</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedCompetitorRows.map((row, rowIndex) => (
+                        <tr
+                          key={`${row.businessName}-${rowIndex}`}
+                          className="border-b border-default-200 text-sm text-[#111827] last:border-b-0"
+                        >
+                          <td className="px-4 py-4">{row.businessName}</td>
+                          <td className="px-4 py-4">{row.domain}</td>
+                          <td className="px-4 py-4">{row.rank}</td>
+                          <td className="px-4 py-4">{`${gridSizeLabel.replace("Grid Size ", "")} | ${areaLabel.replace("Area ", "")}`}</td>
+                          <td className="px-4 py-4">{row.reviews}</td>
+                        </tr>
+                      ))}
+                      {!selectedCompetitorRows.length ? (
+                        <tr>
+                          <td
+                            className="px-4 py-8 text-center text-sm text-default-500"
+                            colSpan={5}
+                          >
+                            No competitor data available for this scan date.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </ModalBody>
+            </ModalContent>
+          </Modal>
         </>
       )}
     </div>

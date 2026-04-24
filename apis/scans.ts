@@ -27,18 +27,29 @@ const parseError = (error: unknown) => {
 };
 
 export interface CreateScanRequestBody {
-  clientId: number;
+  clientId?: number;
   coverage: Array<{
     label: string;
     latitude: number;
     longitude: number;
   }>;
   coverageUnit: "KILOMETERS" | "MILES";
+  quickScanContext?: {
+    address?: string | null;
+    businessName?: string | null;
+    dataCid?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    placeId?: string | null;
+    website?: string | null;
+  };
   frequency?: string;
   keywords: string[];
   labels: string[];
   recurrenceEnabled?: boolean;
   repeatTime?: string;
+  scanScope?: "CLIENT" | "QUICK";
+  sourcePage?: string;
   runNow: boolean;
   startDate?: string;
   startTime?: string;
@@ -57,6 +68,8 @@ export interface ScanRecord {
     keywords?: number;
     successfulChecks?: number;
   };
+  startedAt?: string | null;
+  finishedAt?: string | null;
   results?: unknown[];
 }
 
@@ -213,7 +226,10 @@ export interface SavedLocalRankingKeywordsResponse {
 }
 
 export interface ClientScanDetails {
-  clientId: number;
+  scanScope?: string;
+  sourcePage?: string | null;
+  quickScanContext?: Record<string, unknown> | null;
+  clientId: number | null;
   coverage: Array<{
     label: string | null;
     latitude: number;
@@ -313,6 +329,22 @@ export const scansApi = {
       throw new Error(parseError(error));
     }
   },
+  getScanById: async (accessToken: string, scanId: number | string) => {
+    try {
+      const response = await scansApiClient.get<{ scan: ClientScanDetails }>(
+        `/api/v1/scans/${scanId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data.scan;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getClientScanComparison: async (
     accessToken: string,
     clientId: number | string,
@@ -388,6 +420,30 @@ export const scansApi = {
       );
 
       return response.data.run;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listScanRuns: async (
+    accessToken: string,
+    scanId: number | string,
+    params: {
+      limit?: number;
+      page?: number;
+    },
+  ) => {
+    try {
+      const response = await scansApiClient.get<{
+        pagination: LocalRankingsResponse["pagination"];
+        runs: ScanRecord[];
+      }>(`/api/v1/scans/${scanId}/runs`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params,
+      });
+
+      return response.data;
     } catch (error) {
       throw new Error(parseError(error));
     }
@@ -482,6 +538,65 @@ export const scansApi = {
       }>(`/api/v1/scans/client/${clientId}/local-rankings/saved-keywords`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getQuickGbpPreview: async (
+    accessToken: string,
+    payload: {
+      dataCid?: string;
+      forceRefresh?: boolean;
+      gl?: string;
+      hl?: string;
+      placeId?: string;
+    },
+  ) => {
+    try {
+      const response = await scansApiClient.post<{
+        address?: string | null;
+        businessName?: string | null;
+        dataCid?: string | null;
+        latitude?: number | null;
+        longitude?: number | null;
+        placeId?: string | null;
+        website?: string | null;
+      }>("/api/v1/scans/quick/gbp-preview", payload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listScans: async (
+    accessToken: string,
+    params: {
+      clientId?: number | string;
+      limit: number;
+      page: number;
+      scope?: "CLIENT" | "QUICK" | "ALL";
+      view?: "history" | "recurring" | "deleted";
+    },
+  ) => {
+    try {
+      const response = await scansApiClient.get<{
+        pagination: LocalRankingsResponse["pagination"];
+        scans: ClientScanDetails[];
+      }>("/api/v1/scans", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        params: {
+          ...params,
+          scope: params.scope === "ALL" ? undefined : params.scope,
         },
       });
 

@@ -13,14 +13,19 @@ import {
   ModalHeader,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { CheckCircle2, Eye, RotateCw, X } from "lucide-react";
+import { Check, CheckCircle2, Eye, RotateCw, X } from "lucide-react";
+
+import type {
+  ClientCitationVerificationStatus,
+  ClientCitationVerificationValue,
+} from "@/apis/clients";
 
 const citationStatusOptions = [
-  "Not Synced",
-  "Live Citation",
+  "Complete",
   "Pending",
-  "Rejected",
-  "In Review",
+  "Incomplete",
+  "Missing",
+  "Error",
 ] as const;
 
 const addCitationSchema = yup.object({
@@ -35,6 +40,26 @@ const addCitationSchema = yup.object({
     .oneOf(citationStatusOptions)
     .required("Status is required"),
   username: yup.string().default(""),
+  verificationStatus: yup
+    .object({
+      address: yup
+        .mixed<ClientCitationVerificationValue>()
+        .oneOf(["Match", "Incorrect", "Not Synced"])
+        .required(),
+      businessName: yup
+        .mixed<ClientCitationVerificationValue>()
+        .oneOf(["Match", "Incorrect", "Not Synced"])
+        .required(),
+      phone: yup
+        .mixed<ClientCitationVerificationValue>()
+        .oneOf(["Match", "Incorrect", "Not Synced"])
+        .required(),
+      zipCode: yup
+        .mixed<ClientCitationVerificationValue>()
+        .oneOf(["Match", "Incorrect", "Not Synced"])
+        .required(),
+    })
+    .required(),
 });
 
 export type AddCitationFormValues = yup.InferType<typeof addCitationSchema>;
@@ -44,6 +69,7 @@ interface AddCitationModalProps {
     address?: string | null;
     businessName?: string | null;
     phone?: string | null;
+    validationLink?: string | null;
     zipCode?: string | null;
   };
   initialValues?: Partial<AddCitationFormValues>;
@@ -53,13 +79,35 @@ interface AddCitationModalProps {
 }
 
 type CitationComparisonItem = {
-  id: string;
+  id: keyof ClientCitationVerificationStatus;
   label: string;
-  status: "Match" | "Incorrect" | "Not Synced";
+  status: ClientCitationVerificationValue;
   value: string;
 };
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
+const defaultVerificationStatus: ClientCitationVerificationStatus = {
+  address: "Not Synced",
+  businessName: "Not Synced",
+  phone: "Not Synced",
+  zipCode: "Not Synced",
+};
+
+const getStatusFromVerification = (
+  verificationStatus: ClientCitationVerificationStatus,
+) => {
+  const values = Object.values(verificationStatus);
+
+  if (values.every((value) => value === "Match")) {
+    return "Complete";
+  }
+
+  if (values.some((value) => value === "Incorrect")) {
+    return "Incomplete";
+  }
+
+  return "Pending";
+};
 
 const getDetailBadgeClassName = (status: CitationComparisonItem["status"]) =>
   status === "Match"
@@ -67,6 +115,9 @@ const getDetailBadgeClassName = (status: CitationComparisonItem["status"]) =>
     : status === "Not Synced"
       ? "bg-[#EEF2FF] text-[#4338CA]"
       : "bg-[#FEE2E2] text-[#EF4444]";
+
+const getExternalHref = (value: string) =>
+  /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
 
 export const AddCitationModal = ({
   citationDetails,
@@ -76,7 +127,6 @@ export const AddCitationModal = ({
   onSubmit,
 }: AddCitationModalProps) => {
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
-  const [submitError, setSubmitError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const {
     control,
@@ -92,41 +142,45 @@ export const AddCitationModal = ({
       notes: "",
       password: "",
       profileUrl: "",
-      status: "Not Synced",
+      status: "Pending",
       username: "",
+      verificationStatus: defaultVerificationStatus,
     },
     mode: "onBlur",
   });
+  const verificationStatusValue =
+    watch("verificationStatus") ?? defaultVerificationStatus;
   const comparisonItems = useMemo(
     () => [
       {
-        id: "business-name",
+        id: "businessName" as const,
         label: "Business Name",
-        status: "Not Synced" as const,
+        status: verificationStatusValue.businessName,
         value: citationDetails?.businessName?.trim() || "-",
       },
       {
-        id: "address",
+        id: "address" as const,
         label: "Address",
-        status: "Not Synced" as const,
+        status: verificationStatusValue.address,
         value: citationDetails?.address?.trim() || "-",
       },
       {
-        id: "phone",
+        id: "phone" as const,
         label: "Phone",
-        status: "Not Synced" as const,
+        status: verificationStatusValue.phone,
         value: citationDetails?.phone?.trim() || "-",
       },
       {
-        id: "zip-code",
+        id: "zipCode" as const,
         label: "Zip Code",
-        status: "Not Synced" as const,
+        status: verificationStatusValue.zipCode,
         value: citationDetails?.zipCode?.trim() || "-",
       },
     ],
-    [citationDetails],
+    [citationDetails, verificationStatusValue],
   );
   const profileUrlValue = watch("profileUrl");
+  const validationLink = citationDetails?.validationLink?.trim() ?? "";
 
   useEffect(() => {
     if (!isOpen) {
@@ -137,11 +191,14 @@ export const AddCitationModal = ({
       notes: initialValues?.notes ?? "",
       password: initialValues?.password ?? "",
       profileUrl: initialValues?.profileUrl ?? "",
-      status: initialValues?.status ?? "Not Synced",
+      status: initialValues?.status ?? "Pending",
       username: initialValues?.username ?? "",
+      verificationStatus: {
+        ...defaultVerificationStatus,
+        ...initialValues?.verificationStatus,
+      },
     });
     clearErrors();
-    setSubmitError("");
     setShowPassword(false);
   }, [clearErrors, initialValues, isOpen, reset]);
 
@@ -151,17 +208,36 @@ export const AddCitationModal = ({
       notes: "",
       password: "",
       profileUrl: "",
-      status: "Not Synced",
+      status: "Pending",
       username: "",
+      verificationStatus: defaultVerificationStatus,
     });
     clearErrors();
-    setSubmitError("");
     setShowPassword(false);
+  };
+
+  const updateVerificationStatus = (
+    field: keyof ClientCitationVerificationStatus,
+    status: ClientCitationVerificationValue,
+  ) => {
+    const nextVerificationStatus = {
+      ...defaultVerificationStatus,
+      ...verificationStatusValue,
+      [field]: status,
+    };
+
+    setValue("verificationStatus", nextVerificationStatus, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setValue("status", getStatusFromVerification(nextVerificationStatus), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
   };
 
   const submitCitation = async (values: AddCitationFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       const validatedValues = await addCitationSchema.validate(values, {
@@ -185,16 +261,11 @@ export const AddCitationModal = ({
 
         return;
       }
-
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to save citation.",
-      );
     }
   };
 
   const handleSyncProfile = async () => {
     clearErrors("profileUrl");
-    setSubmitError("");
 
     try {
       const validatedProfileUrl = await yup
@@ -229,7 +300,6 @@ export const AddCitationModal = ({
 
   const handleViewProfile = async () => {
     clearErrors("profileUrl");
-    setSubmitError("");
 
     try {
       const validatedProfileUrl = await yup
@@ -279,10 +349,6 @@ export const AddCitationModal = ({
           </Button>
         </ModalHeader>
         <ModalBody className="max-h-[calc(88vh-148px)] space-y-6 overflow-y-auto py-5">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
-
           <div className="space-y-3">
             <h3 className="text-[18px] font-semibold text-[#111827]">
               Citation Status
@@ -316,7 +382,23 @@ export const AddCitationModal = ({
                 />
               </div>
               <div>
-                <p className={labelClassName}>Link to Profile</p>
+                <p className={labelClassName}>
+                  Link to Profile
+                  {validationLink ? (
+                    <>
+                      {" ("}
+                      <a
+                        className="text-[#022279] underline underline-offset-2"
+                        href={getExternalHref(validationLink)}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        {validationLink}
+                      </a>
+                      {")"}
+                    </>
+                  ) : null}
+                </p>
                 <Controller
                   control={control}
                   name="profileUrl"
@@ -378,13 +460,37 @@ export const AddCitationModal = ({
                     <p className="text-[15px] font-medium text-[#111827]">
                       {item.value}
                     </p>
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getDetailBadgeClassName(
-                        item.status,
-                      )}`}
-                    >
-                      {item.status}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getDetailBadgeClassName(
+                          item.status,
+                        )}`}
+                      >
+                        {item.status}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          aria-label={`Mark ${item.label} as matched`}
+                          className="grid h-7 w-7 place-items-center rounded-full border border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A] transition hover:bg-[#DCFCE7]"
+                          type="button"
+                          onClick={() =>
+                            updateVerificationStatus(item.id, "Match")
+                          }
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          aria-label={`Mark ${item.label} as incorrect`}
+                          className="grid h-7 w-7 place-items-center rounded-full border border-[#FECACA] bg-[#FEF2F2] text-[#DC2626] transition hover:bg-[#FEE2E2]"
+                          type="button"
+                          onClick={() =>
+                            updateVerificationStatus(item.id, "Incorrect")
+                          }
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>

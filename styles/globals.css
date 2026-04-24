@@ -8,22 +8,31 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-    --font-sans: "font", sans-serif;
-    --font-mono: "monospace", monospace;
+  --font-sans: "font", sans-serif;
+  --font-mono: "monospace", monospace;
 }
 
 .iti {
-    width: 100%;
+  width: 100%;
 }
 
 .iti input {
-    width: 100%;
+  width: 100%;
 }
 
 .iti__country-list {
-    z-index: 9999 !important;
+  z-index: 9999 !important;
 }
 
 .iti__selected-dial-code {
-    @apply text-sm
+  @apply text-sm;
+}
+
+.client-details-shell {
+  padding-left: 16rem;
+  transition: padding-left 300ms ease;
+}
+
+html[data-client-menu-collapsed="true"] .client-details-shell {
+  padding-left: 5rem;
 }

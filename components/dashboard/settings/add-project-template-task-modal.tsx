@@ -18,9 +18,9 @@ import { Switch } from "@heroui/switch";
 import { X } from "lucide-react";
 
 import { TokenInputField } from "@/components/form/token-input-field";
+import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const dependencyRemapOptions = ["After Blocked Task", "After trigger date"];
-const taskStatusOptions = ["Draft", "Publish"];
 
 const addProjectTemplateTaskSchema = yup.object({
   assigneeId: yup.string().required("Assignee is required"),
@@ -47,7 +47,10 @@ const addProjectTemplateTaskSchema = yup.object({
     .matches(/^\d+$/, "Days must be a number")
     .default("0")
     .required("Days is required"),
-  status: yup.string().required("Status is required"),
+  status: yup
+    .string()
+    .oneOf([...TASK_STATUS_OPTIONS], "Please select a valid status")
+    .required("Status is required"),
   taskTitle: yup.string().required("Task title is required"),
 });
 
@@ -94,7 +97,7 @@ export const AddProjectTemplateTaskModal = ({
       labels: [],
       parentTaskId: "",
       remapDays: "0",
-      status: "Draft",
+      status: TASK_STATUS_OPTIONS[0],
       taskTitle: "",
     },
     mode: "onBlur",
@@ -297,7 +300,7 @@ export const AddProjectTemplateTaskModal = ({
                       field.onChange(selected);
                     }}
                   >
-                    {taskStatusOptions.map((option) => (
+                    {TASK_STATUS_OPTIONS.map((option) => (
                       <SelectItem key={option}>{option}</SelectItem>
                     ))}
                   </Select>

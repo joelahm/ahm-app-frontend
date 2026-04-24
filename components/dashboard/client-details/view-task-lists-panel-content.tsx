@@ -12,6 +12,8 @@ import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import {
   ArrowLeft,
   Calendar,
+  ChevronDown,
+  ChevronRight,
   CircleUserRound,
   Image as ImageIcon,
   List,
@@ -25,8 +27,21 @@ import {
 import Image from "next/image";
 
 import { clientsApi, ProjectComment } from "@/apis/clients";
+import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
 import { useAppToast } from "@/hooks/use-app-toast";
+import {
+  buildCommentMessage,
+  buildPendingAttachmentsFromFileList,
+  MAX_COMMENT_ATTACHMENT_BYTES,
+  MAX_COMMENT_ATTACHMENTS,
+  MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES,
+  MAX_COMMENT_PAYLOAD_BYTES,
+  parseCommentAttachments,
+  PendingAttachmentItem,
+  ParsedCommentAttachment,
+  validateCommentPayloadSize,
+} from "@/lib/comment-attachments";
 
 interface ViewTaskListsPanelContentProps {
   accountManagerAvatar?: string;
@@ -40,6 +55,8 @@ interface ViewTaskListsPanelContentProps {
   description?: string;
   projectName: string;
   projectId: string;
+  projectDueDate?: string | null;
+  projectStartDate?: string | null;
   status?: string;
   onClose?: () => void;
   tasks?: Array<{
@@ -49,6 +66,7 @@ interface ViewTaskListsPanelContentProps {
     dueDate: string;
     id: string;
     name: string;
+    parentTaskId?: string | null;
     startDate?: string | null;
     status: string;
   }>;
@@ -56,27 +74,10 @@ interface ViewTaskListsPanelContentProps {
   onProjectMetaChange?: (payload: {
     accountManagerId?: string;
     csmId?: string;
+    dueDate?: string | null;
+    startDate?: string | null;
     status?: string;
   }) => Promise<void> | void;
-}
-
-interface PendingAttachmentItem {
-  id: string;
-  isImage: boolean;
-  mimeType?: string;
-  name: string;
-  previewUrl?: string;
-}
-
-interface ParsedCommentAttachment {
-  id?: string;
-  name: string;
-}
-
-interface ParsedCommentContent {
-  attachments: ParsedCommentAttachment[];
-  body: string;
-  richHtml?: string;
 }
 
 const toFriendlyDate = (value?: string) => {
@@ -97,6 +98,15 @@ const toFriendlyDate = (value?: string) => {
   });
 };
 
+const defaultProjectStatusOptions = [
+  "Onboarding",
+  "Planning",
+  "Implementation",
+  "On hold",
+  "Closed",
+  "Cancelled",
+];
+
 const toCalendarDate = (value?: string | null) => {
   if (!value || value === "-") {
     return null;
@@ -110,6 +120,8 @@ const toCalendarDate = (value?: string | null) => {
     return null;
   }
 };
+
+const calendarDateToIso = (value: ReturnType<typeof today>) => value.toString();
 
 const resolveServerAssetUrl = (value?: string | null) => {
   if (!value) {
@@ -203,62 +215,6 @@ const getCaretCharacterOffset = (element: HTMLElement) => {
   return preCaretRange.toString().length;
 };
 
-const parseCommentAttachments = (message: string): ParsedCommentContent => {
-  let workingMessage = message;
-  let richHtml: string | undefined;
-  const richHtmlMatch = workingMessage.match(
-    /\[COMMENT_HTML\]([\s\S]*?)\[\/COMMENT_HTML\]/i,
-  );
-
-  if (richHtmlMatch?.[1]) {
-    try {
-      richHtml = decodeURIComponent(richHtmlMatch[1]);
-    } catch {
-      richHtml = richHtmlMatch[1];
-    }
-
-    workingMessage = workingMessage.replace(richHtmlMatch[0], "").trim();
-  }
-
-  const lines = workingMessage.split(/\r?\n/);
-  const attachments: ParsedCommentAttachment[] = [];
-  const bodyLines: string[] = [];
-
-  lines.forEach((line) => {
-    const normalized = line.trim();
-    const structuredMatch = normalized.match(
-      /^\[Attachment:([^:\]]+):(.+)\]$/i,
-    );
-
-    if (structuredMatch) {
-      attachments.push({
-        id: structuredMatch[1]?.trim(),
-        name: structuredMatch[2]?.trim() || "Attachment",
-      });
-
-      return;
-    }
-
-    const legacyMatch = normalized.match(/^\[Attachment\]\s+(.+)$/i);
-
-    if (legacyMatch) {
-      attachments.push({
-        name: legacyMatch[1]?.trim() || "Attachment",
-      });
-
-      return;
-    }
-
-    bodyLines.push(line);
-  });
-
-  return {
-    attachments,
-    body: bodyLines.join("\n").trim(),
-    richHtml,
-  };
-};
-
 const sanitizeCommentHtml = (html: string) => {
   if (typeof window === "undefined" || !html) {
     return "";
@@ -311,11 +267,13 @@ export const ViewTaskListsPanelContent = ({
   onProjectMetaChange,
   projectName,
   projectId,
+  projectDueDate,
+  projectStartDate,
   status,
   tasks = [],
   users = [],
 }: ViewTaskListsPanelContentProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const commentEditorRef = useRef<HTMLDivElement | null>(null);
@@ -344,11 +302,9 @@ export const ViewTaskListsPanelContent = ({
     null,
   );
   const [isSendingComment, setIsSendingComment] = useState(false);
-  const todayDate = today(getLocalTimeZone());
+  const todayDate = useMemo(() => today(getLocalTimeZone()), []);
   const [startDate, setStartDate] = useState(todayDate);
   const [dueDate, setDueDate] = useState(todayDate);
-  const [savedStartDate, setSavedStartDate] = useState(todayDate);
-  const [savedDueDate, setSavedDueDate] = useState(todayDate);
   const [formatState, setFormatState] = useState({
     bold: false,
     italic: false,
@@ -357,6 +313,12 @@ export const ViewTaskListsPanelContent = ({
   });
   const [activeStatus, setActiveStatus] = useState(status || "Draft");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>(
+    defaultProjectStatusOptions,
+  );
   const [isSavingProjectMeta, setIsSavingProjectMeta] = useState(false);
 
   useEffect(() => {
@@ -373,42 +335,84 @@ export const ViewTaskListsPanelContent = ({
 
   useEffect(() => {
     setSelectedTaskId(null);
+    setExpandedTaskIds(new Set());
   }, [projectId]);
 
-  const hasDateChanges =
-    String(startDate) !== String(savedStartDate) ||
-    String(dueDate) !== String(savedDueDate);
+  useEffect(() => {
+    const nextStartDate = toCalendarDate(projectStartDate) ?? todayDate;
+    const nextDueDate = toCalendarDate(projectDueDate) ?? nextStartDate;
+
+    setStartDate(nextStartDate);
+    setDueDate(
+      nextDueDate.compare(nextStartDate) < 0 ? nextStartDate : nextDueDate,
+    );
+  }, [projectDueDate, projectStartDate, todayDate]);
+
+  const originalStartDate = useMemo(
+    () => calendarDateToIso(toCalendarDate(projectStartDate) ?? todayDate),
+    [projectStartDate, todayDate],
+  );
+  const originalDueDate = useMemo(() => {
+    const nextStartDate = toCalendarDate(projectStartDate) ?? todayDate;
+    const nextDueDate = toCalendarDate(projectDueDate) ?? nextStartDate;
+
+    return calendarDateToIso(
+      nextDueDate.compare(nextStartDate) < 0 ? nextStartDate : nextDueDate,
+    );
+  }, [projectDueDate, projectStartDate, todayDate]);
 
   const hasMetaChanges =
     (activeAccountManagerId ?? "") !== (accountManagerId ?? "") ||
     (activeCsmId ?? "") !== (csmId ?? "") ||
     (activeStatus ?? "Draft") !== (status ?? "Draft") ||
-    hasDateChanges;
-
-  const getStoredAccessToken = () => {
-    if (typeof window === "undefined") {
-      return "";
-    }
-
-    try {
-      const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-      if (!rawSession) {
-        return "";
-      }
-
-      const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-      return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-    } catch {
-      return "";
-    }
-  };
+    calendarDateToIso(startDate) !== originalStartDate ||
+    calendarDateToIso(dueDate) !== originalDueDate;
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
+    if (!session || !projectId) {
+      setProjectStatusOptions(defaultProjectStatusOptions);
 
-    if (!accessToken || !projectId) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadProjectStatusOptions = async () => {
+      try {
+        const accessToken = await getValidAccessToken();
+        const response =
+          await projectTemplatesApi.listProjectTemplateStatusOptions(
+            accessToken,
+          );
+        const options = response.statusOptions
+          .map((item) => item.trim())
+          .filter(Boolean);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setProjectStatusOptions(
+          options.length ? options : defaultProjectStatusOptions,
+        );
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setProjectStatusOptions(defaultProjectStatusOptions);
+      }
+    };
+
+    void loadProjectStatusOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getValidAccessToken, projectId, session]);
+
+  useEffect(() => {
+    if (!session || !projectId) {
       setComments([]);
 
       return;
@@ -420,6 +424,7 @@ export const ViewTaskListsPanelContent = ({
 
     const loadComments = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response = await clientsApi.getProjectComments(
           accessToken,
           projectId,
@@ -448,7 +453,7 @@ export const ViewTaskListsPanelContent = ({
     return () => {
       isMounted = false;
     };
-  }, [projectId, session?.accessToken]);
+  }, [getValidAccessToken, projectId, session]);
 
   const subtitle = useMemo(
     () => `${clientName || "-"} | ${address || "-"}`,
@@ -458,12 +463,108 @@ export const ViewTaskListsPanelContent = ({
     () => tasks.find((task) => task.id === selectedTaskId) ?? null,
     [selectedTaskId, tasks],
   );
-  const displayedTasks = useMemo(
+  const orderedTasks = useMemo(
+    () => tasks.map((task, index) => ({ index, task })),
+    [tasks],
+  );
+  const taskById = useMemo(
     () =>
-      selectedTask
-        ? tasks.filter((task) => task.id !== selectedTask.id)
-        : tasks,
-    [selectedTask, tasks],
+      tasks.reduce<Record<string, (typeof tasks)[number]>>((acc, task) => {
+        acc[task.id] = task;
+
+        return acc;
+      }, {}),
+    [tasks],
+  );
+  const childrenByParentId = useMemo(() => {
+    const groups = new Map<string, typeof tasks>();
+
+    orderedTasks.forEach(({ task }) => {
+      if (!task.parentTaskId || !taskById[task.parentTaskId]) {
+        return;
+      }
+
+      const current = groups.get(task.parentTaskId) ?? [];
+
+      current.push(task);
+      groups.set(task.parentTaskId, current);
+    });
+
+    return groups;
+  }, [orderedTasks, taskById]);
+  const rootTasks = useMemo(
+    () =>
+      orderedTasks
+        .filter(
+          ({ task }) =>
+            !task.parentTaskId || !taskById[String(task.parentTaskId)],
+        )
+        .map(({ task }) => task),
+    [orderedTasks, taskById],
+  );
+  const parentTaskIds = useMemo(
+    () =>
+      new Set(
+        Array.from(childrenByParentId.entries())
+          .filter(([, children]) => children.length > 0)
+          .map(([taskId]) => taskId),
+      ),
+    [childrenByParentId],
+  );
+
+  useEffect(() => {
+    setExpandedTaskIds(new Set(parentTaskIds));
+  }, [parentTaskIds, projectId]);
+
+  const flattenedTaskRows = useMemo(() => {
+    const rows: Array<{
+      depth: number;
+      task: (typeof tasks)[number];
+    }> = [];
+
+    const appendChildren = (
+      taskId: string,
+      depth: number,
+      visited = new Set<string>(),
+    ) => {
+      const children = childrenByParentId.get(taskId) ?? [];
+
+      children.forEach((child) => {
+        if (visited.has(child.id)) {
+          return;
+        }
+
+        const nextVisited = new Set(visited);
+
+        nextVisited.add(child.id);
+        rows.push({ depth, task: child });
+
+        if (expandedTaskIds.has(child.id)) {
+          appendChildren(child.id, depth + 1, nextVisited);
+        }
+      });
+    };
+
+    if (selectedTask) {
+      appendChildren(selectedTask.id, 1, new Set([selectedTask.id]));
+
+      return rows;
+    }
+
+    rootTasks.forEach((rootTask) => {
+      rows.push({ depth: 0, task: rootTask });
+
+      if (expandedTaskIds.has(rootTask.id)) {
+        appendChildren(rootTask.id, 1, new Set([rootTask.id]));
+      }
+    });
+
+    return rows;
+  }, [childrenByParentId, expandedTaskIds, rootTasks, selectedTask, tasks]);
+  const displayedTasks = useMemo(() => flattenedTaskRows, [flattenedTaskRows]);
+  const hasTaskHierarchy = useMemo(
+    () => tasks.some((task) => Boolean(task.parentTaskId)),
+    [tasks],
   );
   const displayedDescription =
     selectedTask?.description?.trim() ||
@@ -565,26 +666,33 @@ export const ViewTaskListsPanelContent = ({
   };
 
   const handleAddComment = async () => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
     const editorHtml = commentEditorRef.current?.innerHTML?.trim() ?? "";
-    const attachmentLines = pendingAttachments.map(
-      (attachment) => `[Attachment:${attachment.id}:${attachment.name}]`,
-    );
-    const htmlBlock =
-      editorHtml && editorHtml !== "<br>"
-        ? `[COMMENT_HTML]${encodeURIComponent(editorHtml)}[/COMMENT_HTML]`
-        : "";
-    const message = [htmlBlock || commentInput.trim(), ...attachmentLines]
-      .filter(Boolean)
-      .join("\n");
+    const message = buildCommentMessage({
+      editorHtml,
+      pendingAttachments,
+      plainText: commentInput,
+    });
 
-    if (!accessToken || !projectId || !message || isSendingComment) {
+    if (!session || !projectId || !message || isSendingComment) {
+      return;
+    }
+
+    const payloadValidation = validateCommentPayloadSize(message);
+
+    if (!payloadValidation.isValid) {
+      toast.warning("Comment is too large to send.", {
+        description: `Please reduce text or attachments (max ${Math.floor(
+          MAX_COMMENT_PAYLOAD_BYTES / 1024,
+        )}KB payload).`,
+      });
+
       return;
     }
 
     setIsSendingComment(true);
 
     try {
+      const accessToken = await getValidAccessToken();
       const createdComment = await clientsApi.createProjectComment(
         accessToken,
         projectId,
@@ -595,7 +703,7 @@ export const ViewTaskListsPanelContent = ({
         const next = { ...previous };
 
         pendingAttachments.forEach((attachment) => {
-          if (!attachment.previewUrl) {
+          if (!attachment.previewUrl && !attachment.dataUrl) {
             return;
           }
 
@@ -603,7 +711,7 @@ export const ViewTaskListsPanelContent = ({
             isImage: attachment.isImage,
             mimeType: attachment.mimeType,
             name: attachment.name,
-            previewUrl: attachment.previewUrl,
+            previewUrl: attachment.dataUrl ?? attachment.previewUrl ?? "",
           };
         });
 
@@ -781,7 +889,7 @@ export const ViewTaskListsPanelContent = ({
     });
   };
 
-  const handleAddPendingFiles = (
+  const handleAddPendingFiles = async (
     fileList: FileList | null,
     options?: { imageOnly?: boolean },
   ) => {
@@ -789,28 +897,68 @@ export const ViewTaskListsPanelContent = ({
       return;
     }
 
-    const attachments = Array.from(fileList)
-      .filter((file) =>
-        options?.imageOnly ? file.type.startsWith("image/") : true,
-      )
-      .map((file) => {
-        const isImageFile = file.type.startsWith("image/");
-
-        return {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          isImage: isImageFile,
-          mimeType: file.type,
-          name: file.name,
-          previewUrl: URL.createObjectURL(file),
-        } satisfies PendingAttachmentItem;
-      })
-      .filter((attachment) => Boolean(attachment.name));
+    const {
+      attachments,
+      countExceededFiles,
+      oversizedFiles,
+      totalSizeExceededFiles,
+      unsupportedFiles,
+    } = await buildPendingAttachmentsFromFileList(fileList, {
+      currentAttachments: pendingAttachments,
+      imageOnly: options?.imageOnly,
+    });
 
     if (attachments.length === 0) {
+      if (unsupportedFiles.length > 0) {
+        toast.warning("Unsupported file type.", {
+          description: options?.imageOnly
+            ? "Please upload image files only."
+            : "Please upload a supported file format.",
+        });
+      }
+
+      if (oversizedFiles.length > 0) {
+        toast.warning("File is too large.", {
+          description: `Each file must be ${Math.floor(MAX_COMMENT_ATTACHMENT_BYTES / 1024)}KB or less.`,
+        });
+      }
+
+      if (totalSizeExceededFiles.length > 0) {
+        toast.warning("Total attachment size exceeded.", {
+          description: `Combined attachments must stay under ${Math.floor(
+            MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES / 1024,
+          )}KB.`,
+        });
+      }
+
+      if (countExceededFiles.length > 0) {
+        toast.warning("Attachment limit reached.", {
+          description: `You can attach up to ${MAX_COMMENT_ATTACHMENTS} files per comment.`,
+        });
+      }
+
       return;
     }
 
     setPendingAttachments((previous) => [...previous, ...attachments]);
+
+    if (unsupportedFiles.length > 0) {
+      toast.warning("Some files were skipped because they are not images.");
+    }
+
+    if (oversizedFiles.length > 0) {
+      toast.warning("Some files were skipped for size limits.");
+    }
+
+    if (totalSizeExceededFiles.length > 0) {
+      toast.warning("Some files were skipped because total size is too large.");
+    }
+
+    if (countExceededFiles.length > 0) {
+      toast.warning(
+        "Some files were skipped because attachment limit is reached.",
+      );
+    }
   };
 
   const handleRemovePendingAttachment = (indexToRemove: number) => {
@@ -825,42 +973,31 @@ export const ViewTaskListsPanelContent = ({
     });
   };
 
-  useEffect(() => {
-    return () => {
-      Object.values(commentAttachmentLibrary).forEach((attachment) => {
-        if (attachment.previewUrl) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-
-      pendingAttachments.forEach((attachment) => {
-        if (attachment.previewUrl) {
-          URL.revokeObjectURL(attachment.previewUrl);
-        }
-      });
-    };
-  }, [commentAttachmentLibrary, pendingAttachments]);
-
   const handleOpenAttachment = (attachment: ParsedCommentAttachment) => {
     const mapped = attachment.id
       ? (commentAttachmentLibrary[attachment.id] ?? null)
       : null;
+    const attachmentUrl = attachment.dataUrl ?? mapped?.previewUrl;
+    const attachmentName = mapped?.name ?? attachment.name;
+    const isImage = attachment.isImage ?? mapped?.isImage;
 
-    if (!mapped?.previewUrl) {
+    if (!attachmentUrl) {
+      toast.warning("Attachment is unavailable.");
+
       return;
     }
 
-    if (mapped.isImage) {
+    if (isImage) {
       setPreviewAttachment({
-        name: mapped.name,
-        url: mapped.previewUrl,
+        name: attachmentName,
+        url: attachmentUrl,
       });
 
       return;
     }
 
     const openedWindow = window.open(
-      mapped.previewUrl,
+      attachmentUrl,
       "_blank",
       "noopener,noreferrer",
     );
@@ -871,21 +1008,21 @@ export const ViewTaskListsPanelContent = ({
 
     const link = document.createElement("a");
 
-    link.href = mapped.previewUrl;
-    link.download = mapped.name;
+    link.href = attachmentUrl;
+    link.download = attachmentName;
     link.click();
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !commentId || isDeletingCommentId) {
+    if (!session || !commentId || isDeletingCommentId) {
       return;
     }
 
     setIsDeletingCommentId(commentId);
 
     try {
+      const accessToken = await getValidAccessToken();
+
       await clientsApi.deleteProjectComment(accessToken, commentId);
       setComments((previous) =>
         previous.filter((comment) => String(comment.id) !== commentId),
@@ -1083,16 +1220,17 @@ export const ViewTaskListsPanelContent = ({
                   selectedKeys={activeStatus ? [activeStatus] : []}
                   size="sm"
                   onSelectionChange={(keys) => {
-                    const first = Array.from(keys as Set<string>)[0] ?? "Draft";
+                    const first =
+                      Array.from(keys as Set<string>)[0] ??
+                      projectStatusOptions[0] ??
+                      defaultProjectStatusOptions[0];
 
                     setActiveStatus(first);
                   }}
                 >
-                  {["Draft", "Todo", "In Progress", "Done", "On Hold"].map(
-                    (option) => (
-                      <SelectItem key={option}>{option}</SelectItem>
-                    ),
-                  )}
+                  {projectStatusOptions.map((option) => (
+                    <SelectItem key={option}>{option}</SelectItem>
+                  ))}
                 </Select>
               </div>
             </div>
@@ -1159,13 +1297,18 @@ export const ViewTaskListsPanelContent = ({
                   await onProjectMetaChange({
                     accountManagerId: activeAccountManagerId,
                     csmId: activeCsmId,
+                    dueDate: calendarDateToIso(dueDate),
+                    startDate: calendarDateToIso(startDate),
                     status: activeStatus,
                   });
-                  setSavedStartDate(startDate);
-                  setSavedDueDate(dueDate);
                   toast.success("Project changes saved successfully.");
-                } catch {
-                  // Keep local edits intact; parent component can surface API errors.
+                } catch (error) {
+                  toast.danger("Failed to save project changes", {
+                    description:
+                      error instanceof Error
+                        ? error.message
+                        : "Please try again.",
+                  });
                 } finally {
                   setIsSavingProjectMeta(false);
                 }
@@ -1211,23 +1354,42 @@ export const ViewTaskListsPanelContent = ({
           title={selectedTask ? "Subtasks" : "Task"}
         >
           <div className="space-y-3">
-            {displayedTasks.map((task) => (
-              <div
-                key={task.id}
-                className="flex cursor-pointer items-center justify-between"
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  setSelectedTaskId(task.id);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setSelectedTaskId(task.id);
-                  }
-                }}
-              >
-                <div className="flex items-center gap-3">
+            {displayedTasks.map(({ depth, task }) => (
+              <div key={task.id} className="flex items-center justify-between">
+                <div
+                  className="flex items-center gap-3"
+                  style={{ paddingLeft: `${depth * 18}px` }}
+                >
+                  {parentTaskIds.has(task.id) ? (
+                    <button
+                      className="rounded p-0.5 text-[#6B7280] hover:bg-default-100"
+                      type="button"
+                      onClick={() => {
+                        setExpandedTaskIds((current) => {
+                          const next = new Set(current);
+
+                          if (next.has(task.id)) {
+                            next.delete(task.id);
+                          } else {
+                            next.add(task.id);
+                          }
+
+                          return next;
+                        });
+                      }}
+                    >
+                      {expandedTaskIds.has(task.id) ? (
+                        <ChevronDown size={14} />
+                      ) : (
+                        <ChevronRight size={14} />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="inline-block w-5" />
+                  )}
+                  {depth > 0 ? (
+                    <span className="text-xs text-[#9CA3AF]">↳</span>
+                  ) : null}
                   <Chip
                     className="bg-[#E5E7EB] text-[#1F2937]"
                     radius="full"
@@ -1236,7 +1398,15 @@ export const ViewTaskListsPanelContent = ({
                   >
                     {task.status}
                   </Chip>
-                  <span className="text-base text-[#111827]">{task.name}</span>
+                  <button
+                    className="text-base text-[#111827]"
+                    type="button"
+                    onClick={() => {
+                      setSelectedTaskId(task.id);
+                    }}
+                  >
+                    {task.name}
+                  </button>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-[#6B7280]">
                   <CircleUserRound size={14} />
@@ -1252,6 +1422,11 @@ export const ViewTaskListsPanelContent = ({
                 </div>
               </div>
             ))}
+            {!selectedTask && !hasTaskHierarchy && displayedTasks.length > 0 ? (
+              <p className="text-xs text-[#9CA3AF]">
+                No saved subtask hierarchy found for this project yet.
+              </p>
+            ) : null}
             {displayedTasks.length === 0 ? (
               <p className="text-sm text-[#6B7280]">
                 {selectedTask
@@ -1547,7 +1722,7 @@ export const ViewTaskListsPanelContent = ({
               className="hidden"
               type="file"
               onChange={(event) => {
-                handleAddPendingFiles(event.target.files);
+                void handleAddPendingFiles(event.target.files);
                 event.target.value = "";
               }}
             />
@@ -1558,7 +1733,9 @@ export const ViewTaskListsPanelContent = ({
               className="hidden"
               type="file"
               onChange={(event) => {
-                handleAddPendingFiles(event.target.files, { imageOnly: true });
+                void handleAddPendingFiles(event.target.files, {
+                  imageOnly: true,
+                });
                 event.target.value = "";
               }}
             />

@@ -114,27 +114,8 @@ const getVisibleTaskRows = (rows: TaskTableRow[]) => {
   });
 };
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 export type AddProjectFormValues = yup.InferType<typeof addProjectSchema> & {
+  clientId?: string;
   description?: string;
   phase: string;
   progress: string;
@@ -142,8 +123,14 @@ export type AddProjectFormValues = yup.InferType<typeof addProjectSchema> & {
 };
 
 interface AddProjectModalProps {
+  clientOptions?: Array<{
+    address?: string | null;
+    id: string;
+    name: string;
+  }>;
   clientAddress?: string;
   clientName: string;
+  fixedClientId?: string;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onSubmit: (payload: AddProjectFormValues) => void | Promise<void>;
@@ -173,14 +160,16 @@ const toCalendarDate = (value?: string) => {
 };
 
 export const AddProjectModal = ({
-  clientAddress,
+  clientOptions = [],
+  clientAddress: _clientAddress,
   clientName,
+  fixedClientId,
   isOpen,
   onOpenChange,
   onSubmit,
   users,
 }: AddProjectModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [submitError, setSubmitError] = useState("");
   const [availableTemplates, setAvailableTemplates] = useState<
     Record<string, ProjectTemplate>
@@ -192,13 +181,14 @@ export const AddProjectModal = ({
   const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>(
     defaultProjectStatusOptions,
   );
+  const isClientSelectionRequired = !fixedClientId;
   const firstTemplateName = Object.keys(availableTemplates)[0] ?? "Custom";
   const [taskRows, setTaskRows] = useState<TaskTableRow[]>(
     availableTemplates[firstTemplateName]?.tasks ?? [],
   );
 
   useEffect(() => {
-    if (!isOpen) {
+    if (!isOpen || !session) {
       return;
     }
 
@@ -206,14 +196,7 @@ export const AddProjectModal = ({
       setIsLoadingTemplates(true);
 
       try {
-        const accessToken = session?.accessToken || getStoredAccessToken();
-
-        if (!accessToken) {
-          setAvailableTemplates(defaultProjectTemplates);
-          setIsLoadingTemplates(false);
-
-          return;
-        }
+        const accessToken = await getValidAccessToken();
 
         const { projectTemplates: apiTemplates } =
           await projectTemplatesApi.listProjectTemplates(accessToken);
@@ -251,7 +234,7 @@ export const AddProjectModal = ({
     };
 
     void loadProjectTemplates();
-  }, [isOpen, session?.accessToken]);
+  }, [getValidAccessToken, isOpen, session]);
 
   const topLevelTaskRows = useMemo(
     () => taskRows.filter((task) => !task.parentTaskId),
@@ -408,6 +391,7 @@ export const AddProjectModal = ({
   } = useForm<AddProjectFormValues>({
     defaultValues: {
       accountManagerId: users[0]?.id ?? "",
+      clientId: fixedClientId ?? clientOptions[0]?.id ?? "",
       clientSuccessManagerId: users[0]?.id ?? "",
       description: availableTemplates[firstTemplateName]?.description ?? "",
       dueDate: today,
@@ -424,7 +408,7 @@ export const AddProjectModal = ({
   const selectedStartDate = watch("startDate");
 
   useEffect(() => {
-    if (!isOpen || !session?.accessToken) {
+    if (!isOpen || !session) {
       return;
     }
 
@@ -432,9 +416,10 @@ export const AddProjectModal = ({
 
     const loadStatusOptions = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response =
           await projectTemplatesApi.listProjectTemplateStatusOptions(
-            session.accessToken,
+            accessToken,
           );
         const nextOptions = response.statusOptions.length
           ? response.statusOptions
@@ -463,7 +448,7 @@ export const AddProjectModal = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, session?.accessToken, setValue, watch]);
+  }, [getValidAccessToken, isOpen, session, setValue, watch]);
 
   const allSelected = useMemo(
     () => taskRows.length > 0 && taskRows.every((task) => task.isSelected),
@@ -661,6 +646,7 @@ export const AddProjectModal = ({
     onOpenChange(false);
     reset({
       accountManagerId: users[0]?.id ?? "",
+      clientId: fixedClientId ?? clientOptions[0]?.id ?? "",
       clientSuccessManagerId: users[0]?.id ?? "",
       description: availableTemplates[firstTemplateName]?.description ?? "",
       dueDate: today,
@@ -696,12 +682,22 @@ export const AddProjectModal = ({
     setSubmitError("");
 
     try {
+      if (isClientSelectionRequired && !values.clientId) {
+        setError("clientId", {
+          message: "Client is required",
+          type: "manual",
+        });
+
+        return;
+      }
+
       const validatedValues = await addProjectSchema.validate(values, {
         abortEarly: false,
       });
 
       await onSubmit({
         ...validatedValues,
+        clientId: fixedClientId ?? values.clientId ?? "",
         description: values.description?.trim() ?? "",
         phase: "Onboarding",
         progress: selectedStatus || projectStatusOptions[0] || "Planning",
@@ -735,7 +731,7 @@ export const AddProjectModal = ({
       hideCloseButton
       isDismissable={false}
       isOpen={isOpen}
-      scrollBehavior="outside"
+      scrollBehavior="inside"
       size="5xl"
       onOpenChange={onOpenChange}
     >
@@ -765,14 +761,51 @@ export const AddProjectModal = ({
             </p>
             <div className="grid grid-cols-4 gap-3">
               <div>
-                <p className={labelClassName}>Client Name</p>
-                <Input
-                  isReadOnly
-                  radius="sm"
-                  size="sm"
-                  value={clientName}
-                  variant="bordered"
-                />
+                <p className={labelClassName}>
+                  {isClientSelectionRequired ? "Client" : "Client Name"}
+                </p>
+                {isClientSelectionRequired ? (
+                  <Controller
+                    control={control}
+                    name="clientId"
+                    render={({ field }) => (
+                      <Select
+                        errorMessage={errors.clientId?.message}
+                        isInvalid={!!errors.clientId}
+                        radius="sm"
+                        selectedKeys={field.value ? [field.value] : []}
+                        size="sm"
+                        onSelectionChange={(keys) => {
+                          const selectedClient =
+                            Array.from(keys as Set<string>)[0] ?? "";
+
+                          field.onChange(selectedClient);
+                        }}
+                      >
+                        {clientOptions.map((option) => (
+                          <SelectItem key={option.id} textValue={option.name}>
+                            <div className="flex flex-col">
+                              <span className="text-sm text-[#111827]">
+                                {option.name}
+                              </span>
+                              <span className="text-xs text-[#9CA3AF]">
+                                {option.address || "-"}
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    )}
+                  />
+                ) : (
+                  <Input
+                    isReadOnly
+                    radius="sm"
+                    size="sm"
+                    value={clientName}
+                    variant="bordered"
+                  />
+                )}
               </div>
               <div>
                 <p className={labelClassName}>Select Project</p>
@@ -964,7 +997,6 @@ export const AddProjectModal = ({
                 />
               )}
             />
-            <p className="mt-1 text-xs text-[#9CA3AF]">{clientAddress || ""}</p>
           </div>
 
           <div className="rounded-2xl border border-default-200 bg-white overflow-visible">

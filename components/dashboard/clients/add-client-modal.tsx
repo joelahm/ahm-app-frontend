@@ -1,9 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
-import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import {
@@ -16,17 +14,30 @@ import {
 import { X } from "lucide-react";
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
-import { getCountryOptions } from "@/components/form/location-options";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const addClientSchema = yup.object({
-  businessName: yup.string().default(""),
-  businessPhone: yup.string().default(""),
-  clientName: yup.string().default(""),
-  country: yup.string().default(""),
+  businessName: yup.string().trim().required("Business name is required"),
+  businessPhone: yup.string().trim().required("Business phone is required"),
+  clientName: yup.string().trim().required("Client name is required"),
   niche: yup.string().required("Niche is required"),
-  personalEmail: yup.string().email("Enter a valid email").default(""),
-  practiceEmail: yup.string().email("Enter a valid email").default(""),
-  website: yup.string().url("Enter a valid URL").default(""),
+  personalEmail: yup
+    .string()
+    .trim()
+    .email("Enter a valid email")
+    .required("Personal email is required"),
+  personalPhone: yup.string().trim().default(""),
+  profession: yup.string().trim().default(""),
+  practiceEmail: yup
+    .string()
+    .trim()
+    .email("Enter a valid email")
+    .required("Business email is required"),
+  website: yup
+    .string()
+    .trim()
+    .url("Enter a valid URL")
+    .required("Website is required"),
 });
 
 export type AddClientFormValues = yup.InferType<typeof addClientSchema>;
@@ -39,25 +50,25 @@ interface AddClientModalProps {
 
 const inputLabel = "mb-1.5 block text-sm text-[#4B5563]";
 
+const FieldLabel = ({
+  children,
+  required = false,
+}: {
+  children: string;
+  required?: boolean;
+}) => (
+  <p className={inputLabel}>
+    {children}
+    {required ? <span className="ml-1 text-danger">*</span> : null}
+  </p>
+);
+
 export const AddClientModal = ({
   isOpen,
   onOpenChange,
   onSubmit,
 }: AddClientModalProps) => {
-  const countries = getCountryOptions();
-  const [countrySearch, setCountrySearch] = useState("");
-  const [submitError, setSubmitError] = useState("");
-  const filteredCountryOptions = useMemo(() => {
-    const normalizedQuery = countrySearch.trim().toLowerCase();
-
-    if (!normalizedQuery) {
-      return countries;
-    }
-
-    return countries.filter((country) =>
-      country.label.toLowerCase().includes(normalizedQuery),
-    );
-  }, [countries, countrySearch]);
+  const toast = useAppToast();
   const {
     control,
     clearErrors,
@@ -70,9 +81,10 @@ export const AddClientModal = ({
       businessName: "",
       businessPhone: "",
       clientName: "",
-      country: "",
       niche: "",
       personalEmail: "",
+      personalPhone: "",
+      profession: "",
       practiceEmail: "",
       website: "",
     },
@@ -81,7 +93,6 @@ export const AddClientModal = ({
 
   const submitClient = async (values: AddClientFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       const validatedValues = await addClientSchema.validate(values, {
@@ -94,7 +105,9 @@ export const AddClientModal = ({
 
       onOpenChange(false);
       reset();
-      setCountrySearch("");
+      toast.success("Client added successfully.", {
+        description: "The client profile has been created.",
+      });
     } catch (error) {
       if (error instanceof yup.ValidationError) {
         error.inner.forEach((issue) => {
@@ -111,17 +124,18 @@ export const AddClientModal = ({
         return;
       }
 
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to add client.",
-      );
+      toast.danger("We couldn’t add this client yet.", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please review the details and try again.",
+      });
     }
   };
 
   const handleClose = () => {
     onOpenChange(false);
     reset();
-    setCountrySearch("");
-    setSubmitError("");
   };
 
   return (
@@ -149,13 +163,27 @@ export const AddClientModal = ({
           </Button>
         </ModalHeader>
 
-        <ModalBody className="space-y-4 py-5">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
+        <ModalBody className="py-5">
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <p className={inputLabel}>Client Name (For solo practitioner)</p>
+              <FieldLabel>Client Title</FieldLabel>
+              <Controller
+                control={control}
+                name="profession"
+                render={({ field }) => (
+                  <Input
+                    radius="sm"
+                    size="sm"
+                    value={field.value ?? ""}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </div>
+
+            <div>
+              <FieldLabel required>Client Name</FieldLabel>
               <Controller
                 control={control}
                 name="clientName"
@@ -174,9 +202,7 @@ export const AddClientModal = ({
             </div>
 
             <div>
-              <p className={inputLabel}>
-                Business Name (For medical clinic / group of practice)
-              </p>
+              <FieldLabel required>Business Name</FieldLabel>
               <Controller
                 control={control}
                 name="businessName"
@@ -193,31 +219,28 @@ export const AddClientModal = ({
                 )}
               />
             </div>
-          </div>
 
-          <div>
-            <p className={inputLabel}>Niche *</p>
-            <Controller
-              control={control}
-              name="niche"
-              render={({ field }) => (
-                <Input
-                  errorMessage={errors.niche?.message}
-                  isInvalid={!!errors.niche}
-                  placeholder="Enter niche"
-                  radius="sm"
-                  size="sm"
-                  value={field.value ?? ""}
-                  onBlur={field.onBlur}
-                  onChange={field.onChange}
-                />
-              )}
-            />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
             <div>
-              <p className={inputLabel}>Personal Email Address</p>
+              <FieldLabel required>Niche</FieldLabel>
+              <Controller
+                control={control}
+                name="niche"
+                render={({ field }) => (
+                  <Input
+                    errorMessage={errors.niche?.message}
+                    isInvalid={!!errors.niche}
+                    placeholder="Enter niche"
+                    radius="sm"
+                    size="sm"
+                    value={field.value ?? ""}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </div>
+            <div>
+              <FieldLabel required>Personal Email Address</FieldLabel>
               <Controller
                 control={control}
                 name="personalEmail"
@@ -236,7 +259,7 @@ export const AddClientModal = ({
             </div>
 
             <div>
-              <p className={inputLabel}>Practice Email Address</p>
+              <FieldLabel required>Business Email Address</FieldLabel>
               <Controller
                 control={control}
                 name="practiceEmail"
@@ -255,7 +278,25 @@ export const AddClientModal = ({
             </div>
 
             <div>
-              <p className={inputLabel}>Business Phone Number</p>
+              <FieldLabel>Personal Phone Number</FieldLabel>
+              <Controller
+                control={control}
+                name="personalPhone"
+                render={({ field }) => (
+                  <IntlPhoneInput
+                    errorMessage={errors.personalPhone?.message}
+                    isInvalid={!!errors.personalPhone}
+                    placeholder="Personal phone number"
+                    value={field.value}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </div>
+
+            <div>
+              <FieldLabel required>Business Phone Number</FieldLabel>
               <Controller
                 control={control}
                 name="businessPhone"
@@ -271,68 +312,26 @@ export const AddClientModal = ({
                 )}
               />
             </div>
-          </div>
 
-          <div>
-            <p className={inputLabel}>Website</p>
-            <Controller
-              control={control}
-              name="website"
-              render={({ field }) => (
-                <Input
-                  errorMessage={errors.website?.message}
-                  isInvalid={!!errors.website}
-                  placeholder="https://www.example.com"
-                  radius="sm"
-                  size="sm"
-                  value={field.value ?? ""}
-                  onBlur={field.onBlur}
-                  onChange={field.onChange}
-                />
-              )}
-            />
-          </div>
-
-          <div>
-            <p className={inputLabel}>Country</p>
-            <Controller
-              control={control}
-              name="country"
-              render={({ field }) => (
-                <Autocomplete
-                  allowsCustomValue={false}
-                  errorMessage={errors.country?.message}
-                  inputValue={countrySearch}
-                  isInvalid={!!errors.country}
-                  items={filteredCountryOptions}
-                  menuTrigger="focus"
-                  placeholder="Select country"
-                  radius="sm"
-                  selectedKey={
-                    countries.find((country) => country.label === field.value)
-                      ?.key ?? null
-                  }
-                  size="sm"
-                  onInputChange={(value) => {
-                    setCountrySearch(value);
-                  }}
-                  onSelectionChange={(key) => {
-                    const selectedCountry = countries.find(
-                      (country) => country.key === key,
-                    );
-
-                    field.onChange(selectedCountry?.label ?? "");
-                    setCountrySearch(selectedCountry?.label ?? "");
-                  }}
-                >
-                  {(country) => (
-                    <AutocompleteItem key={country.key}>
-                      {country.label}
-                    </AutocompleteItem>
-                  )}
-                </Autocomplete>
-              )}
-            />
+            <div>
+              <FieldLabel required>Website</FieldLabel>
+              <Controller
+                control={control}
+                name="website"
+                render={({ field }) => (
+                  <Input
+                    errorMessage={errors.website?.message}
+                    isInvalid={!!errors.website}
+                    placeholder="https://www.example.com"
+                    radius="sm"
+                    size="sm"
+                    value={field.value ?? ""}
+                    onBlur={field.onBlur}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </div>
           </div>
         </ModalBody>
 

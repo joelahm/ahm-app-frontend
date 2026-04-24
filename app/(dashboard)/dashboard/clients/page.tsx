@@ -16,26 +16,6 @@ import {
 } from "@/components/dashboard/clients/add-client-modal";
 import { DashboardTableAction } from "@/components/dashboard/dashboard-table-shell";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const formatDateValue = (value?: string | null) => {
   if (!value) {
     return "-";
@@ -81,7 +61,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
 };
 
 const ClientsPage = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [actionError, setActionError] = useState("");
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
   const [rows, setRows] = useState<ClientRecord[]>([]);
@@ -110,18 +90,21 @@ const ClientsPage = () => {
   );
 
   const loadClients = useCallback(async () => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       setRows([]);
 
       return;
     }
 
-    const clients = await clientsApi.getClients(accessToken);
+    try {
+      const accessToken = await getValidAccessToken();
+      const clients = await clientsApi.getClients(accessToken);
 
-    setRows(mapClientRows(clients));
-  }, [mapClientRows, session?.accessToken]);
+      setRows(mapClientRows(clients));
+    } catch {
+      setRows([]);
+    }
+  }, [getValidAccessToken, mapClientRows, session]);
 
   useEffect(() => {
     void loadClients();
@@ -155,11 +138,11 @@ const ClientsPage = () => {
   );
 
   const handleAddClient = async (payload: AddClientFormValues) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       throw new Error("Your session has expired. Please login again.");
     }
+
+    const accessToken = await getValidAccessToken();
 
     await clientsApi.createClient(accessToken, payload);
     await loadClients();
@@ -167,9 +150,7 @@ const ClientsPage = () => {
 
   const handleSetClientStatus = useCallback(
     async (clientId: string, status: "Active" | "Inactive") => {
-      const accessToken = session?.accessToken || getStoredAccessToken();
-
-      if (!accessToken) {
+      if (!session) {
         setActionError("Your session has expired. Please login again.");
 
         return;
@@ -178,6 +159,8 @@ const ClientsPage = () => {
       setActionError("");
 
       try {
+        const accessToken = await getValidAccessToken();
+
         await clientsApi.updateClientStatus(accessToken, clientId, status);
         await loadClients();
       } catch (error) {
@@ -188,14 +171,12 @@ const ClientsPage = () => {
         );
       }
     },
-    [loadClients, session?.accessToken],
+    [getValidAccessToken, loadClients, session],
   );
 
   const handleRemoveClient = useCallback(
     async (clientId: string) => {
-      const accessToken = session?.accessToken || getStoredAccessToken();
-
-      if (!accessToken) {
+      if (!session) {
         setActionError("Your session has expired. Please login again.");
 
         return;
@@ -204,6 +185,8 @@ const ClientsPage = () => {
       setActionError("");
 
       try {
+        const accessToken = await getValidAccessToken();
+
         await clientsApi.deleteClient(accessToken, clientId);
         await loadClients();
       } catch (error) {
@@ -212,7 +195,7 @@ const ClientsPage = () => {
         );
       }
     },
-    [loadClients, session?.accessToken],
+    [getValidAccessToken, loadClients, session],
   );
 
   return (

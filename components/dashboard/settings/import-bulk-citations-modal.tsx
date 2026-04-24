@@ -14,6 +14,7 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { FileText, Upload, X } from "lucide-react";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const stepCards = [
   {
@@ -231,11 +232,10 @@ export const ImportBulkCitationsModal = ({
   onImport,
   onOpenChange,
 }: ImportBulkCitationsModalProps) => {
+  const toast = useAppToast();
   const [currentStep, setCurrentStep] = useState(1);
-  const [importError, setImportError] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadError, setUploadError] = useState("");
   const [parsedHeaders, setParsedHeaders] = useState<string[]>([]);
   const [parsedRows, setParsedRows] = useState<Record<string, string>[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -265,10 +265,8 @@ export const ImportBulkCitationsModal = ({
   useEffect(() => {
     if (!isOpen) {
       setCurrentStep(1);
-      setImportError("");
       setIsImporting(false);
       setSelectedFile(null);
-      setUploadError("");
       setParsedHeaders([]);
       setParsedRows([]);
       reset();
@@ -306,7 +304,6 @@ export const ImportBulkCitationsModal = ({
       setSelectedFile(null);
       setParsedHeaders([]);
       setParsedRows([]);
-      setUploadError("");
       clearErrors();
 
       return;
@@ -318,7 +315,9 @@ export const ImportBulkCitationsModal = ({
       setSelectedFile(null);
       setParsedHeaders([]);
       setParsedRows([]);
-      setUploadError("Only .csv and .xlsx files are supported.");
+      toast.danger("Invalid file type.", {
+        description: "Only .csv and .xlsx files are supported.",
+      });
 
       return;
     }
@@ -332,7 +331,6 @@ export const ImportBulkCitationsModal = ({
       setSelectedFile(file);
       setParsedHeaders(parsedFile.headers);
       setParsedRows(parsedFile.rows);
-      setUploadError("");
       clearErrors();
       reset({
         da: parsedFile.headers.find((header) => /\bda\b/i.test(header)) ?? "",
@@ -353,22 +351,24 @@ export const ImportBulkCitationsModal = ({
       setSelectedFile(null);
       setParsedHeaders([]);
       setParsedRows([]);
-      setUploadError(
-        error instanceof Error ? error.message : "Failed to parse the file.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to parse the file.";
+      toast.danger("Failed to parse the file.", {
+        description: message,
+      });
     }
   };
 
   const handleNext = async () => {
     if (currentStep === 1) {
       if (!selectedFile || !parsedHeaders.length || !parsedRows.length) {
-        setUploadError("Please choose a valid .csv or .xlsx file first.");
+        toast.danger("No file selected.", {
+          description: "Please choose a valid .csv or .xlsx file first.",
+        });
 
         return;
       }
 
-      setUploadError("");
-      setImportError("");
       clearErrors();
       setCurrentStep(2);
 
@@ -408,7 +408,6 @@ export const ImportBulkCitationsModal = ({
   };
 
   const handleImport = async () => {
-    setImportError("");
     setIsImporting(true);
 
     try {
@@ -424,9 +423,11 @@ export const ImportBulkCitationsModal = ({
       );
       closeModal();
     } catch (error) {
-      setImportError(
-        error instanceof Error ? error.message : "Failed to import citations.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Failed to import citations.";
+      toast.danger("Failed to import citations.", {
+        description: message,
+      });
     } finally {
       setIsImporting(false);
     }
@@ -458,9 +459,6 @@ export const ImportBulkCitationsModal = ({
         </ModalHeader>
 
         <ModalBody className="space-y-6 py-5">
-          {importError ? (
-            <p className="text-sm text-danger">{importError}</p>
-          ) : null}
           <div className="grid gap-4 lg:grid-cols-3">
             {stepCards.map((_, index) => (
               <div key={index + 1}>
@@ -504,9 +502,6 @@ export const ImportBulkCitationsModal = ({
                   <p className="mt-5 text-sm text-[#4B5563]">
                     Selected file: {selectedFile.name}
                   </p>
-                ) : null}
-                {uploadError ? (
-                  <p className="mt-3 text-sm text-danger">{uploadError}</p>
                 ) : null}
               </button>
             </div>

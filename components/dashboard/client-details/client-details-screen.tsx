@@ -14,7 +14,6 @@ import { Input, Textarea } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Switch } from "@heroui/switch";
 import {
-  Beaker,
   Briefcase,
   BriefcaseMedical,
   Copy,
@@ -117,10 +116,11 @@ const clientDetailsSchema = yup.object({
     .string()
     .email("Enter a valid email")
     .required("Personal email is required"),
+  personalPhone: yup.string().default(""),
   practiceEmail: yup
     .string()
     .email("Enter a valid email")
-    .required("Practice email is required"),
+    .required("Business email is required"),
   businessPhone: yup.string().required("Business phone number is required"),
   website: yup
     .string()
@@ -128,14 +128,21 @@ const clientDetailsSchema = yup.object({
     .required("Website is required"),
   country: yup.string().required("Country is required"),
   typeOfPractice: yup.string().required("Type of practice is required"),
-  profession: yup.string().required("Profession is required"),
-  addressLine1: yup.string().required("Address line 1 is required"),
+  profession: yup.string().default(""),
+  practiceStructure: yup.string().default(""),
+  gmcRegistrationNumber: yup.string().default(""),
+  buildingName: yup.string().default(""),
+  unitNumber: yup.string().default(""),
+  streetAddress: yup.string().required("Street address is required"),
+  region: yup.string().required("Region is required"),
+  addressLine1: yup.string().default(""),
   addressLine2: yup.string().default(""),
-  cityState: yup.string().required("City/State is required"),
-  visibleArea: yup
-    .string()
-    .required("1 Area You Want to Be Visible in is required"),
+  cityState: yup.string().default(""),
+  visibleArea: yup.string().required("Target area is required"),
+  nearbyAreasServed: yup.string().default(""),
   postCode: yup.string().required("Post code is required"),
+  credentials: yup.string().default(""),
+  majorAccomplishments: yup.string().default(""),
   gbpLink: yup.string().default(""),
   facebook: yup.string().default(""),
   instagram: yup.string().default(""),
@@ -489,6 +496,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     useState<UploadValue>([]);
   const [practiceLocationExteriorPhoto, setPracticeLocationExteriorPhoto] =
     useState<UploadValue>([]);
+  const [otherImages, setOtherImages] = useState<UploadValue>([]);
   const [colorGuide, setColorGuide] = useState<UploadValue>([]);
   const [logo, setLogo] = useState<UploadValue>([]);
   const filteredCountryOptions = useMemo(() => {
@@ -547,17 +555,27 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       businessName: "",
       niche: "",
       personalEmail: "",
+      personalPhone: "",
       practiceEmail: "",
       businessPhone: "",
       website: "",
       country: "",
       typeOfPractice: "",
       profession: "",
+      practiceStructure: "",
+      gmcRegistrationNumber: "",
+      buildingName: "",
+      unitNumber: "",
+      streetAddress: "",
+      region: "",
       addressLine1: "",
       addressLine2: "",
       cityState: "",
       visibleArea: "",
+      nearbyAreasServed: "",
       postCode: "",
+      credentials: "",
+      majorAccomplishments: "",
       gbpLink: "",
       facebook: "",
       instagram: "",
@@ -577,17 +595,24 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       hasTextValue(watchedValues.businessName),
       hasTextValue(watchedValues.niche),
       hasTextValue(watchedValues.personalEmail),
+      hasTextValue(watchedValues.personalPhone),
       hasTextValue(watchedValues.practiceEmail),
       hasTextValue(watchedValues.businessPhone),
       hasTextValue(watchedValues.website),
       hasTextValue(watchedValues.country),
       hasTextValue(watchedValues.typeOfPractice),
       hasTextValue(watchedValues.profession),
-      hasTextValue(watchedValues.addressLine1),
-      hasTextValue(watchedValues.addressLine2),
-      hasTextValue(watchedValues.cityState),
+      hasTextValue(watchedValues.practiceStructure),
+      hasTextValue(watchedValues.gmcRegistrationNumber),
+      hasTextValue(watchedValues.buildingName),
+      hasTextValue(watchedValues.unitNumber),
+      hasTextValue(watchedValues.streetAddress),
+      hasTextValue(watchedValues.region),
       hasTextValue(watchedValues.visibleArea),
+      hasTextValue(watchedValues.nearbyAreasServed),
       hasTextValue(watchedValues.postCode),
+      hasTextValue(watchedValues.credentials),
+      hasTextValue(watchedValues.majorAccomplishments),
       hasTextValue(watchedValues.gbpLink),
       hasTextValue(watchedValues.facebook),
       hasTextValue(watchedValues.instagram),
@@ -599,19 +624,17 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       hasTextValue(watchedValues.googleSearchConsole),
       hasTextValue(assignedToId),
       hasItems(topMedicalSpecialties),
-      hasItems(otherMedicalSpecialties),
       hasItems(subSpecialties),
-      hasItems(specialInterests),
       hasItems(topTreatments),
       hasItems(treatmentAndServices),
       hasItems(conditionsTreated),
-      hasTextValue(practiceIntroduction),
       hasTextValue(uniqueToCompetitors),
       hasCompletedPracticeHours(practiceHours),
       hasItems(highQualityHeadshot),
       hasItems(yourCv),
       hasItems(practiceLocationInteriorPhoto),
       hasItems(practiceLocationExteriorPhoto),
+      hasItems(otherImages),
       hasItems(colorGuide),
       hasItems(logo),
     ];
@@ -624,12 +647,10 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     conditionsTreated,
     highQualityHeadshot,
     logo,
-    otherMedicalSpecialties,
+    otherImages,
     practiceHours,
-    practiceIntroduction,
     practiceLocationExteriorPhoto,
     practiceLocationInteriorPhoto,
-    specialInterests,
     subSpecialties,
     topMedicalSpecialties,
     topTreatments,
@@ -727,29 +748,40 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         setYourCv(client.yourCv);
         setPracticeLocationInteriorPhoto(client.practiceLocationInteriorPhoto);
         setPracticeLocationExteriorPhoto(client.practiceLocationExteriorPhoto);
+        setOtherImages(client.otherImages);
         setColorGuide(client.colorGuide);
         setLogo(client.logo);
         reset((previousValues) => ({
           ...previousValues,
           addressLine1: client.addressLine1 ?? "",
           addressLine2: client.addressLine2 ?? "",
+          buildingName: client.buildingName ?? "",
           businessName: client.businessName ?? "",
           businessPhone: client.businessPhone ?? "",
           cityState: client.cityState ?? "",
           clientName: client.clientName ?? "",
           country: client.country ?? "",
+          credentials: client.credentials ?? "",
           facebook: client.facebook ?? "",
           gbpLink: client.gbpLink ?? "",
+          gmcRegistrationNumber: client.gmcRegistrationNumber ?? "",
           googleAnalytics: client.googleAnalytics ?? "",
           googleSearchConsole: client.googleSearchConsole ?? "",
           instagram: client.instagram ?? "",
           linkedin: client.linkedin ?? "",
+          majorAccomplishments: client.majorAccomplishments ?? "",
+          nearbyAreasServed: client.nearbyAreasServed ?? "",
           niche: client.niche ?? "",
           postCode: client.postCode ?? "",
           personalEmail: client.personalEmail ?? "",
+          personalPhone: client.personalPhone ?? "",
           profession: client.profession ?? "",
+          practiceStructure: client.practiceStructure ?? "",
           practiceEmail: client.practiceEmail ?? "",
+          region: client.region ?? "",
+          streetAddress: client.streetAddress ?? "",
           typeOfPractice: client.typeOfPractice ?? "",
+          unitNumber: client.unitNumber ?? "",
           visibleArea: client.visibleArea ?? "",
           website: client.website ?? "",
           websiteLoginLink: client.websiteLoginLink ?? "",
@@ -874,32 +906,43 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           assignedTo: assignedToId,
           addressLine1: values.addressLine1,
           addressLine2: values.addressLine2,
+          buildingName: values.buildingName,
           businessName: values.businessName,
           businessPhone: values.businessPhone,
           cityState: values.cityState,
           clientName: values.clientName,
           conditionsTreated,
           country: values.country,
+          credentials: values.credentials,
           facebook: values.facebook,
           gbpLink: values.gbpLink,
+          gmcRegistrationNumber: values.gmcRegistrationNumber,
           googleAnalytics: values.googleAnalytics,
           googleSearchConsole: values.googleSearchConsole,
           instagram: values.instagram,
           linkedin: values.linkedin,
+          majorAccomplishments: values.majorAccomplishments,
+          nearbyAreasServed: values.nearbyAreasServed,
           niche: values.niche,
           otherMedicalSpecialties,
+          otherImages,
           personalEmail: values.personalEmail,
+          personalPhone: values.personalPhone,
           postCode: values.postCode,
           practiceEmail: values.practiceEmail,
           practiceHours,
           practiceIntroduction,
           profession: values.profession,
+          practiceStructure: values.practiceStructure,
+          region: values.region,
           specialInterests,
+          streetAddress: values.streetAddress,
           subSpecialties,
           topMedicalSpecialties,
           topTreatments,
           treatmentAndServices,
           typeOfPractice: values.typeOfPractice,
+          unitNumber: values.unitNumber,
           uniqueToCompetitors,
           visibleArea: values.visibleArea,
           website: values.website,
@@ -913,19 +956,31 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         }
         formData.append("addressLine1", basePayload.addressLine1);
         formData.append("addressLine2", basePayload.addressLine2);
+        formData.append("buildingName", basePayload.buildingName);
         formData.append("businessName", basePayload.businessName);
         formData.append("businessPhone", basePayload.businessPhone);
         formData.append("cityState", basePayload.cityState);
         formData.append("clientName", basePayload.clientName);
         formData.append("country", basePayload.country);
+        formData.append("credentials", basePayload.credentials);
         formData.append("facebook", basePayload.facebook);
         formData.append("gbpLink", basePayload.gbpLink);
+        formData.append(
+          "gmcRegistrationNumber",
+          basePayload.gmcRegistrationNumber,
+        );
         formData.append("googleAnalytics", basePayload.googleAnalytics);
         formData.append("googleSearchConsole", basePayload.googleSearchConsole);
         formData.append("instagram", basePayload.instagram);
         formData.append("linkedin", basePayload.linkedin);
+        formData.append(
+          "majorAccomplishments",
+          basePayload.majorAccomplishments,
+        );
+        formData.append("nearbyAreasServed", basePayload.nearbyAreasServed);
         formData.append("niche", basePayload.niche);
         formData.append("personalEmail", basePayload.personalEmail);
+        formData.append("personalPhone", basePayload.personalPhone);
         formData.append("postCode", basePayload.postCode);
         formData.append("practiceEmail", basePayload.practiceEmail);
         formData.append(
@@ -937,7 +992,11 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           basePayload.practiceIntroduction,
         );
         formData.append("profession", basePayload.profession);
+        formData.append("practiceStructure", basePayload.practiceStructure);
+        formData.append("region", basePayload.region);
+        formData.append("streetAddress", basePayload.streetAddress);
         formData.append("typeOfPractice", basePayload.typeOfPractice);
+        formData.append("unitNumber", basePayload.unitNumber);
         formData.append("uniqueToCompetitors", basePayload.uniqueToCompetitors);
         formData.append("visibleArea", basePayload.visibleArea);
         formData.append("website", basePayload.website);
@@ -972,6 +1031,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           "practiceLocationExteriorPhoto",
           practiceLocationExteriorPhoto,
         );
+        appendFiles("otherImages", otherImages);
         appendFiles("colorGuide", colorGuide);
         appendFiles("logo", logo);
 
@@ -1018,7 +1078,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   };
 
   return (
-    <section className="space-y-4 pl-64 relative">
+    <section className="client-details-shell relative space-y-4">
       <ClientProfileAside
         activeKey="details"
         clientName={fetchedClientName || formattedClientName}
@@ -1099,30 +1159,45 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               </div>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <p className={fieldLabel}>
-                  Client Name (For solo practitioner)
-                </p>
-                <Controller
-                  control={control}
-                  name="clientName"
-                  render={({ field }) => (
-                    <Input
-                      errorMessage={errors.clientName?.message}
-                      isInvalid={!!errors.clientName}
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
+              <div className="grid gap-3 md:grid-cols-5">
+                <div className="md:col-span-1">
+                  <p className={fieldLabel}>Client Title</p>
+                  <Controller
+                    control={control}
+                    name="profession"
+                    render={({ field }) => (
+                      <Input
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <p className={fieldLabel}>Client Name</p>
+                  <Controller
+                    control={control}
+                    name="clientName"
+                    render={({ field }) => (
+                      <Input
+                        errorMessage={errors.clientName?.message}
+                        isInvalid={!!errors.clientName}
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
               </div>
+
               <div>
-                <p className={fieldLabel}>
-                  Business Name (For medical clinic / group of practice)
-                </p>
+                <p className={fieldLabel}>Business Name</p>
                 <Controller
                   control={control}
                   name="businessName"
@@ -1139,29 +1214,25 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   )}
                 />
               </div>
-            </div>
-            <div>
-              <p className={fieldLabel}>
-                Niche <span className="text-danger">*</span>
-              </p>
-              <Controller
-                control={control}
-                name="niche"
-                render={({ field }) => (
-                  <Input
-                    errorMessage={errors.niche?.message}
-                    isInvalid={!!errors.niche}
-                    placeholder="Enter niche"
-                    radius="sm"
-                    size="sm"
-                    value={field.value ?? ""}
-                    onBlur={field.onBlur}
-                    onChange={field.onChange}
-                  />
-                )}
-              />
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
+              <div className="md:col-span-2">
+                <p className={fieldLabel}>Niche</p>
+                <Controller
+                  control={control}
+                  name="niche"
+                  render={({ field }) => (
+                    <Input
+                      errorMessage={errors.niche?.message}
+                      isInvalid={!!errors.niche}
+                      placeholder="Enter niche"
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
               <div>
                 <p className={fieldLabel}>Personal Email Address</p>
                 <Controller
@@ -1181,7 +1252,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                 />
               </div>
               <div>
-                <p className={fieldLabel}>Practice Email Address</p>
+                <p className={fieldLabel}>Business Email Address</p>
                 <Controller
                   control={control}
                   name="practiceEmail"
@@ -1192,6 +1263,23 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                       radius="sm"
                       size="sm"
                       value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+              <div>
+                <p className={fieldLabel}>Personal Phone Number</p>
+                <Controller
+                  control={control}
+                  name="personalPhone"
+                  render={({ field }) => (
+                    <IntlPhoneInput
+                      errorMessage={errors.personalPhone?.message}
+                      isInvalid={!!errors.personalPhone}
+                      placeholder="Personal phone number"
+                      value={field.value}
                       onBlur={field.onBlur}
                       onChange={field.onChange}
                     />
@@ -1215,74 +1303,44 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   )}
                 />
               </div>
-            </div>
-            <div>
-              <p className={fieldLabel}>Website</p>
-              <Controller
-                control={control}
-                name="website"
-                render={({ field }) => (
-                  <Input
-                    errorMessage={errors.website?.message}
-                    isInvalid={!!errors.website}
-                    radius="sm"
-                    size="sm"
-                    value={field.value ?? ""}
-                    onBlur={field.onBlur}
-                    onChange={field.onChange}
-                  />
-                )}
-              />
-            </div>
-            <div>
-              <p className={fieldLabel}>Country</p>
-              <Controller
-                control={control}
-                name="country"
-                render={({ field }) => (
-                  <Autocomplete
-                    allowsCustomValue={false}
-                    errorMessage={errors.country?.message}
-                    inputValue={countrySearch}
-                    isInvalid={!!errors.country}
-                    isLoading={isLoadingCountryOptions}
-                    items={filteredCountryOptions}
-                    menuTrigger="focus"
-                    placeholder="Select country"
-                    radius="sm"
-                    selectedKey={
-                      countryOptions.find(
-                        (country) => country.label === field.value,
-                      )?.key ?? null
-                    }
-                    size="sm"
-                    onInputChange={(value) => {
-                      setCountrySearch(value);
-                    }}
-                    onSelectionChange={(key) => {
-                      const selectedCountry = countryOptions.find(
-                        (country) => country.key === key,
-                      );
-
-                      field.onChange(selectedCountry?.label ?? "");
-                      setCountrySearch(selectedCountry?.label ?? "");
-                      setValue("cityState", "", { shouldValidate: true });
-                      setValue("visibleArea", "", { shouldValidate: true });
-                    }}
-                  >
-                    {(country) => (
-                      <AutocompleteItem key={country.key}>
-                        {country.label}
-                      </AutocompleteItem>
-                    )}
-                  </Autocomplete>
-                )}
-              />
+              <div className="md:col-span-2">
+                <p className={fieldLabel}>Website</p>
+                <Controller
+                  control={control}
+                  name="website"
+                  render={({ field }) => (
+                    <Input
+                      errorMessage={errors.website?.message}
+                      isInvalid={!!errors.website}
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
             </div>
           </DetailSection>
-
           <DetailSection title="Accelerator Onboarding Details">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <p className={fieldLabel}>Practice Structure</p>
+                <Controller
+                  control={control}
+                  name="practiceStructure"
+                  render={({ field }) => (
+                    <Input
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
               <div>
                 <p className={fieldLabel}>Type of Practice</p>
                 <Controller
@@ -1311,14 +1369,12 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                 />
               </div>
               <div>
-                <p className={fieldLabel}>Profession / Title</p>
+                <p className={fieldLabel}>GMC Registration Number</p>
                 <Controller
                   control={control}
-                  name="profession"
+                  name="gmcRegistrationNumber"
                   render={({ field }) => (
                     <Input
-                      errorMessage={errors.profession?.message}
-                      isInvalid={!!errors.profession}
                       radius="sm"
                       size="sm"
                       value={field.value ?? ""}
@@ -1327,229 +1383,148 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                     />
                   )}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-3 pb-4">
+              <p className="text-base font-medium">Practice Address</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className={fieldLabel}>Building Name</p>
+                  <Controller
+                    control={control}
+                    name="buildingName"
+                    render={({ field }) => (
+                      <Input
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <p className={fieldLabel}>Unit Number</p>
+                  <Controller
+                    control={control}
+                    name="unitNumber"
+                    render={({ field }) => (
+                      <Input
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <p className={fieldLabel}>Street Address</p>
+                  <Controller
+                    control={control}
+                    name="streetAddress"
+                    render={({ field }) => (
+                      <Input
+                        errorMessage={errors.streetAddress?.message}
+                        isInvalid={!!errors.streetAddress}
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <p className={fieldLabel}>Region</p>
+                  <Controller
+                    control={control}
+                    name="region"
+                    render={({ field }) => (
+                      <Input
+                        errorMessage={errors.region?.message}
+                        isInvalid={!!errors.region}
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <p className={fieldLabel}>Post Code</p>
+                  <Controller
+                    control={control}
+                    name="postCode"
+                    render={({ field }) => (
+                      <Input
+                        errorMessage={errors.postCode?.message}
+                        isInvalid={!!errors.postCode}
+                        radius="sm"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                </div>
+                <div>
+                  <p className={fieldLabel}>Country</p>
+                  <Controller
+                    control={control}
+                    name="country"
+                    render={({ field }) => (
+                      <Autocomplete
+                        allowsCustomValue={false}
+                        errorMessage={errors.country?.message}
+                        inputValue={countrySearch}
+                        isInvalid={!!errors.country}
+                        isLoading={isLoadingCountryOptions}
+                        items={filteredCountryOptions}
+                        menuTrigger="focus"
+                        placeholder="Select country"
+                        radius="sm"
+                        selectedKey={
+                          countryOptions.find(
+                            (countryOption) =>
+                              countryOption.label === field.value,
+                          )?.key ?? null
+                        }
+                        size="sm"
+                        onInputChange={(value) => {
+                          setCountrySearch(value);
+                        }}
+                        onSelectionChange={(key) => {
+                          const selectedCountry = countryOptions.find(
+                            (countryOption) => countryOption.key === key,
+                          );
+
+                          field.onChange(selectedCountry?.label ?? "");
+                          setCountrySearch(selectedCountry?.label ?? "");
+                        }}
+                      >
+                        {(countryOption) => (
+                          <AutocompleteItem key={countryOption.key}>
+                            {countryOption.label}
+                          </AutocompleteItem>
+                        )}
+                      </Autocomplete>
+                    )}
+                  />
+                </div>
               </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              <TokenInputField
-                label="Top 3 Medical Specialties"
-                maxTokens={3}
-                placeholder="Add top 3 medical specialties"
-                startContent={
-                  <Stethoscope className="text-[#585763]" size={18} />
-                }
-                tokens={topMedicalSpecialties}
-                onChange={setTopMedicalSpecialties}
-              />
-              <TokenInputField
-                label="Other Medical Specialty"
-                placeholder="Add other medical specialty(s)"
-                startContent={
-                  <BriefcaseMedical className="text-[#585763]" size={18} />
-                }
-                tokens={otherMedicalSpecialties}
-                onChange={setOtherMedicalSpecialties}
-              />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <TokenInputField
-                label="Sub-specialty"
-                placeholder="Add sub-specialty"
-                startContent={
-                  <TestTubeDiagonal className="text-[#585763]" size={18} />
-                }
-                tokens={subSpecialties}
-                onChange={setSubSpecialties}
-              />
-              <TokenInputField
-                label="Top 5 Special Interests You Would Like to Be Known For"
-                placeholder="Add top 5 special interests"
-                startContent={<Beaker className="text-[#585763]" size={18} />}
-                tokens={specialInterests}
-                onChange={setSpecialInterests}
-              />
-            </div>
-
-            <TokenInputField
-              label="Top 3 Treatments You Want To Be Visible For"
-              placeholder="Add top 3 treatments"
-              startContent={<Pipette className="text-[#585763]" size={18} />}
-              tokens={topTreatments}
-              onChange={setTopTreatments}
-            />
-
-            <div>
-              <p className={fieldLabel}>Practice Introduction</p>
-              <Textarea
-                minRows={2}
-                radius="sm"
-                value={practiceIntroduction}
-                onChange={(event) => {
-                  setPracticeIntroduction(event.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <p className={fieldLabel}>
-                What makes your pratice unique to competitors *
-              </p>
-              <Textarea
-                minRows={3}
-                radius="sm"
-                value={uniqueToCompetitors}
-                onChange={(event) => {
-                  setUniqueToCompetitors(event.target.value);
-                }}
-              />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <UploadField
-                files={highQualityHeadshot}
-                label="High Quality Headshot"
-                onChange={setHighQualityHeadshot}
-              />
-              <UploadField
-                files={yourCv}
-                label="Your CV"
-                onChange={setYourCv}
-              />
-              <UploadField
-                files={practiceLocationInteriorPhoto}
-                label="Practice Location Interior Photo"
-                onChange={setPracticeLocationInteriorPhoto}
-              />
-              <UploadField
-                files={practiceLocationExteriorPhoto}
-                label="Practice Location Exterior Photo"
-                onChange={setPracticeLocationExteriorPhoto}
-              />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-1">
               <div>
-                <p className={fieldLabel}>Address Line 1</p>
-                <Controller
-                  control={control}
-                  name="addressLine1"
-                  render={({ field }) => (
-                    <Input
-                      errorMessage={errors.addressLine1?.message}
-                      isInvalid={!!errors.addressLine1}
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Address Line 2</p>
-                <Controller
-                  control={control}
-                  name="addressLine2"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <p className={fieldLabel}>Country</p>
-                <Controller
-                  control={control}
-                  name="country"
-                  render={({ field }) => (
-                    <Autocomplete
-                      allowsCustomValue={false}
-                      errorMessage={errors.country?.message}
-                      inputValue={countrySearch}
-                      isInvalid={!!errors.country}
-                      isLoading={isLoadingCountryOptions}
-                      items={filteredCountryOptions}
-                      menuTrigger="focus"
-                      placeholder="Select country"
-                      radius="sm"
-                      selectedKey={
-                        countryOptions.find(
-                          (countryOption) =>
-                            countryOption.label === field.value,
-                        )?.key ?? null
-                      }
-                      size="sm"
-                      onInputChange={(value) => {
-                        setCountrySearch(value);
-                      }}
-                      onSelectionChange={(key) => {
-                        const selectedCountry = countryOptions.find(
-                          (countryOption) => countryOption.key === key,
-                        );
-
-                        field.onChange(selectedCountry?.label ?? "");
-                        setCountrySearch(selectedCountry?.label ?? "");
-                        setValue("cityState", "", { shouldValidate: true });
-                        setValue("visibleArea", "", { shouldValidate: true });
-                      }}
-                    >
-                      {(countryOption) => (
-                        <AutocompleteItem key={countryOption.key}>
-                          {countryOption.label}
-                        </AutocompleteItem>
-                      )}
-                    </Autocomplete>
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>City/State</p>
-                <Controller
-                  control={control}
-                  name="cityState"
-                  render={({ field }) => (
-                    <Input
-                      errorMessage={errors.cityState?.message}
-                      isInvalid={!!errors.cityState}
-                      placeholder="Enter city/state"
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Post Code</p>
-                <Controller
-                  control={control}
-                  name="postCode"
-                  render={({ field }) => (
-                    <Input
-                      errorMessage={errors.postCode?.message}
-                      isInvalid={!!errors.postCode}
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <p className={fieldLabel}>1 Area You Want to Be Visible in</p>
+                <p className={fieldLabel}>Target Area</p>
                 <Controller
                   control={control}
                   name="visibleArea"
@@ -1557,7 +1532,24 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                     <Input
                       errorMessage={errors.visibleArea?.message}
                       isInvalid={!!errors.visibleArea}
-                      placeholder="Enter area"
+                      placeholder="Enter target area"
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+              <div>
+                <p className={fieldLabel}>Nearby Areas Served</p>
+                <Controller
+                  control={control}
+                  name="nearbyAreasServed"
+                  render={({ field }) => (
+                    <Input
+                      placeholder="Enter nearby areas"
                       radius="sm"
                       size="sm"
                       value={field.value ?? ""}
@@ -1589,6 +1581,118 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
               </div>
             </div>
 
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <p className={fieldLabel}>Credentials</p>
+                <Controller
+                  control={control}
+                  name="credentials"
+                  render={({ field }) => (
+                    <Textarea
+                      minRows={3}
+                      radius="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+              <div>
+                <p className={fieldLabel}>Major Accomplishments</p>
+                <Controller
+                  control={control}
+                  name="majorAccomplishments"
+                  render={({ field }) => (
+                    <Textarea
+                      minRows={3}
+                      radius="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
+            </div>
+
+            <div>
+              <p className={fieldLabel}>
+                What makes your practice unique to competitors
+              </p>
+              <Textarea
+                minRows={3}
+                radius="sm"
+                value={uniqueToCompetitors}
+                onChange={(event) => {
+                  setUniqueToCompetitors(event.target.value);
+                }}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <TokenInputField
+                label="Top 3 Medical Specialties"
+                maxTokens={3}
+                placeholder="Add top 3 medical specialties"
+                startContent={
+                  <Stethoscope className="text-[#585763]" size={18} />
+                }
+                tokens={topMedicalSpecialties}
+                onChange={setTopMedicalSpecialties}
+              />
+              <TokenInputField
+                label="Sub-specialty"
+                placeholder="Add sub-specialty"
+                startContent={
+                  <TestTubeDiagonal className="text-[#585763]" size={18} />
+                }
+                tokens={subSpecialties}
+                onChange={setSubSpecialties}
+              />
+              <TokenInputField
+                label="Top 3 Treatments You Want To Be Visible For"
+                placeholder="Add top 3 treatments"
+                startContent={<Pipette className="text-[#585763]" size={18} />}
+                tokens={topTreatments}
+                onChange={setTopTreatments}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <UploadField
+                files={highQualityHeadshot}
+                label="High Quality Headshot"
+                onChange={setHighQualityHeadshot}
+              />
+              <UploadField
+                files={yourCv}
+                label="Your CV"
+                onChange={setYourCv}
+              />
+              <UploadField files={logo} label="Logo" onChange={setLogo} />
+              <UploadField
+                files={colorGuide}
+                label="Brand Guideline"
+                onChange={setColorGuide}
+              />
+              <UploadField
+                files={practiceLocationInteriorPhoto}
+                label="Practice Location Interior Photo"
+                onChange={setPracticeLocationInteriorPhoto}
+              />
+              <UploadField
+                files={practiceLocationExteriorPhoto}
+                label="Practice Location Exterior Photo"
+                onChange={setPracticeLocationExteriorPhoto}
+              />
+              <UploadField
+                files={otherImages}
+                label="Other Images"
+                onChange={setOtherImages}
+              />
+            </div>
+
             <div>
               <p className={fieldLabel}>Link to Google Business Profile</p>
               <Controller
@@ -1610,7 +1714,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
             </div>
 
             <div>
-              <p className={fieldLabel}>Social Media Links</p>
+              <p className={fieldLabel}>Social Profile</p>
               <div className="space-y-2">
                 <Controller
                   control={control}
@@ -1680,109 +1784,11 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                 />
               </div>
             </div>
-          </DetailSection>
-
-          <DetailSection title="Website Details">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div>
-                <p className={fieldLabel}>Website Login Link</p>
-                <Controller
-                  control={control}
-                  name="websiteLoginLink"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Username</p>
-                <Controller
-                  control={control}
-                  name="websiteUsername"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Password</p>
-                <Controller
-                  control={control}
-                  name="websitePassword"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      type="password"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <p className={fieldLabel}>Google Analytics</p>
-                <Controller
-                  control={control}
-                  name="googleAnalytics"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Google Search Console</p>
-                <Controller
-                  control={control}
-                  name="googleSearchConsole"
-                  render={({ field }) => (
-                    <Input
-                      radius="sm"
-                      size="sm"
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
-                  )}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <UploadField
-                files={colorGuide}
-                label="Color Guide"
-                onChange={setColorGuide}
-              />
-              <UploadField files={logo} label="Logo" onChange={setLogo} />
-            </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <TokenInputField
-                label="List of treatment and services to be included (maximum 10)"
-                placeholder="Add sub-specialty"
+                label="List of treatments"
+                placeholder="Add treatments or services"
                 startContent={
                   <Stethoscope className="text-[#585763]" size={18} />
                 }
@@ -1790,8 +1796,8 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                 onChange={setTreatmentAndServices}
               />
               <TokenInputField
-                label="Conditions treated (maximum 10)"
-                placeholder="Add top 5 special interests"
+                label="List of Conditions"
+                placeholder="Add conditions treated"
                 startContent={
                   <BriefcaseMedical className="text-[#585763]" size={18} />
                 }

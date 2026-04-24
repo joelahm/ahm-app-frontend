@@ -3,16 +3,20 @@ import { ClientProjectsTable } from "@/components/dashboard/client-details/clien
 
 const ClientProjectsPage = async ({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ openProjectId?: string }>;
 }) => {
   const { slug } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const openProjectId = resolvedSearchParams?.openProjectId ?? null;
 
   return (
-    <section className="relative space-y-4 pl-64">
+    <section className="client-details-shell relative space-y-4">
       <ClientProfileAside activeKey="projects" slug={slug} />
       <div className="pl-6">
-        <ClientProjectsTable clientId={slug} />
+        <ClientProjectsTable clientId={slug} openProjectId={openProjectId} />
       </div>
     </section>
   );

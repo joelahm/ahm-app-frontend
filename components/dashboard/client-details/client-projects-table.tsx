@@ -40,6 +40,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 
 type ClientProjectsRow = {
   accountManagerId: string;
+  dueDate: string | null;
   id: string;
   project: string;
   templateDescription: string;
@@ -50,6 +51,7 @@ type ClientProjectsRow = {
     dueDate: string;
     id: string;
     name: string;
+    parentTaskId?: string | null;
     startDate?: string | null;
     status: string;
   }>;
@@ -66,6 +68,7 @@ type ClientProjectsRow = {
   status: string;
   phase: string;
   progress: string;
+  startDate: string | null;
 };
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
@@ -212,26 +215,6 @@ const buildColumns = ({
   },
 ];
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const getFullName = (firstName?: string | null, lastName?: string | null) => {
   const parts = [firstName, lastName]
     .map((value) => value?.trim() ?? "")
@@ -286,6 +269,14 @@ const normalizeProjectTaskStatus = (value?: string | null) => {
     return "Completed";
   }
 
+  if (normalized === "INTERNAL REVIEW") {
+    return "Internal Review";
+  }
+
+  if (normalized === "CLIENT REVIEW") {
+    return "Client Review";
+  }
+
   if (normalized === "IN PROGRESS") {
     return "In Progress";
   }
@@ -297,8 +288,14 @@ const normalizeProjectTaskStatus = (value?: string | null) => {
   return "To Do";
 };
 
-export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
-  const { session } = useAuth();
+export const ClientProjectsTable = ({
+  clientId,
+  openProjectId,
+}: {
+  clientId: string;
+  openProjectId?: string | null;
+}) => {
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
   const [isTaskListPanelOpen, setIsTaskListPanelOpen] = useState(false);
@@ -317,11 +314,14 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
   const [projectDescriptionById, setProjectDescriptionById] = useState<
     Record<string, string>
   >({});
+  const [hasHandledOpenProjectId, setHasHandledOpenProjectId] = useState(false);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
+    setHasHandledOpenProjectId(false);
+  }, [openProjectId]);
 
-    if (!accessToken) {
+  useEffect(() => {
+    if (!session) {
       setClientName(clientId);
       setClientAddress("-");
 
@@ -332,6 +332,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
 
     const hydrateClient = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const client = await clientsApi.getClientById(accessToken, clientId);
 
         if (!isMounted) {
@@ -366,12 +367,10 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       setUsers([]);
 
       return;
@@ -381,6 +380,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
 
     const hydrateUsers = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const allUsers: Array<{
           avatarUrl?: string | null;
           email: string;
@@ -434,12 +434,10 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       setTemplateDescriptionByProject({});
 
       return;
@@ -449,6 +447,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
 
     const hydrateTemplates = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response =
           await projectTemplatesApi.listProjectTemplates(accessToken);
 
@@ -486,18 +485,17 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session]);
 
   const loadProjects = useCallback(
     async (page: number, descriptionOverrides: Record<string, string> = {}) => {
-      const accessToken = session?.accessToken || getStoredAccessToken();
-
-      if (!accessToken) {
+      if (!session) {
         setRows([]);
         setTotalPages(1);
 
         return;
       }
+      const accessToken = await getValidAccessToken();
 
       const [response, tasksResponse] = await Promise.all([
         clientsApi.getClientProjects(accessToken, clientId, {
@@ -523,6 +521,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
           return {
             accountManagerId: String(project.accountManagerId ?? ""),
             csmId: String(project.clientSuccessManagerId ?? ""),
+            dueDate: project.dueDate ?? null,
             id: String(project.id),
             project: project.project ?? "-",
             templateDescription:
@@ -547,6 +546,9 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
                 dueDate: task.dueDate ?? "-",
                 id: String(task.id),
                 name: task.taskName ?? task.task ?? "-",
+                parentTaskId: task.parentTaskId
+                  ? String(task.parentTaskId)
+                  : null,
                 startDate: task.startDate,
                 status: task.status ?? "Todo",
               })),
@@ -556,6 +558,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
               tasksResponse.tasks,
             ),
             phase: project.phase ?? "-",
+            startDate: project.startDate ?? null,
             status: project.progress ?? "Draft",
             accountManager: {
               avatar: resolveServerAssetUrl(project.accountManager.avatar),
@@ -575,8 +578,9 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     },
     [
       clientId,
+      getValidAccessToken,
       projectDescriptionById,
-      session?.accessToken,
+      session,
       templateDescriptionByProject,
     ],
   );
@@ -585,12 +589,29 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
     void loadProjects(currentPage);
   }, [currentPage, loadProjects]);
 
-  const handleAddProject = async (payload: AddProjectFormValues) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
+  useEffect(() => {
+    if (hasHandledOpenProjectId || !openProjectId || rows.length === 0) {
+      return;
+    }
 
-    if (!accessToken) {
+    const targetProject = rows.find(
+      (row) => String(row.id) === String(openProjectId),
+    );
+
+    if (!targetProject) {
+      return;
+    }
+
+    setSelectedProject(targetProject);
+    setIsTaskListPanelOpen(true);
+    setHasHandledOpenProjectId(true);
+  }, [hasHandledOpenProjectId, openProjectId, rows]);
+
+  const handleAddProject = async (payload: AddProjectFormValues) => {
+    if (!session) {
       throw new Error("Your session has expired. Please login again.");
     }
+    const accessToken = await getValidAccessToken();
 
     const createdProject = await clientsApi.createClientProject(
       accessToken,
@@ -598,9 +619,11 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
       {
         accountManagerId: payload.accountManagerId,
         clientSuccessManagerId: payload.clientSuccessManagerId,
+        dueDate: payload.dueDate,
         phase: payload.phase,
         progress: payload.progress,
         project: payload.project,
+        startDate: payload.startDate,
       },
     );
 
@@ -620,19 +643,77 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
 
     if (payload.tasks?.length) {
       const failedTaskNames: string[] = [];
+      const createdTaskIdByLocalId = new Map<string, string>();
+      const pendingTasks = [...payload.tasks];
+      const deferredTasks: typeof pendingTasks = [];
 
-      for (const task of payload.tasks) {
+      while (pendingTasks.length > 0) {
+        const task = pendingTasks.shift();
+
+        if (!task) {
+          break;
+        }
+
+        if (
+          task.parentTaskId &&
+          !createdTaskIdByLocalId.has(task.parentTaskId) &&
+          payload.tasks.some((item) => item.id === task.parentTaskId)
+        ) {
+          deferredTasks.push(task);
+          continue;
+        }
+
+        const taskPayload = {
+          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
+          description: task.taskDescription,
+          dueDate: payload.dueDate,
+          parentTaskId: task.parentTaskId
+            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
+            : undefined,
+          projectId: createdProject.id,
+          startDate: payload.startDate,
+          status: normalizeProjectTaskStatus(task.status),
+          task: task.taskName,
+          taskName: task.taskName,
+        };
+
         try {
-          await clientsApi.createProjectTask(accessToken, createdProject.id, {
-            assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
-            description: task.taskDescription,
-            dueDate: payload.dueDate,
-            projectId: createdProject.id,
-            startDate: payload.startDate,
-            status: normalizeProjectTaskStatus(task.status),
-            task: task.taskName,
-            taskName: task.taskName,
-          });
+          const createdTask = await clientsApi.createProjectTask(
+            accessToken,
+            createdProject.id,
+            taskPayload,
+          );
+
+          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
+        } catch {
+          failedTaskNames.push(task.taskName);
+        }
+      }
+
+      // Retry deferred tasks once parent tasks have been created.
+      for (const task of deferredTasks) {
+        const taskPayload = {
+          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
+          description: task.taskDescription,
+          dueDate: payload.dueDate,
+          parentTaskId: task.parentTaskId
+            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
+            : undefined,
+          projectId: createdProject.id,
+          startDate: payload.startDate,
+          status: normalizeProjectTaskStatus(task.status),
+          task: task.taskName,
+          taskName: task.taskName,
+        };
+
+        try {
+          const createdTask = await clientsApi.createProjectTask(
+            accessToken,
+            createdProject.id,
+            taskPayload,
+          );
+
+          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
         } catch {
           failedTaskNames.push(task.taskName);
         }
@@ -662,23 +743,32 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
   const handleProjectMetaChange = async (payload: {
     accountManagerId?: string;
     csmId?: string;
+    dueDate?: string | null;
+    startDate?: string | null;
     status?: string;
   }) => {
     if (!selectedProject) {
       return;
     }
 
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       throw new Error("Your session has expired. Please login again.");
     }
+    const accessToken = await getValidAccessToken();
 
     const apiPayload = {
       accountManagerId:
         payload.accountManagerId ?? selectedProject.accountManagerId,
       clientSuccessManagerId: payload.csmId ?? selectedProject.csmId,
+      dueDate:
+        payload.dueDate !== undefined
+          ? payload.dueDate
+          : selectedProject.dueDate,
       progress: payload.status ?? selectedProject.status,
+      startDate:
+        payload.startDate !== undefined
+          ? payload.startDate
+          : selectedProject.startDate,
     };
 
     const updatedProject = await clientsApi.updateClientProject(
@@ -707,10 +797,16 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
           apiPayload.clientSuccessManagerId ??
           "",
       ),
+      dueDate:
+        updatedProject.dueDate ?? apiPayload.dueDate ?? selectedProject.dueDate,
       status:
         updatedProject.progress ??
         apiPayload.progress ??
         selectedProject.status,
+      startDate:
+        updatedProject.startDate ??
+        apiPayload.startDate ??
+        selectedProject.startDate,
       accountManager:
         accountManager !== undefined
           ? {
@@ -734,15 +830,14 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
   };
 
   const handleRemoveProject = async (projectId: string) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session) {
       toast.danger("Session expired", {
         description: "Please login again before removing a project.",
       });
 
       return;
     }
+    const accessToken = await getValidAccessToken();
 
     try {
       await clientsApi.deleteClientProject(accessToken, clientId, projectId);
@@ -816,6 +911,7 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
       <AddProjectModal
         clientAddress={clientAddress}
         clientName={clientName}
+        fixedClientId={clientId}
         isOpen={isAddProjectOpen}
         users={users}
         onOpenChange={setIsAddProjectOpen}
@@ -846,8 +942,10 @@ export const ClientProjectsTable = ({ clientId }: { clientId: string }) => {
               csmId={selectedProject?.csmId ?? ""}
               csmName={selectedProject?.clientSuccessManager.name ?? "-"}
               description={selectedProject?.templateDescription}
+              projectDueDate={selectedProject?.dueDate ?? null}
               projectId={selectedProject?.id ?? ""}
               projectName={selectedProject?.project ?? "Local SEO"}
+              projectStartDate={selectedProject?.startDate ?? null}
               status={selectedProject?.status ?? "Draft"}
               tasks={selectedProject?.tasks ?? []}
               users={users}

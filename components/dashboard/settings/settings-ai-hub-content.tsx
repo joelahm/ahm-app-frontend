@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import {
@@ -19,6 +19,7 @@ import {
   DashboardDataTable,
   type DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 interface AiPromptRow {
   createdBy: string;
@@ -55,10 +56,15 @@ const mapPromptToRow = (item: AiPromptListItem): AiPromptRow => ({
 });
 
 export const SettingsAIHubContent = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
   const [searchValue, setSearchValue] = useState("");
   const [rows, setRows] = useState<AiPromptRow[]>([]);
-  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -69,8 +75,8 @@ export const SettingsAIHubContent = () => {
 
     const loadPrompts = async () => {
       try {
-        setLoadError("");
-        const response = await aiPromptsApi.getPrompts(session.accessToken);
+        const accessToken = await getValidAccessToken();
+        const response = await aiPromptsApi.getPrompts(accessToken);
 
         if (!isMounted) {
           return;
@@ -82,10 +88,11 @@ export const SettingsAIHubContent = () => {
           return;
         }
 
-        setLoadError(
-          error instanceof Error ? error.message : "Failed to load AI prompts.",
-        );
         setRows([]);
+        toastRef.current.danger("Failed to load AI prompts.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
       }
     };
 
@@ -94,7 +101,7 @@ export const SettingsAIHubContent = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
@@ -230,11 +237,6 @@ export const SettingsAIHubContent = () => {
       }
       rows={filteredRows}
       title="AI Prompts"
-      topContent={
-        loadError ? (
-          <p className="text-sm text-danger">{loadError}</p>
-        ) : undefined
-      }
     />
   );
 };
