@@ -1044,7 +1044,7 @@ export const KeywordResearchScreen = () => {
             <Card className="border border-default-200 shadow-none">
               <CardBody className="p-4">
                 <div className="grid gap-3 lg:grid-cols-4">
-                  <div className="col-span-2 flex gap-2">
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:col-span-2">
                     <Input
                       label="Search"
                       labelPlacement="outside"
@@ -1058,7 +1058,7 @@ export const KeywordResearchScreen = () => {
                     />
                     <div className="flex items-end">
                       <Button
-                        className="h-10 bg-[#022279] px-7 text-white"
+                        className="h-10 w-full bg-[#022279] px-7 text-white sm:w-auto"
                         isLoading={isLoading}
                         radius="md"
                         onPress={() => void handleSearch()}
@@ -1067,7 +1067,7 @@ export const KeywordResearchScreen = () => {
                       </Button>
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <Select
                       items={languageOptions}
                       label="Language"
@@ -1088,7 +1088,7 @@ export const KeywordResearchScreen = () => {
                     </Select>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <Autocomplete
                       allowsCustomValue={false}
                       inputValue={searchCountryLabel}
@@ -1155,10 +1155,11 @@ export const KeywordResearchScreen = () => {
             </Card>
             <Card className="overflow-visible border border-default-200 shadow-none">
               <CardBody className="overflow-visible p-4">
-                <div className="relative z-20 flex items-center gap-3 overflow-visible">
+                <div className="relative z-20 flex flex-wrap items-center gap-3 overflow-visible">
                   <Tabs
                     fullWidth
                     aria-label="Keyword mode"
+                    className="min-w-0 flex-[1_1_280px]"
                     classNames={{
                       cursor: "bg-white shadow-none",
                       tabList: "h-11 gap-0 bg-[#F3F4F6] p-1",
@@ -1180,7 +1181,7 @@ export const KeywordResearchScreen = () => {
                   </Tabs>
                   <div
                     ref={searchVolumeFilterRef}
-                    className="relative z-50 min-w-[220px] overflow-visible"
+                    className="relative z-50 min-w-0 flex-[1_1_180px] overflow-visible sm:max-w-[240px]"
                   >
                     <Button
                       className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
@@ -1310,7 +1311,7 @@ export const KeywordResearchScreen = () => {
                   </div>
                   <div
                     ref={keywordDifficultyFilterRef}
-                    className="relative z-50 min-w-[220px] overflow-visible"
+                    className="relative z-50 min-w-0 flex-[1_1_180px] overflow-visible sm:max-w-[240px]"
                   >
                     <Button
                       className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
@@ -1365,7 +1366,7 @@ export const KeywordResearchScreen = () => {
                     </Button>
 
                     {isKeywordDifficultyFilterOpen ? (
-                      <div className="absolute left-0 top-12 z-[999] w-[300px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                      <div className="absolute left-0 top-12 z-[999] w-[min(300px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
                         <div className="py-2">
                           {KEYWORD_DIFFICULTY_RANGES.map((range) => {
                             const isSelected =
@@ -1447,7 +1448,7 @@ export const KeywordResearchScreen = () => {
                   </div>
                   <div
                     ref={cpcFilterRef}
-                    className="relative z-50 min-w-[220px] overflow-visible"
+                    className="relative z-50 min-w-0 flex-[1_1_180px] overflow-visible sm:max-w-[240px]"
                   >
                     <Button
                       className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
@@ -1500,7 +1501,7 @@ export const KeywordResearchScreen = () => {
                     </Button>
 
                     {isCpcFilterOpen ? (
-                      <div className="absolute left-0 top-12 z-[999] w-[300px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                      <div className="absolute left-0 top-12 z-[999] w-[min(300px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
                         <div className="border-t-0 p-4">
                           <p className="mb-3 text-base font-semibold leading-7 text-[#111827]">
                             Custom range
@@ -1555,7 +1556,7 @@ export const KeywordResearchScreen = () => {
                   </div>
                   <div
                     ref={intentFilterRef}
-                    className="relative z-50 min-w-[220px] overflow-visible"
+                    className="relative z-50 min-w-0 flex-[1_1_180px] overflow-visible sm:max-w-[240px]"
                   >
                     <Button
                       className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
@@ -1659,7 +1660,7 @@ export const KeywordResearchScreen = () => {
                   </div>
                   <div
                     ref={excludeKeywordFilterRef}
-                    className="relative z-50 min-w-[220px] overflow-visible"
+                    className="relative z-50 min-w-0 flex-[1_1_180px] overflow-visible sm:max-w-[240px]"
                   >
                     <Button
                       className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
@@ -1713,7 +1714,7 @@ export const KeywordResearchScreen = () => {
                     </Button>
 
                     {isExcludeKeywordFilterOpen ? (
-                      <div className="absolute left-0 top-12 z-[999] w-[420px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                      <div className="absolute left-0 top-12 z-[999] w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
                         <div className="p-4">
                           <p className="mb-4 text-sm text-[#111827]">
                             Enter keywords one per line. Each line excludes an

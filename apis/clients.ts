@@ -683,8 +683,13 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
     const explicitAddress = asString(record.address);
     const addressLine1 = asString(record.addressLine1) ?? "";
     const addressLine2 = asString(record.addressLine2) ?? "";
+    const buildingName = asString(record.buildingName) ?? "";
     const cityState = asString(record.cityState) ?? "";
+    const country = asString(record.country) ?? "";
     const postCode = asString(record.postCode) ?? "";
+    const region = asString(record.region) ?? "";
+    const streetAddress = asString(record.streetAddress) ?? "";
+    const unitNumber = asString(record.unitNumber) ?? "";
     const assignedToRecord = asObject(record.assignedTo);
     const assignedToUser =
       Object.keys(assignedToRecord).length > 0
@@ -720,13 +725,33 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
       typeof assignedToUser.id === "string"
         ? assignedToUser.id
         : null);
-    const composedAddress = [addressLine1, addressLine2, cityState, postCode]
+    const seenAddressParts = new Set<string>();
+    const composedAddress = [
+      buildingName,
+      unitNumber,
+      streetAddress || addressLine1,
+      addressLine2,
+      cityState || region,
+      postCode,
+      country,
+    ]
       .map((part) => part.trim())
       .filter(Boolean)
+      .filter((part) => {
+        const normalizedPart = part.toLowerCase();
+
+        if (seenAddressParts.has(normalizedPart)) {
+          return false;
+        }
+
+        seenAddressParts.add(normalizedPart);
+
+        return true;
+      })
       .join(", ");
 
     clients.push({
-      address: explicitAddress ?? (composedAddress || null),
+      address: composedAddress || explicitAddress || null,
       assignedTo,
       assignedToId:
         (typeof record.assignedToId === "number" ||
