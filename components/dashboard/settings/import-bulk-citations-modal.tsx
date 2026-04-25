@@ -14,6 +14,7 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { FileText, Upload, X } from "lucide-react";
+
 import { useAppToast } from "@/hooks/use-app-toast";
 
 const stepCards = [
@@ -353,6 +354,7 @@ export const ImportBulkCitationsModal = ({
       setParsedRows([]);
       const message =
         error instanceof Error ? error.message : "Failed to parse the file.";
+
       toast.danger("Failed to parse the file.", {
         description: message,
       });
@@ -425,6 +427,7 @@ export const ImportBulkCitationsModal = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to import citations.";
+
       toast.danger("Failed to import citations.", {
         description: message,
       });

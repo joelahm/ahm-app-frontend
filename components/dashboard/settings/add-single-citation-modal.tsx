@@ -14,6 +14,7 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { X } from "lucide-react";
+
 import { useAppToast } from "@/hooks/use-app-toast";
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
@@ -136,6 +137,7 @@ export const AddSingleCitationModal = ({
       if (!(error instanceof yup.ValidationError)) {
         const message =
           error instanceof Error ? error.message : "Failed to save citation.";
+
         toast.danger("Failed to save citation.", {
           description: message,
         });

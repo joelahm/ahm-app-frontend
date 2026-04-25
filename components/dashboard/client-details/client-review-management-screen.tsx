@@ -16,6 +16,7 @@ import { Tab, Tabs } from "@heroui/tabs";
 import {
   CalendarDays,
   Download,
+  Link2,
   MapPin,
   PenLine,
   RefreshCw,
@@ -350,6 +351,7 @@ export const ClientReviewManagementScreen = ({
     }
 
     const trimmedReply = replyText.trim();
+
     if (!trimmedReply || isSavingDraft) {
       return;
     }
@@ -446,6 +448,7 @@ export const ClientReviewManagementScreen = ({
 
             return drafts;
           }, {});
+
           setReviews(
             applyDraftRepliesToRows(
               reviewsResult.value.reviews.map(mapGbpReviewToRow),
@@ -528,6 +531,7 @@ export const ClientReviewManagementScreen = ({
     ...reviewRatingBreakdown.map((item) => item.value),
   );
   const roundedRating = rating !== null ? Math.round(rating) : 0;
+  const isGoogleConnected = false;
 
   return (
     <div className="space-y-6">
@@ -586,40 +590,60 @@ export const ClientReviewManagementScreen = ({
           </div>
         </section>
 
-        <section className="rounded-xl border border-default-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-[#111827]">
-              Breakdown
-            </h2>
-            <Button
-              className="border-default-300 text-[#111827]"
-              endContent={<CalendarDays size={16} />}
-              radius="md"
-              size="sm"
-              variant="bordered"
-            >
-              This Week
-            </Button>
+        <section className="relative rounded-xl border border-default-200 bg-white p-5 shadow-sm">
+          <div
+            className={
+              isGoogleConnected
+                ? undefined
+                : "pointer-events-none select-none opacity-40"
+            }
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-[#111827]">
+                Breakdown
+              </h2>
+              <Button
+                className="border-default-300 text-[#111827]"
+                endContent={<CalendarDays size={16} />}
+                radius="md"
+                size="sm"
+                variant="bordered"
+              >
+                This Week
+              </Button>
+            </div>
+
+            <div className="mt-7 flex h-[232px] items-end justify-between gap-4">
+              {weeklyBreakdown.map((item) => (
+                <div
+                  key={item.day}
+                  className="flex h-full flex-1 flex-col justify-end gap-3"
+                >
+                  <div
+                    className="w-full bg-[#7BBE47]"
+                    style={{
+                      height: `${(item.value / maxWeeklyValue) * 100}%`,
+                    }}
+                  />
+                  <span className="text-center text-xs text-[#4B5563]">
+                    {item.day}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-7 flex h-[232px] items-end justify-between gap-4">
-            {weeklyBreakdown.map((item) => (
-              <div
-                key={item.day}
-                className="flex h-full flex-1 flex-col justify-end gap-3"
+          {!isGoogleConnected ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-[1px]">
+              <Button
+                className="bg-[#4F46E5] text-white"
+                radius="md"
+                startContent={<Link2 size={16} />}
               >
-                <div
-                  className="w-full bg-[#7BBE47]"
-                  style={{
-                    height: `${(item.value / maxWeeklyValue) * 100}%`,
-                  }}
-                />
-                <span className="text-center text-xs text-[#4B5563]">
-                  {item.day}
-                </span>
-              </div>
-            ))}
-          </div>
+                Connect to Google
+              </Button>
+            </div>
+          ) : null}
         </section>
       </div>
 

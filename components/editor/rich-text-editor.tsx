@@ -234,7 +234,7 @@ export const RichTextEditor = ({
         </Button>
       </div>
       <EditorContent editor={editor} />
-      <style jsx global>{`
+      <style>{`
         .rich-text-editor__surface > *:first-child {
           margin-top: 0;
         }

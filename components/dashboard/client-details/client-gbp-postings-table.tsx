@@ -111,6 +111,7 @@ const formatDateTime = (value: string | null) => {
   }
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return "-";
   }
@@ -163,6 +164,7 @@ const getUserName = (user: UserListItem) =>
 const fileToDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Failed to read image."));
     reader.readAsDataURL(file);
@@ -172,6 +174,7 @@ const formatCommentAuthor = (comment: ClientGbpPostingComment) => {
   if (!comment.author) {
     return "Unknown";
   }
+
   return (
     [comment.author.firstName, comment.author.lastName]
       .filter(Boolean)
@@ -186,9 +189,11 @@ const formatCommentTime = (value: string | null) => {
     return "";
   }
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return "";
   }
+
   return date.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -343,6 +348,7 @@ export const ClientGbpPostingsTable = ({
           clientId,
           row.id,
         );
+
         setComments(response.comments);
       } catch (error) {
         toastRef.current.danger("Failed to load comments.", {
@@ -439,6 +445,7 @@ export const ClientGbpPostingsTable = ({
           .filter((file) => file.type.startsWith("image/"))
           .map(fileToDataUrl),
       );
+
       setEditForm((current) => ({
         ...current,
         images: [...images, ...current.images],
@@ -508,6 +515,7 @@ export const ClientGbpPostingsTable = ({
   const handleRemovePendingAttachment = (indexToRemove: number) => {
     setPendingAttachments((current) => {
       const target = current[indexToRemove];
+
       if (target?.previewUrl) {
         URL.revokeObjectURL(target.previewUrl);
       }
@@ -573,6 +581,7 @@ export const ClientGbpPostingsTable = ({
         },
       );
       const nextRow = mapPostingToRow(posting);
+
       setRows((current) =>
         current.map((row) => (row.id === nextRow.id ? nextRow : row)),
       );
@@ -640,6 +649,7 @@ export const ClientGbpPostingsTable = ({
     }
 
     const payloadValidation = validateCommentPayloadSize(message);
+
     if (!payloadValidation.isValid) {
       toastRef.current.warning("Comment is too large to send.", {
         description: `Please reduce text or attachments (max ${Math.floor(
@@ -660,6 +670,7 @@ export const ClientGbpPostingsTable = ({
         editingRow.id,
         { comment: message },
       );
+
       setComments((current) => [...current, created]);
       setCommentInput("");
       pendingAttachments.forEach((attachment) => {
@@ -690,6 +701,7 @@ export const ClientGbpPostingsTable = ({
 
     try {
       const accessToken = await getValidAccessToken();
+
       await clientsApi.deleteClientGbpPostingComment(
         accessToken,
         clientId,
@@ -718,6 +730,7 @@ export const ClientGbpPostingsTable = ({
 
     try {
       const accessToken = await getValidAccessToken();
+
       await clientsApi.deleteClientGbpPosting(accessToken, clientId, postingId);
       setRows((current) => current.filter((row) => row.id !== postingId));
       if (editingRow?.id === postingId) {
@@ -944,16 +957,16 @@ export const ClientGbpPostingsTable = ({
         onSubmit={handleCreateFromKeywords}
       />
       <Modal
+        classNames={{
+          closeButton: "top-3 right-3",
+        }}
         isOpen={Boolean(editingRow)}
-        size="5xl"
         scrollBehavior="inside"
+        size="5xl"
         onOpenChange={(open) => {
           if (!open) {
             closeEditModal();
           }
-        }}
-        classNames={{
-          closeButton: "top-3 right-3",
         }}
       >
         <ModalContent className="max-h-[92vh]">
@@ -964,6 +977,7 @@ export const ClientGbpPostingsTable = ({
             <div className="space-y-5">
               <div className="relative h-[250px] overflow-hidden rounded-xl">
                 {editForm.images[0] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     alt="GBP post preview"
                     className="h-full w-full object-cover"
@@ -1032,6 +1046,7 @@ export const ClientGbpPostingsTable = ({
                   }
                   onSelectionChange={(keys) => {
                     const key = keys === "all" ? null : keys.currentKey;
+
                     setEditForm((current) => ({
                       ...current,
                       buttonType: key ? String(key) : "",
@@ -1051,6 +1066,7 @@ export const ClientGbpPostingsTable = ({
                   selectedKeys={editForm.type ? [editForm.type] : []}
                   onSelectionChange={(keys) => {
                     const key = keys === "all" ? null : keys.currentKey;
+
                     setEditForm((current) => ({
                       ...current,
                       type: key ? String(key) : "Update",
@@ -1134,6 +1150,7 @@ export const ClientGbpPostingsTable = ({
                       size="sm"
                       onSelectionChange={(keys) => {
                         const key = keys === "all" ? null : keys.currentKey;
+
                         setEditForm((current) => ({
                           ...current,
                           assigneeId: key ? String(key) : "",
@@ -1161,6 +1178,7 @@ export const ClientGbpPostingsTable = ({
                       size="sm"
                       onSelectionChange={(keys) => {
                         const key = keys === "all" ? null : keys.currentKey;
+
                         setEditForm((current) => ({
                           ...current,
                           status: key ? String(key) : "Draft",
@@ -1478,6 +1496,7 @@ export const ClientGbpPostingsTable = ({
           </ModalHeader>
           <ModalBody className="pb-6">
             {previewAttachment ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt={previewAttachment.name}
                 className="max-h-[70vh] w-full rounded-lg object-contain"

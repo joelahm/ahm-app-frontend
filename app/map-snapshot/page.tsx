@@ -27,8 +27,9 @@ const decodeBase64UrlPayload = (value: string) => {
 
   return decodeURIComponent(
     Array.from(decodedText)
-      .map((character) =>
-        `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+      .map(
+        (character) =>
+          `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
       )
       .join(""),
   );

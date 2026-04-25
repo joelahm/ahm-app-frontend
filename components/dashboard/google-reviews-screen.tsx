@@ -266,6 +266,7 @@ export const GoogleReviewsScreen = () => {
     if (!session) {
       setClients([]);
       setRows([]);
+
       return;
     }
 
@@ -289,6 +290,7 @@ export const GoogleReviewsScreen = () => {
           const drafts = response.drafts.reduce<Record<string, string>>(
             (draftMap, draft) => {
               draftMap[draft.reviewId] = draft.replyText;
+
               return draftMap;
             },
             {},
@@ -368,6 +370,7 @@ export const GoogleReviewsScreen = () => {
     if (!selectedReview) return;
 
     const trimmedReply = replyText.trim();
+
     if (!trimmedReply || isSavingDraft) return;
 
     setIsSavingDraft(true);
@@ -458,6 +461,7 @@ export const GoogleReviewsScreen = () => {
               size="sm"
               onSelectionChange={(keys) => {
                 const key = keys === "all" ? "all" : keys.currentKey || "all";
+
                 setSelectedClientId(String(key));
               }}
             >

@@ -48,13 +48,12 @@ interface CheckInvitationEmailResponse {
 export interface RegisterInvitationRequestBody {
   confirmPassword: string;
   country: string;
-  dateFormat: string;
+  department: string;
   email: string;
   firstName: string;
   lastName: string;
   password: string;
   phoneNumber: string;
-  timezone: string;
   title: string;
   token: string;
 }

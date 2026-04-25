@@ -51,8 +51,9 @@ const decodeBase64UrlPayload = (value: string) => {
 
   return decodeURIComponent(
     Array.from(decodedText)
-      .map((character) =>
-        `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+      .map(
+        (character) =>
+          `%${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
       )
       .join(""),
   );
@@ -120,7 +121,9 @@ export default function PrintScanReportPage() {
         return null;
       }
 
-      return JSON.parse(decodeBase64UrlPayload(encodedPayload)) as ReportPayload;
+      return JSON.parse(
+        decodeBase64UrlPayload(encodedPayload),
+      ) as ReportPayload;
     } catch {
       return null;
     }
@@ -128,7 +131,9 @@ export default function PrintScanReportPage() {
   const [readyMapKeys, setReadyMapKeys] = useState<Record<string, true>>({});
 
   const maps = payload?.maps || [];
-  const allMapsReady = maps.every((_, mapIndex) => readyMapKeys[String(mapIndex)]);
+  const allMapsReady = maps.every(
+    (_, mapIndex) => readyMapKeys[String(mapIndex)],
+  );
 
   useEffect(() => {
     document.documentElement.setAttribute(
@@ -156,8 +161,8 @@ export default function PrintScanReportPage() {
       <section className="report-page">
         <h1 className="report-title">{payload.reportTitle}</h1>
         <p className="report-subtitle">
-          Keyword: {payload.keywordLabel || "-"} | Grid View: {payload.gridLayout}{" "}
-          column(s)
+          Keyword: {payload.keywordLabel || "-"} | Grid View:{" "}
+          {payload.gridLayout} column(s)
         </p>
 
         <h2 className="report-section-title">Map Panels</h2>
@@ -171,8 +176,8 @@ export default function PrintScanReportPage() {
             maps.map((map, mapIndex) => (
               <ReportMapPanel
                 key={`${map.title}-${mapIndex}`}
-                mapIndex={mapIndex}
                 map={map}
+                mapIndex={mapIndex}
                 onReady={() => {
                   setReadyMapKeys((previous) => ({
                     ...previous,
@@ -223,7 +228,7 @@ export default function PrintScanReportPage() {
         </table>
       </section>
 
-      <style jsx global>{`
+      <style>{`
         @page {
           size: A4;
           margin: 10mm;

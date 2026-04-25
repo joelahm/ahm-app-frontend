@@ -11,7 +11,6 @@ import { useSearchParams } from "next/navigation";
 import {
   scansApi,
   type LocalRankingKeyword,
-  type ScanComparisonRun,
   type ScanRecord,
 } from "@/apis/scans";
 import { clientsApi } from "@/apis/clients";
@@ -185,7 +184,10 @@ const buildQuickKeywordFromRun = ({
 }: {
   keyword: string;
   run: ScanRecord;
-}): LocalRankingKeyword & { finishedAt?: string | null; startedAt?: string | null } => {
+}): LocalRankingKeyword & {
+  finishedAt?: string | null;
+  startedAt?: string | null;
+} => {
   const runMeta = run as unknown as {
     finishedAt?: string | null;
     startedAt?: string | null;
@@ -305,7 +307,8 @@ const buildQuickKeywordFromRun = ({
 
     return {
       id: Number(result.id || index + 1),
-      coordinateLabel: toStringOrNull(result.coordinateLabel) || `Point ${index + 1}`,
+      coordinateLabel:
+        toStringOrNull(result.coordinateLabel) || `Point ${index + 1}`,
       latitude: toNumberOrNull(result.latitude) || 0,
       longitude: toNumberOrNull(result.longitude) || 0,
       rankAbsolute,
@@ -328,8 +331,10 @@ const buildQuickKeywordFromRun = ({
   const averageRank = rankedCoordinates.length
     ? Number(
         (
-          rankedCoordinates.reduce((sum, row) => sum + Number(row.rankAbsolute), 0) /
-          rankedCoordinates.length
+          rankedCoordinates.reduce(
+            (sum, row) => sum + Number(row.rankAbsolute),
+            0,
+          ) / rankedCoordinates.length
         ).toFixed(2),
       )
     : null;
@@ -385,7 +390,8 @@ const buildQuickKeywordFromRun = ({
     matchedPhone:
       rankedCoordinates.find((row) => row.matchedPhone)?.matchedPhone || null,
     matchedPlaceId:
-      rankedCoordinates.find((row) => row.matchedPlaceId)?.matchedPlaceId || null,
+      rankedCoordinates.find((row) => row.matchedPlaceId)?.matchedPlaceId ||
+      null,
     matchedRating:
       rankedCoordinates.find((row) => row.matchedRating)?.matchedRating || null,
     matchedTitle:
@@ -433,10 +439,11 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
   const [gbpLabel, setGbpLabel] = useState<string | null>(null);
   const [runs, setRuns] = useState<ReportRun[]>([]);
   const selectedRunIds = useMemo(
-    () => [
-      searchParams.get("leftRunId"),
-      searchParams.get("rightRunId"),
-    ] as [string | null, string | null],
+    () =>
+      [searchParams.get("leftRunId"), searchParams.get("rightRunId")] as [
+        string | null,
+        string | null,
+      ],
     [searchParams],
   );
 
@@ -464,23 +471,26 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
         setCoverage(scan.coverage || []);
         setCoverageUnit(scan.coverageUnit || null);
 
-        const quickContext = (scan.quickScanContext ||
-          null) as Record<string, unknown> | null;
+        const quickContext = (scan.quickScanContext || null) as Record<
+          string,
+          unknown
+        > | null;
 
         if (scan.clientId) {
-          const [client, gbpDetailsResult, comparisonResponse] = await Promise.all([
-            clientsApi.getClientById(accessToken, scan.clientId),
-            clientsApi
-              .getClientGbpDetails(accessToken, scan.clientId)
-              .then((data) => ({ ok: true as const, data }))
-              .catch(() => ({ ok: false as const, data: null })),
-            scansApi.getClientScanComparison(
-              accessToken,
-              scan.clientId,
-              numericScanId,
-              12,
-            ),
-          ]);
+          const [client, gbpDetailsResult, comparisonResponse] =
+            await Promise.all([
+              clientsApi.getClientById(accessToken, scan.clientId),
+              clientsApi
+                .getClientGbpDetails(accessToken, scan.clientId)
+                .then((data) => ({ ok: true as const, data }))
+                .catch(() => ({ ok: false as const, data: null })),
+              scansApi.getClientScanComparison(
+                accessToken,
+                scan.clientId,
+                numericScanId,
+                12,
+              ),
+            ]);
 
           if (!isMounted) {
             return;
@@ -491,7 +501,12 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
             (gbpDetailsResult.ok
               ? gbpDetailsResult.data.businessLocation
               : null) ||
-              [client.addressLine1, client.addressLine2, client.cityState, client.postCode]
+              [
+                client.addressLine1,
+                client.addressLine2,
+                client.cityState,
+                client.postCode,
+              ]
                 .filter(Boolean)
                 .join(", ") ||
               "",
@@ -538,10 +553,14 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
           return;
         }
 
-        const runList = await scansApi.listScanRuns(accessToken, numericScanId, {
-          limit: 12,
-          page: 1,
-        });
+        const runList = await scansApi.listScanRuns(
+          accessToken,
+          numericScanId,
+          {
+            limit: 12,
+            page: 1,
+          },
+        );
         const runIds = (runList.runs || [])
           .map((run) => run.id)
           .filter((id): id is number => typeof id === "number" && id > 0);
@@ -610,7 +629,9 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
           return;
         }
 
-        setErrorMessage(error instanceof Error ? error.message : "Unable to load scan.");
+        setErrorMessage(
+          error instanceof Error ? error.message : "Unable to load scan.",
+        );
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -625,42 +646,40 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
     };
   }, [numericScanId, session?.accessToken]);
 
-  const mapPanels = useMemo(
-    () => {
-      const runsById = new Map(
-        runs.map((run) => [String(run.runId), run] as const),
-      );
-      const fallbackRuns = runs.slice(0, 2);
+  const mapPanels = useMemo(() => {
+    const runsById = new Map(
+      runs.map((run) => [String(run.runId), run] as const),
+    );
+    const fallbackRuns = runs.slice(0, 2);
 
-      return fallbackRuns.map((fallbackRun, index) => {
-        const selectedRunId = selectedRunIds[index];
-        const selectedRun =
-          selectedRunId && runsById.has(selectedRunId)
-            ? runsById.get(selectedRunId) || fallbackRun
-            : fallbackRun;
+    return fallbackRuns.map((fallbackRun, index) => {
+      const selectedRunId = selectedRunIds[index];
+      const selectedRun =
+        selectedRunId && runsById.has(selectedRunId)
+          ? runsById.get(selectedRunId) || fallbackRun
+          : fallbackRun;
 
-        return {
-          averageRank: formatAverageRank(selectedRun.averageRank),
-          points: (selectedRun.coordinates || []).map(
-            (coordinate, coordinateIndex) => ({
-              label: coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
-              latitude: coordinate.latitude,
-              longitude: coordinate.longitude,
-              rank: coordinate.rankAbsolute,
-            }),
-          ),
-          runId: selectedRun.runId,
-          title: formatRunTitle(
-            selectedRun.finishedAt ||
-              selectedRun.startedAt ||
-              selectedRun.dateOfScan ||
-              null,
-          ),
-        };
-      });
-    },
-    [runs, selectedRunIds],
-  );
+      return {
+        averageRank: formatAverageRank(selectedRun.averageRank),
+        points: (selectedRun.coordinates || []).map(
+          (coordinate, coordinateIndex) => ({
+            label:
+              coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            rank: coordinate.rankAbsolute,
+          }),
+        ),
+        runId: selectedRun.runId,
+        title: formatRunTitle(
+          selectedRun.finishedAt ||
+            selectedRun.startedAt ||
+            selectedRun.dateOfScan ||
+            null,
+        ),
+      };
+    });
+  }, [runs, selectedRunIds]);
   const latestRun = runs[0] || null;
   const previousRun = runs[1] || null;
   const competitorRows = useMemo<CompetitorTableRow[]>(() => {
@@ -688,7 +707,11 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
       return {
         businessName: competitor.businessName || "-",
         changeText:
-          delta === null ? "-" : delta > 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1),
+          delta === null
+            ? "-"
+            : delta > 0
+              ? `+${delta.toFixed(1)}`
+              : delta.toFixed(1),
         domain: competitor.domain || "-",
         latestRank: latestRank === null ? "-" : latestRank.toFixed(1),
         photos:
@@ -773,7 +796,11 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
             </Card>
 
             {mapPanels.map((panel, index) => (
-              <Card key={`${panel.runId}-${index}`} className={panelClass} shadow="none">
+              <Card
+                key={`${panel.runId}-${index}`}
+                className={panelClass}
+                shadow="none"
+              >
                 <CardBody className="p-0">
                   <div className="border-b border-default-200 px-3 py-2 text-xs font-medium text-default-600">
                     <div className="flex items-center justify-between gap-2">
@@ -802,15 +829,33 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
                   <table className="w-full border-collapse text-[10px]">
                     <thead>
                       <tr className="border-b border-default-200 bg-default-100/70 text-default-700">
-                        <th className="px-2 py-2 text-left font-medium">Business Name</th>
-                        <th className="px-2 py-2 text-left font-medium">Primary Category</th>
-                        <th className="px-2 py-2 text-left font-medium">Second Category</th>
-                        <th className="px-2 py-2 text-left font-medium">Photos</th>
-                        <th className="px-2 py-2 text-left font-medium">{latestRankHeader}</th>
-                        <th className="px-2 py-2 text-left font-medium">{previousRankHeader}</th>
-                        <th className="px-2 py-2 text-left font-medium">Change</th>
-                        <th className="px-2 py-2 text-left font-medium">Grid Size</th>
-                        <th className="px-2 py-2 text-left font-medium">Reviews</th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Business Name
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Primary Category
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Second Category
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Photos
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          {latestRankHeader}
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          {previousRankHeader}
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Change
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Grid Size
+                        </th>
+                        <th className="px-2 py-2 text-left font-medium">
+                          Reviews
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -821,15 +866,23 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
                             className="border-b border-default-200/60 text-default-700"
                           >
                             <td className="px-2 py-2">
-                              <p className="font-medium text-default-800">{row.businessName}</p>
-                              <p className="text-[9px] text-default-400">{row.domain}</p>
+                              <p className="font-medium text-default-800">
+                                {row.businessName}
+                              </p>
+                              <p className="text-[9px] text-default-400">
+                                {row.domain}
+                              </p>
                             </td>
                             <td className="px-2 py-2">{row.primaryCategory}</td>
-                            <td className="px-2 py-2">{row.secondaryCategory}</td>
+                            <td className="px-2 py-2">
+                              {row.secondaryCategory}
+                            </td>
                             <td className="px-2 py-2">{row.photos}</td>
                             <td className="px-2 py-2">{row.latestRank}</td>
                             <td className="px-2 py-2">{row.previousRank}</td>
-                            <td className="px-2 py-2 text-[#22c55e]">{row.changeText}</td>
+                            <td className="px-2 py-2 text-[#22c55e]">
+                              {row.changeText}
+                            </td>
                             <td className="px-2 py-2">{gridSizeLabel}</td>
                             <td className="px-2 py-2">⭐ {row.reviews}</td>
                           </tr>
@@ -853,7 +906,7 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
         )}
       </div>
 
-      <style jsx global>{`
+      <style>{`
         .a4-report-wrap {
           min-height: 100vh;
         }

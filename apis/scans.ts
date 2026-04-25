@@ -46,6 +46,7 @@ export interface CreateScanRequestBody {
   frequency?: string;
   keywords: string[];
   labels: string[];
+  notes?: string;
   recurrenceEnabled?: boolean;
   repeatTime?: string;
   scanScope?: "CLIENT" | "QUICK";
@@ -53,6 +54,7 @@ export interface CreateScanRequestBody {
   runNow: boolean;
   startDate?: string;
   startTime?: string;
+  timezone?: string;
 }
 
 export interface ScanRecord {
@@ -251,11 +253,13 @@ export interface ClientScanDetails {
   labels?: string[];
   latestRun?: ScanRecord | null;
   nextRunAt?: string | null;
+  notes?: string | null;
   remainingRuns?: number | null;
   recurrenceEnabled?: boolean;
   repeatTime?: number | null;
   startAt?: string | null;
   status?: string;
+  timezone?: string | null;
   updatedAt?: string;
 }
 

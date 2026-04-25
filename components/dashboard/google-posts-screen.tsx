@@ -43,6 +43,7 @@ const statusChipClass = "bg-[#B9EFFF] text-[#0284C7]";
 const formatDateTime = (value: string | null) => {
   if (!value) return "-";
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleString("en-GB", {
@@ -116,6 +117,7 @@ export const GooglePostsScreen = () => {
     if (!session) {
       setClients([]);
       setRows([]);
+
       return;
     }
 
@@ -318,6 +320,14 @@ export const GooglePostsScreen = () => {
         ariaLabel="Google posts table"
         columns={columns}
         getRowKey={(item) => `${item.clientId}-${item.id}`}
+        headerActions={[
+          {
+            key: "show-10",
+            label: "Show 10",
+            startContent: <ListOrdered size={14} />,
+            variant: "bordered",
+          },
+        ]}
         headerRight={
           <div className="flex flex-wrap items-center justify-end gap-3">
             <Select
@@ -327,6 +337,7 @@ export const GooglePostsScreen = () => {
               size="sm"
               onSelectionChange={(keys) => {
                 const key = keys === "all" ? "all" : keys.currentKey || "all";
+
                 setSelectedClientId(String(key));
               }}
             >
@@ -353,14 +364,6 @@ export const GooglePostsScreen = () => {
         pageSize={10}
         rows={rows}
         title={isLoading ? "All Google Posts (Loading...)" : "All Google Posts"}
-        headerActions={[
-          {
-            key: "show-10",
-            label: "Show 10",
-            startContent: <ListOrdered size={14} />,
-            variant: "bordered",
-          },
-        ]}
       />
     </section>
   );

@@ -56,6 +56,7 @@ const formatDate = (value?: string | null) => {
   }
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -84,7 +85,9 @@ const normalizeStatus = (
   scan: ClientScanDetails,
 ): "Completed" | "Deleted" | "Failed" | "Scanning" => {
   const normalizedScanStatus = String(scan.status || "").toUpperCase();
-  const normalizedRunStatus = String(scan.latestRun?.status || "").toUpperCase();
+  const normalizedRunStatus = String(
+    scan.latestRun?.status || "",
+  ).toUpperCase();
   const statusCandidates = [normalizedRunStatus, normalizedScanStatus];
 
   if (statusCandidates.some((status) => status === "DELETED")) {
@@ -101,7 +104,14 @@ const normalizeStatus = (
 
   if (
     statusCandidates.some((status) =>
-      ["IN_PROGRESS", "PENDING", "PROCESSING", "QUEUED", "RUNNING", "STARTED"].includes(status),
+      [
+        "IN_PROGRESS",
+        "PENDING",
+        "PROCESSING",
+        "QUEUED",
+        "RUNNING",
+        "STARTED",
+      ].includes(status),
     )
   ) {
     return "Scanning";
@@ -221,7 +231,8 @@ const computeAverageRankFromRun = (
       ];
 
       const rank = rankCandidates.find(
-        (candidate) => typeof candidate === "number" && Number.isFinite(candidate),
+        (candidate) =>
+          typeof candidate === "number" && Number.isFinite(candidate),
       );
 
       if (typeof rank !== "number" || !Number.isFinite(rank)) {
@@ -255,7 +266,8 @@ const mapScanRow = (
   nextScanDate: formatDate(scan.nextRunAt),
   previousScan: averages?.previousScan ?? "-",
   processedRequests:
-    (scan.latestRun?.completedRequests ?? 0) + (scan.latestRun?.failedRequests ?? 0),
+    (scan.latestRun?.completedRequests ?? 0) +
+    (scan.latestRun?.failedRequests ?? 0),
   progressPercent:
     scan.latestRun?.totalRequests && scan.latestRun.totalRequests > 0
       ? Math.min(
@@ -508,21 +520,26 @@ export const ScansListScreen = ({
     const entries = await Promise.all(
       scans.map(async (scan) => {
         try {
-          const runsResponse = await scansApi.listScanRuns(accessToken, scan.id, {
-            limit: 2,
-            page: 1,
-          });
+          const runsResponse = await scansApi.listScanRuns(
+            accessToken,
+            scan.id,
+            {
+              limit: 2,
+              page: 1,
+            },
+          );
           const latestRun = runsResponse.runs?.[0] ?? null;
           const previousRun = runsResponse.runs?.[1] ?? null;
 
-          const [latestRunWithDetails, previousRunWithDetails] = await Promise.all([
-            latestRun?.id && computeAverageRankFromRun(latestRun) === "-"
-              ? scansApi.getScanRunById(accessToken, scan.id, latestRun.id)
-              : Promise.resolve(latestRun),
-            previousRun?.id && computeAverageRankFromRun(previousRun) === "-"
-              ? scansApi.getScanRunById(accessToken, scan.id, previousRun.id)
-              : Promise.resolve(previousRun),
-          ]);
+          const [latestRunWithDetails, previousRunWithDetails] =
+            await Promise.all([
+              latestRun?.id && computeAverageRankFromRun(latestRun) === "-"
+                ? scansApi.getScanRunById(accessToken, scan.id, latestRun.id)
+                : Promise.resolve(latestRun),
+              previousRun?.id && computeAverageRankFromRun(previousRun) === "-"
+                ? scansApi.getScanRunById(accessToken, scan.id, previousRun.id)
+                : Promise.resolve(previousRun),
+            ]);
 
           return [
             scan.id,
@@ -583,7 +600,6 @@ export const ScansListScreen = ({
 
   useEffect(() => {
     void loadScans(currentPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, scope, view]);
 
   const hasActiveScanningRows = useMemo(
@@ -603,7 +619,6 @@ export const ScansListScreen = ({
     return () => {
       window.clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, hasActiveScanningRows, scope, view]);
 
   const columns = useMemo(
@@ -618,6 +633,7 @@ export const ScansListScreen = ({
           setDeletingScanId(scanId);
           try {
             const accessToken = await getValidAccessToken();
+
             await scansApi.deleteScanById(accessToken, scanId);
             toast.success("Scan moved to deleted reports.");
             await loadScans(currentPage);
@@ -634,6 +650,7 @@ export const ScansListScreen = ({
           setRerunningScanId(scanId);
           try {
             const accessToken = await getValidAccessToken();
+
             await scansApi.runScan(accessToken, scanId);
             toast.success("Scan started.", {
               description: "We're running this scan again now.",
@@ -679,6 +696,8 @@ export const ScansListScreen = ({
       </div>
 
       <DashboardDataTable
+        serverPagination
+        showPagination
         ariaLabel={`${title} table`}
         columns={columns}
         currentPage={currentPage}
@@ -688,16 +707,14 @@ export const ScansListScreen = ({
             ? { className: "opacity-60 transition-opacity" }
             : {}
         }
+        pageSize={10}
+        rows={rows}
+        title=""
+        totalPages={totalPages}
         onPageChange={(page) => {
           setCurrentPage(page);
           void loadScans(page);
         }}
-        pageSize={10}
-        rows={rows}
-        serverPagination
-        showPagination
-        title=""
-        totalPages={totalPages}
       />
     </section>
   );

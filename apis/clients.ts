@@ -407,6 +407,7 @@ export interface ClientProjectsResponse {
 export interface ClientApiItem {
   address?: string | null;
   assignedTo?: number | string | null;
+  assignedToId?: number | string | null;
   assignedUserAvatar?: string | null;
   assignedUserEmail?: string | null;
   assignedUserName?: string | null;
@@ -727,6 +728,11 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
     clients.push({
       address: explicitAddress ?? (composedAddress || null),
       assignedTo,
+      assignedToId:
+        (typeof record.assignedToId === "number" ||
+        typeof record.assignedToId === "string"
+          ? record.assignedToId
+          : null) ?? assignedTo,
       assignedUserAvatar,
       assignedUserEmail,
       assignedUserName,
@@ -1039,6 +1045,7 @@ const parseRatingSummary = (value: unknown): ClientGbpRatingSummaryItem[] => {
   if (Array.isArray(value)) {
     value.forEach((item) => {
       const record = asObject(item);
+
       setCount(
         record.stars ?? record.rating ?? record.star,
         record.amount ?? record.count ?? record.reviews,
@@ -1046,8 +1053,10 @@ const parseRatingSummary = (value: unknown): ClientGbpRatingSummaryItem[] => {
     });
   } else {
     const record = asObject(value);
+
     Object.entries(record).forEach(([key, amount]) => {
       const keyMatch = key.match(/[1-5]/);
+
       if (keyMatch) {
         setCount(Number(keyMatch[0]), amount);
       }
@@ -1242,6 +1251,7 @@ const parseClientGbpDetailsResponse = (value: unknown): ClientGbpDetails => {
 
 const parseReviewText = (value: unknown) => {
   const direct = asString(value);
+
   if (direct !== null) {
     return direct;
   }
@@ -1421,6 +1431,7 @@ const parseClientGbpPostingComment = (
   const record = asObject(value);
   const id = asId(record.id);
   const author = asObject(record.author);
+
   if (id === null) {
     return null;
   }
@@ -1472,9 +1483,11 @@ const parseClientGbpPostingCommentResponse = (
       ? payload.comment
       : payload,
   );
+
   if (!comment) {
     throw new Error("Invalid GBP posting comment response.");
   }
+
   return comment;
 };
 
@@ -2203,9 +2216,11 @@ export const clientsApi = {
       const nested = asObject(root.data);
       const payloadRecord = Object.keys(nested).length > 0 ? nested : root;
       const posting = parseClientGbpPosting(payloadRecord.posting);
+
       if (!posting) {
         throw new Error("Invalid GBP posting response.");
       }
+
       return posting;
     } catch (error) {
       throw new Error(parseError(error));

@@ -1,5 +1,10 @@
 "use client";
 
+import type {
+  ClientCitationVerificationStatus,
+  ClientCitationVerificationValue,
+} from "@/apis/clients";
+
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
@@ -14,11 +19,6 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { Check, CheckCircle2, Eye, RotateCw, X } from "lucide-react";
-
-import type {
-  ClientCitationVerificationStatus,
-  ClientCitationVerificationValue,
-} from "@/apis/clients";
 
 const citationStatusOptions = [
   "Complete",

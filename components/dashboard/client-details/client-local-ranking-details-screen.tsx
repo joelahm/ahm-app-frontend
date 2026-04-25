@@ -10,12 +10,7 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
-import {
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalHeader,
-} from "@heroui/modal";
+import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
 import clsx from "clsx";
 import { ChevronDown, LayoutGrid, Star, Users } from "lucide-react";
@@ -311,14 +306,15 @@ const MiniMapPanel = ({
                   variant="bordered"
                 >
                   {selectedRunId
-                    ? runOptions.find((option) => option.value === selectedRunId)
-                        ?.label || "Select Date"
+                    ? runOptions.find(
+                        (option) => option.value === selectedRunId,
+                      )?.label || "Select Date"
                     : "Select Date"}
                 </Button>
               </DropdownTrigger>
               <DropdownMenu
-                aria-label={`${slotLabel} run date`}
                 disallowEmptySelection
+                aria-label={`${slotLabel} run date`}
                 selectedKeys={selectedRunId ? [selectedRunId] : []}
                 selectionMode="single"
                 onAction={(key) => {
@@ -457,6 +453,7 @@ export const ClientLocalRankingDetailsScreen = ({
         const defaultSelections = (comparisonResponse.comparison.runs || [])
           .slice(0, 2)
           .map((run) => String(run.runId));
+
         setPanelRunSelections(defaultSelections);
         setCoverage(comparisonResponse.scan.coverage || []);
         setCoverageUnit(comparisonResponse.scan.coverageUnit || null);
@@ -497,7 +494,8 @@ export const ClientLocalRankingDetailsScreen = ({
     );
 
     return comparisonRuns.slice(0, 2).map((fallbackRun, index) => {
-      const selectedRunId = panelRunSelections[index] || String(fallbackRun.runId);
+      const selectedRunId =
+        panelRunSelections[index] || String(fallbackRun.runId);
       const selectedRun = runsById.get(selectedRunId) || fallbackRun;
 
       return {
@@ -505,7 +503,8 @@ export const ClientLocalRankingDetailsScreen = ({
         center: gbpCenter,
         label: gbpLabel,
         points: selectedRun.coordinates.map((coordinate, coordinateIndex) => ({
-          label: coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
+          label:
+            coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
           latitude: coordinate.latitude,
           longitude: coordinate.longitude,
           rank: coordinate.rankAbsolute,
@@ -516,7 +515,9 @@ export const ClientLocalRankingDetailsScreen = ({
         subtitle:
           formatRunSubtitle(selectedRun.finishedAt || selectedRun.startedAt) ||
           `Run #${selectedRun.runId}`,
-        title: formatRunTitle(selectedRun.finishedAt || selectedRun.startedAt || null),
+        title: formatRunTitle(
+          selectedRun.finishedAt || selectedRun.startedAt || null,
+        ),
         runId: selectedRun.runId,
       };
     });
@@ -749,9 +750,16 @@ export const ClientLocalRankingDetailsScreen = ({
                 center={panel.center}
                 isPanelVisible={isPanelVisible}
                 label={panel.label}
+                points={panel.points}
+                runOptions={runDateOptions}
+                selectedRunId={panel.selectedRunId}
+                slotLabel={panel.slotLabel}
+                subtitle={panel.subtitle}
+                title={panel.title}
                 onRunChange={(runId) => {
                   setPanelRunSelections((previous) => {
                     const next = [...previous];
+
                     next[panel.slotIndex] = runId;
 
                     return next;
@@ -760,12 +768,6 @@ export const ClientLocalRankingDetailsScreen = ({
                 onSeeCompetitor={() => {
                   setCompetitorModalRunId(panel.selectedRunId);
                 }}
-                points={panel.points}
-                runOptions={runDateOptions}
-                selectedRunId={panel.selectedRunId}
-                slotLabel={panel.slotLabel}
-                subtitle={panel.subtitle}
-                title={panel.title}
               />
             ))}
           </div>
@@ -846,8 +848,8 @@ export const ClientLocalRankingDetailsScreen = ({
             hideCloseButton={false}
             isOpen={Boolean(competitorModalRunId)}
             placement="center"
-            size="5xl"
             scrollBehavior="inside"
+            size="5xl"
             onClose={() => {
               setCompetitorModalRunId(null);
             }}

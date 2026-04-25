@@ -9,7 +9,12 @@ import { DatePicker } from "@heroui/date-picker";
 import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Switch } from "@heroui/switch";
-import { getLocalTimeZone, parseDate, today, type DateValue } from "@internationalized/date";
+import {
+  getLocalTimeZone,
+  parseDate,
+  today,
+  type DateValue,
+} from "@internationalized/date";
 import { Building2, Globe, MapPin, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -171,7 +176,9 @@ const resolveCoordinatesFromPlaceId = async (placeId: string) => {
           placeId,
         },
         (
-          place: { geometry?: { location?: { lat: () => number; lng: () => number } } } | null,
+          place: {
+            geometry?: { location?: { lat: () => number; lng: () => number } };
+          } | null,
           status: string,
         ) => {
           if (status !== "OK" || !place) {
@@ -243,7 +250,8 @@ const quickScanSchema = yup.object({
   scheduleMeridiem: yup.string().when("isRecurring", {
     is: true,
     otherwise: (schema) => schema.default("AM").notRequired(),
-    then: (schema) => schema.oneOf(meridiemOptions).required("AM/PM is required."),
+    then: (schema) =>
+      schema.oneOf(meridiemOptions).required("AM/PM is required."),
   }),
   scheduleTime: yup.string().when("isRecurring", {
     is: true,
@@ -383,6 +391,7 @@ export const QuickScanScreen = () => {
 
     if (!selectedPlace?.placeId || !gbpPreview) {
       toast.danger("Please select a Google Business Profile first.");
+
       return;
     }
 
@@ -390,6 +399,7 @@ export const QuickScanScreen = () => {
       toast.danger(
         "Selected profile has no map coordinates. Please choose another business.",
       );
+
       return;
     }
 
@@ -436,6 +446,7 @@ export const QuickScanScreen = () => {
               validated.scheduleMeridiem ?? "AM",
             )
           : undefined,
+        timezone: validated.isRecurring ? "Europe/London" : undefined,
       });
 
       toast.success("Quick scan queued successfully.");
@@ -456,6 +467,7 @@ export const QuickScanScreen = () => {
             type: "manual",
           });
         });
+
         return;
       }
 
@@ -579,6 +591,7 @@ export const QuickScanScreen = () => {
                   size="sm"
                   onSelectionChange={(keys) => {
                     const selected = Array.from(keys as Set<string>)[0] ?? "";
+
                     field.onChange(selected);
                   }}
                 >
@@ -598,6 +611,7 @@ export const QuickScanScreen = () => {
                   size="sm"
                   onSelectionChange={(keys) => {
                     const selected = Array.from(keys as Set<string>)[0] ?? "";
+
                     field.onChange(selected);
                   }}
                 >
@@ -617,6 +631,7 @@ export const QuickScanScreen = () => {
                   size="sm"
                   onSelectionChange={(keys) => {
                     const selected = Array.from(keys as Set<string>)[0] ?? "";
+
                     field.onChange(selected);
                   }}
                 >
@@ -651,6 +666,7 @@ export const QuickScanScreen = () => {
                     size="sm"
                     onSelectionChange={(keys) => {
                       const selected = Array.from(keys as Set<string>)[0] ?? "";
+
                       field.onChange(selected);
                     }}
                   >
@@ -718,7 +734,9 @@ export const QuickScanScreen = () => {
                       selectedKeys={field.value ? [field.value] : []}
                       size="sm"
                       onSelectionChange={(keys) => {
-                        const selected = Array.from(keys as Set<string>)[0] ?? "";
+                        const selected =
+                          Array.from(keys as Set<string>)[0] ?? "";
+
                         field.onChange(selected);
                       }}
                     >
@@ -739,7 +757,9 @@ export const QuickScanScreen = () => {
                       selectedKeys={field.value ? [field.value] : []}
                       size="sm"
                       onSelectionChange={(keys) => {
-                        const selected = Array.from(keys as Set<string>)[0] ?? "";
+                        const selected =
+                          Array.from(keys as Set<string>)[0] ?? "";
+
                         field.onChange(selected);
                       }}
                     >
@@ -748,9 +768,8 @@ export const QuickScanScreen = () => {
                       ))}
                     </Select>
                   )}
-                />  
+                />
               </div>
-              
             </div>
           ) : null}
 

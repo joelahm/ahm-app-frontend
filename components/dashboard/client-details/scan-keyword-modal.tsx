@@ -519,6 +519,7 @@ export const ScanKeywordModal = ({
                 validatedValues.scheduleTime,
                 validatedValues.scheduleMeridiem,
               ),
+              timezone: "Europe/London",
             };
           })()
         : undefined;

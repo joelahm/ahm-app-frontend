@@ -22,10 +22,8 @@ import {
   Eye,
   EyeOff,
   List,
-  Plus,
   Search,
   SquareDashedMousePointer,
-  Trash2,
 } from "lucide-react";
 
 import {
@@ -314,10 +312,8 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
 ];
 
 const buildColumns = ({
-  onDelete,
   onView,
 }: {
-  onDelete: (row: LocalCitationRow) => void;
   onView: (row: LocalCitationRow) => void;
 }): DashboardDataTableColumn<LocalCitationRow>[] =>
   columns.map((column) => {
@@ -379,32 +375,6 @@ export const ClientLocalCitationsTable = ({
     phone: "-",
     zipCode: "-",
   });
-
-  const openAddCitationModal = () => {
-    const firstTemplate = citationTemplates[0];
-
-    setActiveCitation({
-      address: clientContext.address,
-      citationId: null,
-      citationDatabaseEntryId: firstTemplate?.id ?? null,
-      dateAdded: "-",
-      directory: firstTemplate?.name ?? "Citation",
-      id: "new-citation",
-      name: clientContext.name,
-      notes: "",
-      password: "",
-      phone: clientContext.phone,
-      profileUrl: "",
-      source: firstTemplate ? "Database" : "Custom",
-      status: "Pending",
-      type: firstTemplate?.type ?? "-",
-      username: "",
-      validationLink: firstTemplate?.validationLink ?? "",
-      verificationStatus: defaultVerificationStatus,
-      zipCode: clientContext.zipCode,
-    });
-    setIsAddCitationModalOpen(true);
-  };
 
   useEffect(() => {
     if (!session || !clientId) {
@@ -601,36 +571,12 @@ export const ClientLocalCitationsTable = ({
   const tableColumns = useMemo(
     () =>
       buildColumns({
-        onDelete: (row) => {
-          if (!row.citationId || !session) {
-            return;
-          }
-
-          const citationId = row.citationId;
-
-          void getValidAccessToken()
-            .then((accessToken) =>
-              clientsApi.deleteClientCitation(
-                accessToken,
-                clientId,
-                citationId,
-              ),
-            )
-            .then(() => {
-              setCitations((current) =>
-                current.filter(
-                  (citation) => String(citation.id) !== citationId,
-                ),
-              );
-            })
-            .catch(() => {});
-        },
         onView: (row) => {
           setActiveCitation(row);
           setIsAddCitationModalOpen(true);
         },
       }),
-    [clientId, getValidAccessToken, session],
+    [],
   );
 
   const handleSaveCitation = async (payload: {

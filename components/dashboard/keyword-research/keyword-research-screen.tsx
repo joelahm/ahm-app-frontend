@@ -8,6 +8,7 @@ import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
 import { Input } from "@heroui/input";
+import { Textarea } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -26,6 +27,7 @@ import {
   TableRow,
 } from "@heroui/table";
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -140,6 +142,39 @@ const SEARCH_VOLUME_RANGES = [
   { label: "1–10", max: 10, min: 1, value: "1:10" },
 ] as const;
 
+const KEYWORD_DIFFICULTY_RANGES = [
+  { label: "Very hard", max: 100, min: 85, suffix: "85–100%", value: "85:100" },
+  { label: "Hard", max: 84, min: 70, suffix: "70–84%", value: "70:84" },
+  { label: "Difficult", max: 69, min: 50, suffix: "50–69%", value: "50:69" },
+  { label: "Possible", max: 49, min: 30, suffix: "30–49%", value: "30:49" },
+  { label: "Easy", max: 29, min: 15, suffix: "15–29%", value: "15:29" },
+  { label: "Very easy", max: 14, min: 0, suffix: "0–14%", value: "0:14" },
+] as const;
+
+const DEFAULT_INTENT_OPTIONS = [
+  "Informational",
+  "Navigational",
+  "Commercial",
+  "Transactional",
+] as const;
+
+type CanonicalIntent = (typeof DEFAULT_INTENT_OPTIONS)[number];
+
+const CANONICAL_INTENT_MAP = new Map(
+  DEFAULT_INTENT_OPTIONS.map((value) => [value.toLowerCase(), value] as const),
+);
+
+const parseCanonicalIntents = (value: string | null | undefined) =>
+  Array.from(
+    new Set(
+      (value ?? "")
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .map((item) => CANONICAL_INTENT_MAP.get(item) ?? null)
+        .filter((item): item is CanonicalIntent => Boolean(item)),
+    ),
+  );
+
 const getSearchVolumeRangeLabel = (value: string) => {
   if (!value) {
     return "Search Volume";
@@ -183,6 +218,95 @@ const parseSearchVolumeRange = (value: string) => {
   };
 };
 
+const getKeywordDifficultyRangeLabel = (value: string) => {
+  if (!value) {
+    return "Keyword Difficulty";
+  }
+
+  const preset = KEYWORD_DIFFICULTY_RANGES.find((item) => item.value === value);
+
+  if (preset) {
+    return preset.label;
+  }
+
+  const [from = "", to = ""] = value.split(":");
+
+  if (from && to) {
+    return `${from}-${to}%`;
+  }
+
+  if (from) {
+    return `${from}%+`;
+  }
+
+  if (to) {
+    return `Up to ${to}%`;
+  }
+
+  return "Keyword Difficulty";
+};
+
+const parseKeywordDifficultyRange = (value: string) => {
+  if (!value) {
+    return { max: null, min: null };
+  }
+
+  const [minValue = "", maxValue = ""] = value.split(":");
+  const min = minValue ? Number(minValue) : null;
+  const max = maxValue ? Number(maxValue) : null;
+
+  return {
+    max: Number.isFinite(max) ? max : null,
+    min: Number.isFinite(min) ? min : null,
+  };
+};
+
+const getCpcRangeLabel = (value: string) => {
+  if (!value) {
+    return "CPC";
+  }
+
+  const [from = "", to = ""] = value.split(":");
+
+  if (from && to) {
+    return `$${from}-$${to}`;
+  }
+
+  if (from) {
+    return `$${from}+`;
+  }
+
+  if (to) {
+    return `Up to $${to}`;
+  }
+
+  return "CPC";
+};
+
+const parseCpcRange = (value: string) => {
+  if (!value) {
+    return { max: null, min: null };
+  }
+
+  const [minValue = "", maxValue = ""] = value.split(":");
+  const min = minValue ? Number(minValue) : null;
+  const max = maxValue ? Number(maxValue) : null;
+
+  return {
+    max: Number.isFinite(max) ? max : null,
+    min: Number.isFinite(min) ? min : null,
+  };
+};
+
+const parseExcludedKeywords = (value: string) =>
+  value
+    .split(/\r?\n/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+
+const normalizeExcludedKeywordsValue = (value: string) =>
+  parseExcludedKeywords(value).join("\n");
+
 export const KeywordResearchScreen = () => {
   const router = useRouter();
   const toast = useAppToast();
@@ -215,9 +339,27 @@ export const KeywordResearchScreen = () => {
   const [customSearchVolumeTo, setCustomSearchVolumeTo] = useState("");
   const [selectedKeywordDifficulty, setSelectedKeywordDifficulty] =
     useState("");
+  const [isKeywordDifficultyFilterOpen, setIsKeywordDifficultyFilterOpen] =
+    useState(false);
+  const keywordDifficultyFilterRef = useRef<HTMLDivElement | null>(null);
+  const [customKeywordDifficultyFrom, setCustomKeywordDifficultyFrom] =
+    useState("");
+  const [customKeywordDifficultyTo, setCustomKeywordDifficultyTo] =
+    useState("");
   const [selectedCpc, setSelectedCpc] = useState("");
-  const [selectedIntent, setSelectedIntent] = useState("");
+  const [isCpcFilterOpen, setIsCpcFilterOpen] = useState(false);
+  const cpcFilterRef = useRef<HTMLDivElement | null>(null);
+  const [customCpcFrom, setCustomCpcFrom] = useState("");
+  const [customCpcTo, setCustomCpcTo] = useState("");
+  const [selectedIntents, setSelectedIntents] = useState<CanonicalIntent[]>([]);
+  const [draftIntents, setDraftIntents] = useState<CanonicalIntent[]>([]);
+  const [isIntentFilterOpen, setIsIntentFilterOpen] = useState(false);
+  const intentFilterRef = useRef<HTMLDivElement | null>(null);
   const [selectedExcludedKeyword, setSelectedExcludedKeyword] = useState("");
+  const [draftExcludedKeywords, setDraftExcludedKeywords] = useState("");
+  const [isExcludeKeywordFilterOpen, setIsExcludeKeywordFilterOpen] =
+    useState(false);
+  const excludeKeywordFilterRef = useRef<HTMLDivElement | null>(null);
   const [languageOptions, setLanguageOptions] = useState<
     KeywordResearchLanguageOption[]
   >([]);
@@ -460,6 +602,92 @@ export const KeywordResearchScreen = () => {
     };
   }, [isSearchVolumeFilterOpen]);
 
+  useEffect(() => {
+    if (!isKeywordDifficultyFilterOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        keywordDifficultyFilterRef.current &&
+        !keywordDifficultyFilterRef.current.contains(event.target as Node)
+      ) {
+        setIsKeywordDifficultyFilterOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isKeywordDifficultyFilterOpen]);
+
+  useEffect(() => {
+    if (!isCpcFilterOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        cpcFilterRef.current &&
+        !cpcFilterRef.current.contains(event.target as Node)
+      ) {
+        setIsCpcFilterOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isCpcFilterOpen]);
+
+  useEffect(() => {
+    if (!isIntentFilterOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        intentFilterRef.current &&
+        !intentFilterRef.current.contains(event.target as Node)
+      ) {
+        setIsIntentFilterOpen(false);
+        setDraftIntents(selectedIntents);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isIntentFilterOpen, selectedIntents]);
+
+  useEffect(() => {
+    if (!isExcludeKeywordFilterOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        excludeKeywordFilterRef.current &&
+        !excludeKeywordFilterRef.current.contains(event.target as Node)
+      ) {
+        setIsExcludeKeywordFilterOpen(false);
+        setDraftExcludedKeywords(selectedExcludedKeyword);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isExcludeKeywordFilterOpen, selectedExcludedKeyword]);
+
   const activeResults = useMemo(
     () =>
       keywordMode === "similar-keywords"
@@ -480,79 +708,22 @@ export const KeywordResearchScreen = () => {
     );
   }, [countryOptions, searchCountryLabel]);
 
-  const keywordDifficultyOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          activeResults
-            .map((item) => item.kd)
-            .filter((value): value is number => value !== null),
-        ),
-      )
-        .sort((a, b) => b - a)
-        .map((value) => ({
-          key: String(value),
-          label: String(value),
-          value: String(value),
-        })),
-    [activeResults],
-  );
-
-  const cpcFilterOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          activeResults
-            .map((item) => item.cpc)
-            .filter((value): value is number => value !== null),
-        ),
-      )
-        .sort((a, b) => b - a)
-        .map((value) => ({
-          key: String(value),
-          label: formatCpc(value),
-          value: String(value),
-        })),
-    [activeResults],
-  );
-
-  const intentFilterOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          activeResults
-            .map((item) => item.intent)
-            .filter((value): value is string => Boolean(value)),
-        ),
-      )
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({
-          key: value,
-          label: value,
-          value,
-        })),
-    [activeResults],
-  );
-
-  const excludeKeywordOptions = useMemo(
-    () =>
-      Array.from(new Set(activeResults.map((item) => item.keyword)))
-        .sort((a, b) => a.localeCompare(b))
-        .map((value) => ({
-          key: value,
-          label: value,
-          value,
-        })),
-    [activeResults],
-  );
+  const intentFilterOptions = DEFAULT_INTENT_OPTIONS.map((value) => ({
+    key: value,
+    label: value,
+    value,
+  }));
 
   const filteredRows = useMemo(() => {
     const query = pageSearch.trim().toLowerCase();
     const searchVolumeRange = parseSearchVolumeRange(selectedSearchVolume);
-    const normalizedKeywordDifficulty = selectedKeywordDifficulty
-      ? Number(selectedKeywordDifficulty)
-      : null;
-    const normalizedCpc = selectedCpc ? Number(selectedCpc) : null;
+    const keywordDifficultyRange = parseKeywordDifficultyRange(
+      selectedKeywordDifficulty,
+    );
+    const cpcRange = parseCpcRange(selectedCpc);
+    const excludedKeywords = new Set(
+      parseExcludedKeywords(selectedExcludedKeyword),
+    );
 
     return activeResults.filter((row) => {
       const matchesQuery = !query
@@ -570,16 +741,26 @@ export const KeywordResearchScreen = () => {
             (searchVolumeRange.max === null ||
               row.searchVolume <= searchVolumeRange.max);
       const matchesKeywordDifficulty =
-        normalizedKeywordDifficulty === null
+        keywordDifficultyRange.min === null &&
+        keywordDifficultyRange.max === null
           ? true
-          : row.kd === normalizedKeywordDifficulty;
+          : row.kd !== null &&
+            (keywordDifficultyRange.min === null ||
+              row.kd >= keywordDifficultyRange.min) &&
+            (keywordDifficultyRange.max === null ||
+              row.kd <= keywordDifficultyRange.max);
       const matchesCpc =
-        normalizedCpc === null ? true : row.cpc === normalizedCpc;
-      const matchesIntent = selectedIntent
-        ? row.intent === selectedIntent
+        cpcRange.min === null && cpcRange.max === null
+          ? true
+          : row.cpc !== null &&
+            (cpcRange.min === null || row.cpc >= cpcRange.min) &&
+            (cpcRange.max === null || row.cpc <= cpcRange.max);
+      const rowIntents = parseCanonicalIntents(row.intent);
+      const matchesIntent = selectedIntents.length
+        ? selectedIntents.some((intent) => rowIntents.includes(intent))
         : true;
-      const matchesExcludedKeyword = selectedExcludedKeyword
-        ? row.keyword !== selectedExcludedKeyword
+      const matchesExcludedKeyword = excludedKeywords.size
+        ? !excludedKeywords.has(row.keyword.trim().toLowerCase())
         : true;
 
       return (
@@ -596,7 +777,7 @@ export const KeywordResearchScreen = () => {
     pageSearch,
     selectedCpc,
     selectedExcludedKeyword,
-    selectedIntent,
+    selectedIntents,
     selectedKeywordDifficulty,
     selectedSearchVolume,
   ]);
@@ -1127,64 +1308,464 @@ export const KeywordResearchScreen = () => {
                       </div>
                     ) : null}
                   </div>
-                  <Select
-                    isClearable
-                    items={keywordDifficultyOptions}
-                    placeholder="Keyword Difficulty"
-                    radius="md"
-                    selectedKeys={
-                      selectedKeywordDifficulty
-                        ? [selectedKeywordDifficulty]
-                        : []
-                    }
-                    onSelectionChange={(keys) => {
-                      setSelectedKeywordDifficulty(
-                        normalizeSelection(keys) ?? "",
-                      );
-                    }}
+                  <div
+                    ref={keywordDifficultyFilterRef}
+                    className="relative z-50 min-w-[220px] overflow-visible"
                   >
-                    {(item) => <SelectItem>{item.label}</SelectItem>}
-                  </Select>
-                  <Select
-                    isClearable
-                    items={cpcFilterOptions}
-                    placeholder="CPC"
-                    radius="md"
-                    selectedKeys={selectedCpc ? [selectedCpc] : []}
-                    onSelectionChange={(keys) => {
-                      setSelectedCpc(normalizeSelection(keys) ?? "");
-                    }}
+                    <Button
+                      className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
+                      endContent={
+                        <span className="flex items-center gap-1">
+                          {selectedKeywordDifficulty ? (
+                            <span
+                              aria-label="Clear keyword difficulty filter"
+                              className="grid h-5 w-5 place-items-center rounded-full text-default-500 hover:bg-default-100 hover:text-[#111827]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedKeywordDifficulty("");
+                                setCustomKeywordDifficultyFrom("");
+                                setCustomKeywordDifficultyTo("");
+                                setIsKeywordDifficultyFilterOpen(false);
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Enter" &&
+                                  event.key !== " "
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedKeywordDifficulty("");
+                                setCustomKeywordDifficultyFrom("");
+                                setCustomKeywordDifficultyTo("");
+                                setIsKeywordDifficultyFilterOpen(false);
+                              }}
+                            >
+                              <X size={14} />
+                            </span>
+                          ) : null}
+                          <ChevronDown className="text-default-500" size={16} />
+                        </span>
+                      }
+                      radius="md"
+                      variant="bordered"
+                      onPress={() => {
+                        setIsKeywordDifficultyFilterOpen((current) => !current);
+                      }}
+                    >
+                      <span className="truncate">
+                        {getKeywordDifficultyRangeLabel(
+                          selectedKeywordDifficulty,
+                        )}
+                      </span>
+                    </Button>
+
+                    {isKeywordDifficultyFilterOpen ? (
+                      <div className="absolute left-0 top-12 z-[999] w-[300px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                        <div className="py-2">
+                          {KEYWORD_DIFFICULTY_RANGES.map((range) => {
+                            const isSelected =
+                              selectedKeywordDifficulty === range.value;
+
+                            return (
+                              <button
+                                key={range.value}
+                                className={`grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-2.5 text-left text-base text-[#111827] hover:bg-[#F3F4F6] ${
+                                  isSelected ? "bg-[#F3F4F6]" : ""
+                                }`}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedKeywordDifficulty(range.value);
+                                  setIsKeywordDifficultyFilterOpen(false);
+                                }}
+                              >
+                                <span className="truncate">{range.label}</span>
+                                <span className="text-[#6B7280]">
+                                  {range.suffix}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="border-t border-default-200 p-4">
+                          <p className="mb-3 text-base font-semibold leading-7 text-[#111827]">
+                            Custom range
+                          </p>
+                          <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg border border-default-300">
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 shadow-none",
+                              }}
+                              max={100}
+                              min={0}
+                              placeholder="From"
+                              radius="none"
+                              type="number"
+                              value={customKeywordDifficultyFrom}
+                              variant="flat"
+                              onValueChange={setCustomKeywordDifficultyFrom}
+                            />
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 border-l border-default-300 shadow-none",
+                              }}
+                              max={100}
+                              min={0}
+                              placeholder="To"
+                              radius="none"
+                              type="number"
+                              value={customKeywordDifficultyTo}
+                              variant="flat"
+                              onValueChange={setCustomKeywordDifficultyTo}
+                            />
+                          </div>
+                          <Button
+                            className="w-full rounded-lg bg-primary text-base font-semibold text-white"
+                            onPress={() => {
+                              const from = customKeywordDifficultyFrom.trim();
+                              const to = customKeywordDifficultyTo.trim();
+
+                              setSelectedKeywordDifficulty(
+                                from || to ? `${from}:${to}` : "",
+                              );
+                              setIsKeywordDifficultyFilterOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    ref={cpcFilterRef}
+                    className="relative z-50 min-w-[220px] overflow-visible"
                   >
-                    {(item) => <SelectItem>{item.label}</SelectItem>}
-                  </Select>
-                  <Select
-                    isClearable
-                    items={intentFilterOptions}
-                    placeholder="Intent"
-                    radius="md"
-                    selectedKeys={selectedIntent ? [selectedIntent] : []}
-                    onSelectionChange={(keys) => {
-                      setSelectedIntent(normalizeSelection(keys) ?? "");
-                    }}
+                    <Button
+                      className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
+                      endContent={
+                        <span className="flex items-center gap-1">
+                          {selectedCpc ? (
+                            <span
+                              aria-label="Clear CPC filter"
+                              className="grid h-5 w-5 place-items-center rounded-full text-default-500 hover:bg-default-100 hover:text-[#111827]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedCpc("");
+                                setCustomCpcFrom("");
+                                setCustomCpcTo("");
+                                setIsCpcFilterOpen(false);
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Enter" &&
+                                  event.key !== " "
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedCpc("");
+                                setCustomCpcFrom("");
+                                setCustomCpcTo("");
+                                setIsCpcFilterOpen(false);
+                              }}
+                            >
+                              <X size={14} />
+                            </span>
+                          ) : null}
+                          <ChevronDown className="text-default-500" size={16} />
+                        </span>
+                      }
+                      radius="md"
+                      variant="bordered"
+                      onPress={() => {
+                        setIsCpcFilterOpen((current) => !current);
+                      }}
+                    >
+                      <span className="truncate">
+                        {getCpcRangeLabel(selectedCpc)}
+                      </span>
+                    </Button>
+
+                    {isCpcFilterOpen ? (
+                      <div className="absolute left-0 top-12 z-[999] w-[300px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                        <div className="border-t-0 p-4">
+                          <p className="mb-3 text-base font-semibold leading-7 text-[#111827]">
+                            Custom range
+                          </p>
+                          <div className="mb-3 grid grid-cols-2 overflow-hidden rounded-lg border border-default-300">
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 shadow-none",
+                              }}
+                              min={0}
+                              placeholder="From"
+                              radius="none"
+                              step="0.01"
+                              type="number"
+                              value={customCpcFrom}
+                              variant="flat"
+                              onValueChange={setCustomCpcFrom}
+                            />
+                            <Input
+                              classNames={{
+                                input: "text-base placeholder:text-[#9CA3AF]",
+                                inputWrapper:
+                                  "rounded-none border-0 border-l border-default-300 shadow-none",
+                              }}
+                              min={0}
+                              placeholder="To"
+                              radius="none"
+                              step="0.01"
+                              type="number"
+                              value={customCpcTo}
+                              variant="flat"
+                              onValueChange={setCustomCpcTo}
+                            />
+                          </div>
+                          <Button
+                            className="w-full rounded-lg bg-primary text-base font-semibold text-white"
+                            onPress={() => {
+                              const from = customCpcFrom.trim();
+                              const to = customCpcTo.trim();
+
+                              setSelectedCpc(from || to ? `${from}:${to}` : "");
+                              setIsCpcFilterOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    ref={intentFilterRef}
+                    className="relative z-50 min-w-[220px] overflow-visible"
                   >
-                    {(item) => <SelectItem>{item.label}</SelectItem>}
-                  </Select>
-                  <Select
-                    isClearable
-                    items={excludeKeywordOptions}
-                    placeholder="Exclude Keywords"
-                    radius="md"
-                    selectedKeys={
-                      selectedExcludedKeyword ? [selectedExcludedKeyword] : []
-                    }
-                    onSelectionChange={(keys) => {
-                      setSelectedExcludedKeyword(
-                        normalizeSelection(keys) ?? "",
-                      );
-                    }}
+                    <Button
+                      className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
+                      endContent={
+                        <span className="flex items-center gap-1">
+                          {selectedIntents.length ? (
+                            <span
+                              aria-label="Clear intent filter"
+                              className="grid h-5 w-5 place-items-center rounded-full text-default-500 hover:bg-default-100 hover:text-[#111827]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedIntents([]);
+                                setDraftIntents([]);
+                                setIsIntentFilterOpen(false);
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Enter" &&
+                                  event.key !== " "
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedIntents([]);
+                                setDraftIntents([]);
+                                setIsIntentFilterOpen(false);
+                              }}
+                            >
+                              <X size={14} />
+                            </span>
+                          ) : null}
+                          <ChevronDown className="text-default-500" size={16} />
+                        </span>
+                      }
+                      radius="md"
+                      variant="bordered"
+                      onPress={() => {
+                        setDraftIntents(selectedIntents);
+                        setIsIntentFilterOpen((current) => !current);
+                      }}
+                    >
+                      <span className="truncate">
+                        {selectedIntents.length
+                          ? `Intent (${selectedIntents.length})`
+                          : "Intent"}
+                      </span>
+                    </Button>
+
+                    {isIntentFilterOpen ? (
+                      <div className="absolute left-0 top-12 z-[999] w-[220px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                        <div className="py-1">
+                          {intentFilterOptions.map((item) => {
+                            const isChecked = draftIntents.includes(item.value);
+
+                            return (
+                              <button
+                                key={item.value}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-[#F3F4F6]"
+                                type="button"
+                                onClick={() => {
+                                  setDraftIntents((current) =>
+                                    current.includes(item.value)
+                                      ? current.filter(
+                                          (value) => value !== item.value,
+                                        )
+                                      : [...current, item.value],
+                                  );
+                                }}
+                              >
+                                <span
+                                  className={`grid h-4 w-4 place-items-center rounded-[4px] border ${
+                                    isChecked
+                                      ? "border-[#1597EA] bg-[#1597EA] text-white"
+                                      : "border-default-300 bg-white text-transparent"
+                                  }`}
+                                >
+                                  <Check size={12} />
+                                </span>
+                                <span className="truncate">{item.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="border-t border-default-200 p-3">
+                          <Button
+                            className="w-full rounded-lg bg-primary text-base font-semibold text-white"
+                            onPress={() => {
+                              setSelectedIntents(draftIntents);
+                              setIsIntentFilterOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div
+                    ref={excludeKeywordFilterRef}
+                    className="relative z-50 min-w-[220px] overflow-visible"
                   >
-                    {(item) => <SelectItem>{item.label}</SelectItem>}
-                  </Select>
+                    <Button
+                      className="h-10 w-full justify-between border-default-200 bg-white px-3 text-left text-[#111827]"
+                      endContent={
+                        <span className="flex items-center gap-1">
+                          {selectedExcludedKeyword ? (
+                            <span
+                              aria-label="Clear excluded keywords"
+                              className="grid h-5 w-5 place-items-center rounded-full text-default-500 hover:bg-default-100 hover:text-[#111827]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedExcludedKeyword("");
+                                setDraftExcludedKeywords("");
+                                setIsExcludeKeywordFilterOpen(false);
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== "Enter" &&
+                                  event.key !== " "
+                                ) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setSelectedExcludedKeyword("");
+                                setDraftExcludedKeywords("");
+                                setIsExcludeKeywordFilterOpen(false);
+                              }}
+                            >
+                              <X size={14} />
+                            </span>
+                          ) : null}
+                          <ChevronDown className="text-default-500" size={16} />
+                        </span>
+                      }
+                      radius="md"
+                      variant="bordered"
+                      onPress={() => {
+                        setDraftExcludedKeywords(selectedExcludedKeyword);
+                        setIsExcludeKeywordFilterOpen((current) => !current);
+                      }}
+                    >
+                      <span className="truncate">
+                        {selectedExcludedKeyword
+                          ? `Exclude Keywords (${parseExcludedKeywords(selectedExcludedKeyword).length})`
+                          : "Exclude Keywords"}
+                      </span>
+                    </Button>
+
+                    {isExcludeKeywordFilterOpen ? (
+                      <div className="absolute left-0 top-12 z-[999] w-[420px] overflow-hidden rounded-lg border border-default-200 bg-white shadow-lg">
+                        <div className="p-4">
+                          <p className="mb-4 text-sm text-[#111827]">
+                            Enter keywords one per line. Each line excludes an
+                            exact keyword match.
+                          </p>
+                          <Textarea
+                            classNames={{
+                              input:
+                                "min-h-[140px] text-base placeholder:text-[#9CA3AF]",
+                              inputWrapper:
+                                "rounded-lg border border-[#1597EA] shadow-none",
+                            }}
+                            minRows={6}
+                            placeholder={
+                              "dental implants\nteeth whitening\nemergency dentist"
+                            }
+                            value={draftExcludedKeywords}
+                            variant="bordered"
+                            onValueChange={setDraftExcludedKeywords}
+                          />
+                          <div className="mt-4 flex items-center gap-3">
+                            <Button
+                              className="rounded-lg bg-primary text-base font-semibold text-white"
+                              onPress={() => {
+                                const normalizedValue =
+                                  normalizeExcludedKeywordsValue(
+                                    draftExcludedKeywords,
+                                  );
+
+                                setDraftExcludedKeywords(normalizedValue);
+                                setSelectedExcludedKeyword(normalizedValue);
+                                setIsExcludeKeywordFilterOpen(false);
+                              }}
+                            >
+                              Apply
+                            </Button>
+                            <Button
+                              className="rounded-lg"
+                              variant="bordered"
+                              onPress={() => {
+                                setDraftExcludedKeywords("");
+                                setSelectedExcludedKeyword("");
+                                setIsExcludeKeywordFilterOpen(false);
+                              }}
+                            >
+                              Clear all
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </CardBody>
             </Card>

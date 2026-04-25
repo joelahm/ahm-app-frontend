@@ -150,10 +150,12 @@ export const SettingsUsersTable = ({
           const clientName =
             (client.businessName || client.clientName || "").trim() ||
             `Client ${clientId}`;
+          const assignedUserId =
+            client.assignedToId ?? client.assignedTo ?? null;
           const assignedToId =
-            client.assignedTo === null || client.assignedTo === undefined
+            assignedUserId === null || assignedUserId === undefined
               ? null
-              : String(client.assignedTo);
+              : String(assignedUserId);
 
           clientNameById.set(clientId, clientName);
 

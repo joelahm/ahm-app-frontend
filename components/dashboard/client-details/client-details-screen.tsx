@@ -546,7 +546,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     reset,
     clearErrors,
     setError,
-    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<ClientDetailsFormValues>({

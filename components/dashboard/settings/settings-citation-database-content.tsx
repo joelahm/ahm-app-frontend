@@ -105,23 +105,23 @@ export const SettingsCitationDatabaseContent = () => {
   const [isAddCitationModalOpen, setIsAddCitationModalOpen] = useState(false);
   const [isImportBulkModalOpen, setIsImportBulkModalOpen] = useState(false);
 
-  const fetchCitations = useCallback(
-    async (accessToken: string) => {
-      const response = await citationDatabaseApi.listCitations(accessToken);
-      setRows(response.citations.map(mapCitationToRow));
-    },
-    [],
-  );
+  const fetchCitations = useCallback(async (accessToken: string) => {
+    const response = await citationDatabaseApi.listCitations(accessToken);
+
+    setRows(response.citations.map(mapCitationToRow));
+  }, []);
 
   const loadCitations = useCallback(async () => {
     try {
       const accessToken = await getValidAccessToken();
+
       await fetchCitations(accessToken);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Failed to load citation database.";
+
       toast.danger("Failed to load citation database.", {
         description: message,
       });
@@ -154,6 +154,7 @@ export const SettingsCitationDatabaseContent = () => {
           error instanceof Error
             ? error.message
             : "Failed to load citation database.";
+
         toast.danger("Failed to load citation database.", {
           description: message,
         });
@@ -224,13 +225,10 @@ export const SettingsCitationDatabaseContent = () => {
         ),
         {
           fieldErrors: {
-            ...(hasDuplicateName
-              ? { name: "This name already exists." }
-              : {}),
+            ...(hasDuplicateName ? { name: "This name already exists." } : {}),
             ...(hasDuplicateValidationLink
               ? {
-                  validationLink:
-                    "This validation link already exists.",
+                  validationLink: "This validation link already exists.",
                 }
               : {}),
           },
@@ -248,10 +246,7 @@ export const SettingsCitationDatabaseContent = () => {
       );
       toast.success("Citation updated successfully.");
     } else {
-      await citationDatabaseApi.createCitation(
-        accessToken,
-        requestBody,
-      );
+      await citationDatabaseApi.createCitation(accessToken, requestBody);
       toast.success("Citation added successfully.");
     }
 
@@ -292,12 +287,14 @@ export const SettingsCitationDatabaseContent = () => {
 
     try {
       const accessToken = await getValidAccessToken();
+
       await citationDatabaseApi.deleteCitation(accessToken, citationId);
       await loadCitations();
       toast.success("Citation deleted successfully.");
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to delete citation.";
+
       toast.danger("Failed to delete citation.", {
         description: message,
       });

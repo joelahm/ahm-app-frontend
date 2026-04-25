@@ -20,13 +20,12 @@ import {
   Star,
   Tablet,
 } from "lucide-react";
+import Image from "next/image";
 
 import {
   DashboardDataTable,
   type DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
-
-import Image from "next/image";
 
 type RankingRow = {
   dateAdded: string;
@@ -402,7 +401,12 @@ const ConnectGoogleAnalyticsState = () => (
   <div className="flex min-h-[520px] items-center justify-center rounded-2xl bg-white px-4 py-16">
     <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
       <div className="grid h-[58px] w-[58px] place-items-center rounded-xl border border-default-200 bg-white text-[30px] font-semibold text-[#4F46E5] shadow-sm">
-        <Image alt="Google" height={28} src="/images/google-icon.svg" width={28} />
+        <Image
+          alt="Google"
+          height={28}
+          src="/images/google-icon.svg"
+          width={28}
+        />
       </div>
       <h1 className="mt-14 text-2xl font-semibold tracking-[-0.03em] text-[#111827]">
         Connect Google to See Analytics

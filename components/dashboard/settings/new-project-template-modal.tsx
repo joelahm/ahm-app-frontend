@@ -273,7 +273,9 @@ export const NewProjectTemplateModal = ({
       try {
         const accessToken = await getValidAccessToken();
         const response =
-          await projectTemplatesApi.listProjectTemplateStatusOptions(accessToken);
+          await projectTemplatesApi.listProjectTemplateStatusOptions(
+            accessToken,
+          );
         const nextOptions = response.statusOptions.length
           ? response.statusOptions
           : defaultProjectTemplateStatusOptions;
@@ -301,7 +303,14 @@ export const NewProjectTemplateModal = ({
     return () => {
       isMounted = false;
     };
-  }, [getValidAccessToken, getValues, initialTemplate?.status, isOpen, session, setValue]);
+  }, [
+    getValidAccessToken,
+    getValues,
+    initialTemplate?.status,
+    isOpen,
+    session,
+    setValue,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -761,10 +770,7 @@ export const NewProjectTemplateModal = ({
             payload,
           );
         } else {
-          await projectTemplatesApi.createProjectTemplate(
-            accessToken,
-            payload,
-          );
+          await projectTemplatesApi.createProjectTemplate(accessToken, payload);
         }
 
         await onCreated?.();

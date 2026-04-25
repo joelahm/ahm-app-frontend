@@ -71,7 +71,15 @@ export async function POST(request: NextRequest) {
           rank,
         };
       })
-      .filter((point): point is { latitude: number; longitude: number; rank: number | null } => Boolean(point));
+      .filter(
+        (
+          point,
+        ): point is {
+          latitude: number;
+          longitude: number;
+          rank: number | null;
+        } => Boolean(point),
+      );
     const payload: SnapshotRequestPayload = {
       center: {
         latitude: centerLatitude,
@@ -117,12 +125,11 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unable to capture map snapshot.";
+      error instanceof Error
+        ? error.message
+        : "Unable to capture map snapshot.";
 
-    return NextResponse.json(
-      { message },
-      { status: 500 },
-    );
+    return NextResponse.json({ message }, { status: 500 });
   } finally {
     if (browser) {
       await browser.close();

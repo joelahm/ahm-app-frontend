@@ -11,9 +11,7 @@ import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import {
-  CalendarDays,
   CheckCircle2,
-  Clock3,
   CloudUpload,
   Copy,
   Eye,
@@ -23,15 +21,12 @@ import {
 } from "lucide-react";
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
+import { departmentOptions } from "@/components/form/department-options";
 import { authApi } from "@/apis/auth";
 import { useAuth } from "@/components/auth/auth-context";
 import { usersApi } from "@/apis/users";
 import { useAppToast } from "@/hooks/use-app-toast";
-import {
-  getCountryOptions,
-  getDateFormatOptions,
-  getTimeZoneOptions,
-} from "@/components/form/location-options";
+import { getCountryOptions } from "@/components/form/location-options";
 
 const fieldLabel = "mb-1.5 block text-xs text-[#585763]";
 const sectionCard = "rounded-xl border border-default-200 bg-white";
@@ -58,7 +53,7 @@ const settingsProfileSchema = yup.object({
         return !!currentPassword;
       },
     ),
-  dateFormat: yup.string().required("Date format is required"),
+  department: yup.string().required("Department is required"),
   email: yup
     .string()
     .email("Enter a valid email")
@@ -182,7 +177,6 @@ const settingsProfileSchema = yup.object({
 
       return newPassword === confirmPassword;
     }),
-  timeZone: yup.string().required("Time zone is required"),
   title: yup.string().required("Title is required"),
 });
 
@@ -224,7 +218,6 @@ export const SettingsProfileContent = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [timeZoneSearch, setTimeZoneSearch] = useState("");
 
   toastRef.current = toast;
   const countryAliases: Record<string, string> = {
@@ -244,20 +237,6 @@ export const SettingsProfileContent = () => {
       country.label.toLowerCase().includes(normalizedQuery),
     );
   }, [countryOptions, countrySearch]);
-  const timeZoneOptions = useMemo(() => getTimeZoneOptions(), []);
-  const dateFormatOptions = useMemo(() => getDateFormatOptions(), []);
-  const filteredTimeZoneOptions = useMemo(() => {
-    const normalizedQuery = timeZoneSearch.trim().toLowerCase();
-
-    if (!normalizedQuery) {
-      return timeZoneOptions;
-    }
-
-    return timeZoneOptions.filter((timeZone) =>
-      timeZone.label.toLowerCase().includes(normalizedQuery),
-    );
-  }, [timeZoneOptions, timeZoneSearch]);
-
   const {
     control,
     clearErrors,
@@ -270,14 +249,13 @@ export const SettingsProfileContent = () => {
     defaultValues: {
       country: "",
       currentPassword: "",
-      dateFormat: "",
+      department: "",
       email: "",
       firstName: "",
       lastName: "",
       newPassword: "",
       phoneNumber: "",
       confirmPassword: "",
-      timeZone: "",
       title: "",
     },
     mode: "onBlur",
@@ -302,30 +280,23 @@ export const SettingsProfileContent = () => {
 
         const resolvedCountry =
           countryAliases[profile.country ?? ""] ?? profile.country ?? "";
-        const resolvedTimeZone = profile.timezone ?? "";
-        const resolvedDateFormat = profile.dateFormat ?? "";
         const resolvedCountryLabel = countryOptions.find(
           (country) => country.label === resolvedCountry,
-        )?.label;
-        const resolvedTimeZoneLabel = timeZoneOptions.find(
-          (timeZone) => timeZone.key === resolvedTimeZone,
         )?.label;
 
         reset({
           confirmPassword: "",
           country: resolvedCountryLabel ?? resolvedCountry,
           currentPassword: "",
-          dateFormat: resolvedDateFormat,
+          department: profile.department ?? "",
           email: profile.email,
           firstName: profile.firstName ?? "",
           lastName: profile.lastName ?? "",
           newPassword: "",
           phoneNumber: profile.phoneNumber ?? "",
-          timeZone: resolvedTimeZone,
           title: profile.title ?? "",
         });
         setCountrySearch(resolvedCountryLabel ?? resolvedCountry);
-        setTimeZoneSearch(resolvedTimeZoneLabel ?? resolvedTimeZone);
         setMemberId(String(profile.id));
 
         if (profile.avatarUrl) {
@@ -361,7 +332,7 @@ export const SettingsProfileContent = () => {
     return () => {
       isMounted = false;
     };
-  }, [countryOptions, reset, session?.accessToken, timeZoneOptions]);
+  }, [countryOptions, reset, session?.accessToken]);
 
   useEffect(() => {
     return () => {
@@ -416,12 +387,11 @@ export const SettingsProfileContent = () => {
 
       const basicInformationPayload = {
         country: validatedValues.country,
-        dateFormat: validatedValues.dateFormat,
+        department: validatedValues.department,
         email: validatedValues.email,
         firstName: validatedValues.firstName,
         lastName: validatedValues.lastName,
         phoneNumber: validatedValues.phoneNumber,
-        timezone: validatedValues.timeZone,
         title: validatedValues.title,
       };
       const profilePayload = avatarFile
@@ -429,12 +399,11 @@ export const SettingsProfileContent = () => {
             const formData = new FormData();
 
             formData.append("country", basicInformationPayload.country);
-            formData.append("dateFormat", basicInformationPayload.dateFormat);
+            formData.append("department", basicInformationPayload.department);
             formData.append("email", basicInformationPayload.email);
             formData.append("firstName", basicInformationPayload.firstName);
             formData.append("lastName", basicInformationPayload.lastName);
             formData.append("phoneNumber", basicInformationPayload.phoneNumber);
-            formData.append("timezone", basicInformationPayload.timezone);
             formData.append("title", basicInformationPayload.title);
             formData.append("avatar", avatarFile);
 
@@ -700,63 +669,15 @@ export const SettingsProfileContent = () => {
 
             <div className="grid gap-3 md:grid-cols-2">
               <div>
-                <p className={fieldLabel}>Time Zone *</p>
+                <p className={fieldLabel}>Department *</p>
                 <Controller
                   control={control}
-                  name="timeZone"
-                  render={({ field }) => (
-                    <Autocomplete
-                      allowsCustomValue={false}
-                      errorMessage={errors.timeZone?.message}
-                      inputValue={timeZoneSearch}
-                      isInvalid={!!errors.timeZone}
-                      items={filteredTimeZoneOptions}
-                      menuTrigger="focus"
-                      placeholder="Select time zone"
-                      radius="sm"
-                      selectedKey={
-                        timeZoneOptions.find(
-                          (timeZone) => timeZone.key === field.value,
-                        )?.key ?? null
-                      }
-                      size="sm"
-                      startContent={
-                        <Clock3 className="text-default-400" size={14} />
-                      }
-                      onInputChange={(value) => {
-                        setTimeZoneSearch(value);
-                      }}
-                      onSelectionChange={(key) => {
-                        const selectedTimeZone = timeZoneOptions.find(
-                          (timeZone) => timeZone.key === key,
-                        );
-
-                        field.onChange(selectedTimeZone?.key ?? "");
-                        setTimeZoneSearch(selectedTimeZone?.label ?? "");
-                      }}
-                    >
-                      {(timeZone) => (
-                        <AutocompleteItem key={timeZone.key}>
-                          {timeZone.label}
-                        </AutocompleteItem>
-                      )}
-                    </Autocomplete>
-                  )}
-                />
-              </div>
-              <div>
-                <p className={fieldLabel}>Date Format *</p>
-                <Controller
-                  control={control}
-                  name="dateFormat"
+                  name="department"
                   render={({ field }) => (
                     <Select
-                      endContent={
-                        <CalendarDays className="text-default-400" size={14} />
-                      }
-                      errorMessage={errors.dateFormat?.message}
-                      isInvalid={!!errors.dateFormat}
-                      placeholder="Select date format"
+                      errorMessage={errors.department?.message}
+                      isInvalid={!!errors.department}
+                      placeholder="Select department"
                       radius="sm"
                       selectedKeys={field.value ? [field.value] : []}
                       size="sm"
@@ -766,8 +687,8 @@ export const SettingsProfileContent = () => {
                         field.onChange(first);
                       }}
                     >
-                      {dateFormatOptions.map((format) => (
-                        <SelectItem key={format.key}>{format.label}</SelectItem>
+                      {departmentOptions.map((department) => (
+                        <SelectItem key={department}>{department}</SelectItem>
                       ))}
                     </Select>
                   )}

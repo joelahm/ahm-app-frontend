@@ -72,10 +72,9 @@ export interface UserListItem {
   firstName: string | null;
   lastName: string | null;
   title: string | null;
+  department: string | null;
   phoneNumber: string | null;
   country: string | null;
-  timezone: string | null;
-  dateFormat: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,7 +83,7 @@ export interface CurrentUserProfile {
   avatarUrl: string | null;
   country: string | null;
   createdAt: string;
-  dateFormat: string | null;
+  department: string | null;
   email: string;
   firstName: string | null;
   id: number;
@@ -93,19 +92,17 @@ export interface CurrentUserProfile {
   phoneNumber: string | null;
   role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
   status: string;
-  timezone: string | null;
   title: string | null;
   updatedAt: string;
 }
 
 export interface UpdateCurrentUserRequestBody {
   country: string;
-  dateFormat: string;
+  department: string;
   email: string;
   firstName: string;
   lastName: string;
   phoneNumber: string;
-  timezone: string;
   title: string;
 }
 
@@ -231,7 +228,7 @@ const parseCurrentUserProfile = (value: unknown): CurrentUserProfile => {
     avatarUrl: asString(source.avatarUrl),
     country: asString(source.country),
     createdAt: asString(source.createdAt) ?? "",
-    dateFormat: asString(source.dateFormat),
+    department: asString(source.department),
     email,
     firstName: asString(source.firstName),
     id,
@@ -240,7 +237,6 @@ const parseCurrentUserProfile = (value: unknown): CurrentUserProfile => {
     phoneNumber: asString(source.phoneNumber),
     role,
     status: asString(source.status) ?? "",
-    timezone: asString(source.timezone),
     title: asString(source.title),
     updatedAt: asString(source.updatedAt) ?? "",
   };
@@ -440,7 +436,7 @@ export const usersApi = {
         avatarUrl: asString(source.avatarUrl),
         country: asString(source.country),
         createdAt: asString(source.createdAt) ?? "",
-        dateFormat: asString(source.dateFormat),
+        department: asString(source.department),
         email,
         firstName: asString(source.firstName),
         id,
@@ -449,7 +445,6 @@ export const usersApi = {
         phoneNumber: asString(source.phoneNumber),
         role,
         status: asString(source.status) ?? "",
-        timezone: asString(source.timezone),
         title: asString(source.title),
         updatedAt: asString(source.updatedAt) ?? "",
       } satisfies CurrentUserProfile;

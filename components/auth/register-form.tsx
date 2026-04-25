@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as yup from "yup";
 import { Alert } from "@heroui/alert";
 import { Button } from "@heroui/button";
@@ -10,30 +10,23 @@ import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Select, SelectItem } from "@heroui/select";
-import {
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
-  Eye,
-  EyeOff,
-  Mail,
-} from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Mail } from "lucide-react";
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { useAuth } from "@/components/auth/auth-context";
 import { invitationsApi } from "@/apis/invitations";
 import {
-  getCountryOptions,
-  getDateFormatOptions,
-  getTimeZoneOptions,
-} from "@/components/form/location-options";
+  keywordResearchApi,
+  type KeywordResearchCountryOption,
+} from "@/apis/keyword-research";
+import { departmentOptions } from "@/components/form/department-options";
 
 const fieldLabel = "mb-1.5 block text-xs text-[#585763]";
 const sectionCard = "rounded-xl border border-default-200 bg-white";
 
 const registerSchema = yup.object({
   country: yup.string().required("Country is required"),
-  dateFormat: yup.string().required("Date format is required"),
+  department: yup.string().required("Department is required"),
   email: yup
     .string()
     .email("Enter a valid email")
@@ -57,7 +50,6 @@ const registerSchema = yup.object({
     .required("Confirm password is required")
     .oneOf([yup.ref("newPassword")], "Passwords do not match")
     .min(8, "Confirm password must be at least 8 characters"),
-  timeZone: yup.string().required("Time zone is required"),
   title: yup.string().required("Title is required"),
 });
 
@@ -77,11 +69,12 @@ export const RegisterForm = ({
   const router = useRouter();
   const { logout } = useAuth();
   const [countrySearch, setCountrySearch] = useState("");
+  const [countryOptions, setCountryOptions] = useState<
+    Array<KeywordResearchCountryOption & { key: string }>
+  >([]);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [submitError, setSubmitError] = useState("");
-  const [timeZoneSearch, setTimeZoneSearch] = useState("");
-  const countryOptions = useMemo(() => getCountryOptions(), []);
   const filteredCountryOptions = useMemo(() => {
     const normalizedQuery = countrySearch.trim().toLowerCase();
 
@@ -93,20 +86,6 @@ export const RegisterForm = ({
       country.label.toLowerCase().includes(normalizedQuery),
     );
   }, [countryOptions, countrySearch]);
-  const timeZoneOptions = useMemo(() => getTimeZoneOptions(), []);
-  const dateFormatOptions = useMemo(() => getDateFormatOptions(), []);
-  const filteredTimeZoneOptions = useMemo(() => {
-    const normalizedQuery = timeZoneSearch.trim().toLowerCase();
-
-    if (!normalizedQuery) {
-      return timeZoneOptions;
-    }
-
-    return timeZoneOptions.filter((timeZone) =>
-      timeZone.label.toLowerCase().includes(normalizedQuery),
-    );
-  }, [timeZoneOptions, timeZoneSearch]);
-
   const {
     control,
     clearErrors,
@@ -117,18 +96,52 @@ export const RegisterForm = ({
   } = useForm<RegisterFormValues>({
     defaultValues: {
       country: "",
-      dateFormat: "",
+      department: "",
       email: defaultEmail,
       firstName: "",
       lastName: "",
       newPassword: "",
       phoneNumber: "",
       confirmPassword: "",
-      timeZone: "",
       title: "",
     },
     mode: "onBlur",
   });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCountries = async () => {
+      try {
+        const response = await keywordResearchApi.getCountries();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setCountryOptions(
+          response.countries.map((country) => ({
+            ...country,
+            key: String(country.locationCode),
+          })),
+        );
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setSubmitError(
+          error instanceof Error ? error.message : "Failed to load countries.",
+        );
+      }
+    };
+
+    void loadCountries();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const onSubmit = async (values: RegisterFormValues) => {
     clearErrors();
@@ -146,13 +159,12 @@ export const RegisterForm = ({
       await invitationsApi.register({
         confirmPassword: validatedValues.confirmPassword,
         country: validatedValues.country,
-        dateFormat: validatedValues.dateFormat,
+        department: validatedValues.department,
         email: validatedValues.email,
         firstName: validatedValues.firstName,
         lastName: validatedValues.lastName,
         password: validatedValues.newPassword,
         phoneNumber: validatedValues.phoneNumber,
-        timezone: validatedValues.timeZone,
         title: validatedValues.title,
         token: inviteToken,
       });
@@ -281,89 +293,43 @@ export const RegisterForm = ({
             </div>
           </div>
 
-          <div>
-            <p className={fieldLabel}>Country *</p>
-            <Controller
-              control={control}
-              name="country"
-              render={({ field }) => (
-                <Autocomplete
-                  allowsCustomValue={false}
-                  errorMessage={errors.country?.message}
-                  inputValue={countrySearch}
-                  isInvalid={!!errors.country}
-                  items={filteredCountryOptions}
-                  menuTrigger="focus"
-                  placeholder="Select country"
-                  radius="sm"
-                  selectedKey={
-                    countryOptions.find(
-                      (country) => country.label === field.value,
-                    )?.key ?? null
-                  }
-                  size="sm"
-                  onInputChange={(value) => {
-                    setCountrySearch(value);
-                  }}
-                  onSelectionChange={(key) => {
-                    const selectedCountry = countryOptions.find(
-                      (country) => country.key === key,
-                    );
-
-                    field.onChange(selectedCountry?.label ?? "");
-                    setCountrySearch(selectedCountry?.label ?? "");
-                  }}
-                >
-                  {(country) => (
-                    <AutocompleteItem key={country.key}>
-                      {country.label}
-                    </AutocompleteItem>
-                  )}
-                </Autocomplete>
-              )}
-            />
-          </div>
-
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <p className={fieldLabel}>Time Zone *</p>
+              <p className={fieldLabel}>Country *</p>
               <Controller
                 control={control}
-                name="timeZone"
+                name="country"
                 render={({ field }) => (
                   <Autocomplete
                     allowsCustomValue={false}
-                    errorMessage={errors.timeZone?.message}
-                    inputValue={timeZoneSearch}
-                    isInvalid={!!errors.timeZone}
-                    items={filteredTimeZoneOptions}
+                    errorMessage={errors.country?.message}
+                    inputValue={countrySearch}
+                    isInvalid={!!errors.country}
+                    items={filteredCountryOptions}
                     menuTrigger="focus"
-                    placeholder="Select time zone"
+                    placeholder="Select country"
                     radius="sm"
                     selectedKey={
-                      timeZoneOptions.find(
-                        (timeZone) => timeZone.key === field.value,
+                      countryOptions.find(
+                        (country) => country.label === field.value,
                       )?.key ?? null
                     }
                     size="sm"
-                    startContent={
-                      <Clock3 className="text-default-400" size={14} />
-                    }
                     onInputChange={(value) => {
-                      setTimeZoneSearch(value);
+                      setCountrySearch(value);
                     }}
                     onSelectionChange={(key) => {
-                      const selectedTimeZone = timeZoneOptions.find(
-                        (timeZone) => timeZone.key === key,
+                      const selectedCountry = countryOptions.find(
+                        (country) => country.key === key,
                       );
 
-                      field.onChange(selectedTimeZone?.key ?? "");
-                      setTimeZoneSearch(selectedTimeZone?.label ?? "");
+                      field.onChange(selectedCountry?.label ?? "");
+                      setCountrySearch(selectedCountry?.label ?? "");
                     }}
                   >
-                    {(timeZone) => (
-                      <AutocompleteItem key={timeZone.key}>
-                        {timeZone.label}
+                    {(country) => (
+                      <AutocompleteItem key={country.key}>
+                        {country.label}
                       </AutocompleteItem>
                     )}
                   </Autocomplete>
@@ -371,18 +337,15 @@ export const RegisterForm = ({
               />
             </div>
             <div>
-              <p className={fieldLabel}>Date Format *</p>
+              <p className={fieldLabel}>Department *</p>
               <Controller
                 control={control}
-                name="dateFormat"
+                name="department"
                 render={({ field }) => (
                   <Select
-                    endContent={
-                      <CalendarDays className="text-default-400" size={14} />
-                    }
-                    errorMessage={errors.dateFormat?.message}
-                    isInvalid={!!errors.dateFormat}
-                    placeholder="Select date format"
+                    errorMessage={errors.department?.message}
+                    isInvalid={!!errors.department}
+                    placeholder="Select department"
                     radius="sm"
                     selectedKeys={field.value ? [field.value] : []}
                     size="sm"
@@ -392,8 +355,8 @@ export const RegisterForm = ({
                       field.onChange(first);
                     }}
                   >
-                    {dateFormatOptions.map((format) => (
-                      <SelectItem key={format.key}>{format.label}</SelectItem>
+                    {departmentOptions.map((department) => (
+                      <SelectItem key={department}>{department}</SelectItem>
                     ))}
                   </Select>
                 )}

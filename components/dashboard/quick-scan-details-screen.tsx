@@ -10,18 +10,17 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
-import {
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalHeader,
-} from "@heroui/modal";
+import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
 import clsx from "clsx";
 import { ChevronDown, LayoutGrid, Star, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-import { scansApi, type LocalRankingKeyword, type ScanRecord } from "@/apis/scans";
+import {
+  scansApi,
+  type LocalRankingKeyword,
+  type ScanRecord,
+} from "@/apis/scans";
 import { useAuth } from "@/components/auth/auth-context";
 import { ScanCoverageMiniMap } from "@/components/dashboard/client-details/scan-coverage-mini-map";
 
@@ -371,7 +370,8 @@ const buildQuickKeywordFromRun = ({
 
     return {
       id: Number(result.id || index + 1),
-      coordinateLabel: toStringOrNull(result.coordinateLabel) || `Point ${index + 1}`,
+      coordinateLabel:
+        toStringOrNull(result.coordinateLabel) || `Point ${index + 1}`,
       latitude: toNumberOrNull(result.latitude) || 0,
       longitude: toNumberOrNull(result.longitude) || 0,
       rankAbsolute,
@@ -394,8 +394,10 @@ const buildQuickKeywordFromRun = ({
   const averageRank = rankedCoordinates.length
     ? Number(
         (
-          rankedCoordinates.reduce((sum, row) => sum + Number(row.rankAbsolute), 0) /
-          rankedCoordinates.length
+          rankedCoordinates.reduce(
+            (sum, row) => sum + Number(row.rankAbsolute),
+            0,
+          ) / rankedCoordinates.length
         ).toFixed(2),
       )
     : null;
@@ -451,7 +453,8 @@ const buildQuickKeywordFromRun = ({
     matchedPhone:
       rankedCoordinates.find((row) => row.matchedPhone)?.matchedPhone || null,
     matchedPlaceId:
-      rankedCoordinates.find((row) => row.matchedPlaceId)?.matchedPlaceId || null,
+      rankedCoordinates.find((row) => row.matchedPlaceId)?.matchedPlaceId ||
+      null,
     matchedRating:
       rankedCoordinates.find((row) => row.matchedRating)?.matchedRating || null,
     matchedTitle:
@@ -547,14 +550,15 @@ const MiniMapPanel = ({
                   variant="bordered"
                 >
                   {selectedRunId
-                    ? runOptions.find((option) => option.value === selectedRunId)
-                        ?.label || "Select Date"
+                    ? runOptions.find(
+                        (option) => option.value === selectedRunId,
+                      )?.label || "Select Date"
                     : "Select Date"}
                 </Button>
               </DropdownTrigger>
               <DropdownMenu
-                aria-label={`${slotLabel} run date`}
                 disallowEmptySelection
+                aria-label={`${slotLabel} run date`}
                 selectedKeys={selectedRunId ? [selectedRunId] : []}
                 selectionMode="single"
                 onAction={(key) => {
@@ -666,8 +670,10 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
         setCoverageUnit(scan.coverageUnit || null);
         setKeywordLabel(scan.keyword || "");
 
-        const quickContext = (scan.quickScanContext ||
-          null) as Record<string, unknown> | null;
+        const quickContext = (scan.quickScanContext || null) as Record<
+          string,
+          unknown
+        > | null;
         const latitude = quickContext?.latitude;
         const longitude = quickContext?.longitude;
         const businessName = quickContext?.businessName;
@@ -703,6 +709,7 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
         if (!uniqueRunIds.length) {
           setComparisonRuns([]);
           setSelectedRunIds([null, null]);
+
           return;
         }
 
@@ -826,6 +833,7 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
       }
 
       const slotIndex = index === 0 ? 0 : 1;
+
       panels.push({
         slotIndex,
         selectedRunId: runId,
@@ -834,12 +842,14 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
         center: gbpCenter,
         label: gbpLabel,
         points: (run.coordinates || []).map((coordinate, coordinateIndex) => ({
-          label: coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
+          label:
+            coordinate.coordinateLabel || `Coordinate ${coordinateIndex + 1}`,
           latitude: coordinate.latitude,
           longitude: coordinate.longitude,
           rank: coordinate.rankAbsolute,
         })),
-        subtitle: formatRunSubtitle(run.dateOfScan) || `Run #${run.runId || "-"}`,
+        subtitle:
+          formatRunSubtitle(run.dateOfScan) || `Run #${run.runId || "-"}`,
         title: formatRunTitle(run.dateOfScan || null),
         runId: run.runId,
       });
@@ -1072,9 +1082,19 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
                 center={panel.center}
                 isPanelVisible={isPanelVisible}
                 label={panel.label}
+                points={panel.points}
+                runOptions={runDateOptions}
+                selectedRunId={panel.selectedRunId}
+                slotLabel={panel.slotLabel}
+                subtitle={panel.subtitle}
+                title={panel.title}
                 onRunChange={(runId) => {
                   setSelectedRunIds((previous) => {
-                    const next = [...previous] as [string | null, string | null];
+                    const next = [...previous] as [
+                      string | null,
+                      string | null,
+                    ];
+
                     next[panel.slotIndex as 0 | 1] = runId;
 
                     return next;
@@ -1083,12 +1103,6 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
                 onSeeCompetitor={() => {
                   setCompetitorModalRunId(panel.selectedRunId);
                 }}
-                points={panel.points}
-                runOptions={runDateOptions}
-                selectedRunId={panel.selectedRunId}
-                slotLabel={panel.slotLabel}
-                subtitle={panel.subtitle}
-                title={panel.title}
               />
             ))}
           </div>
@@ -1169,8 +1183,8 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
             hideCloseButton={false}
             isOpen={Boolean(competitorModalRunId)}
             placement="center"
-            size="5xl"
             scrollBehavior="inside"
+            size="5xl"
             onClose={() => {
               setCompetitorModalRunId(null);
             }}

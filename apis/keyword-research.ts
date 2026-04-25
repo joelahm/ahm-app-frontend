@@ -112,14 +112,16 @@ export const keywordResearchApi = {
       throw new Error(parseError(error));
     }
   },
-  getCountries: async (accessToken: string) => {
+  getCountries: async (accessToken?: string) => {
     try {
       const response = await keywordResearchApiClient.get<{
         countries: KeywordResearchCountryOption[];
       }>("/api/v1/integrations/dataforseo/google-ads-locations/countries", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: accessToken
+          ? {
+              Authorization: `Bearer ${accessToken}`,
+            }
+          : undefined,
       });
 
       return response.data;

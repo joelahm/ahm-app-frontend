@@ -2,7 +2,13 @@
 
 import { addToast } from "@heroui/toast";
 
-type ToastTone = "default" | "primary" | "secondary" | "success" | "warning" | "danger";
+type ToastTone =
+  | "default"
+  | "primary"
+  | "secondary"
+  | "success"
+  | "warning"
+  | "danger";
 
 interface ShowToastOptions {
   description?: string;
