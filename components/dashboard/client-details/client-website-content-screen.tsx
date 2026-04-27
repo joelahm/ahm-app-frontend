@@ -92,6 +92,7 @@ import {
 } from "@/lib/comment-attachments";
 
 const TOTAL_CREDITS = 80;
+const SHOULD_SUBMIT_WEBSITE_CONTENT_PROMPTS = true;
 
 const INITIAL_BREAKDOWN = [
   { key: "treatment", label: "Treatment pages", allocated: 10, used: 0 },
@@ -535,7 +536,7 @@ const normalizePageTypeForPrompt = (pageType: string) => {
   }
 
   if (normalized.includes("condition")) {
-    return "Conditions Page";
+    return "Condition Page";
   }
 
   if (normalized.includes("blog")) {
@@ -891,8 +892,9 @@ export const ClientWebsiteContentScreen = ({
       return;
     }
 
+    const accessToken = await getValidAccessToken();
     const response = await keywordContentListsApi.listKeywordContentLists(
-      session.accessToken,
+      accessToken,
       { clientId },
     );
 
@@ -906,7 +908,7 @@ export const ClientWebsiteContentScreen = ({
         ),
       ),
     );
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session?.accessToken]);
 
   const loadSavedBreakdown = useCallback(async () => {
     if (!session?.accessToken || !clientId) {
@@ -915,14 +917,15 @@ export const ClientWebsiteContentScreen = ({
       return;
     }
 
+    const accessToken = await getValidAccessToken();
     const response = await keywordContentListsApi.getClientContentBreakdown(
-      session.accessToken,
+      accessToken,
       clientId,
     );
     const normalized = normalizeBreakdownItems(response.items);
 
     setBreakdown(normalized);
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1096,8 +1099,10 @@ export const ClientWebsiteContentScreen = ({
         throw new Error("Session expired. Please login again.");
       }
 
+      const accessToken = await getValidAccessToken();
+
       await keywordContentListsApi.updateKeywordContentListKeyword(
-        session.accessToken,
+        accessToken,
         {
           keywordId: row.keywordId,
           listId: row.listId,
@@ -1105,7 +1110,7 @@ export const ClientWebsiteContentScreen = ({
         },
       );
     },
-    [session?.accessToken],
+    [getValidAccessToken, session?.accessToken],
   );
 
   const wouldCreateCycle = useCallback(
@@ -1258,8 +1263,10 @@ export const ClientWebsiteContentScreen = ({
       }
 
       try {
+        const accessToken = await getValidAccessToken();
+
         await keywordContentListsApi.deleteKeywordContentListKeyword(
-          session.accessToken,
+          accessToken,
           {
             keywordId: row.keywordId,
             listId: row.listId,
@@ -1274,7 +1281,7 @@ export const ClientWebsiteContentScreen = ({
         toast.danger(message);
       }
     },
-    [loadSavedKeywords, session?.accessToken, toast],
+    [getValidAccessToken, loadSavedKeywords, session?.accessToken, toast],
   );
 
   const setRowLoadingState = useCallback(
@@ -1397,8 +1404,10 @@ export const ClientWebsiteContentScreen = ({
         throw new Error("Session expired. Please login again.");
       }
 
+      const accessToken = await getValidAccessToken();
+
       await keywordContentListsApi.updateKeywordContentListKeyword(
-        session.accessToken,
+        accessToken,
         {
           keywordId: row.keywordId,
           listId: row.listId,
@@ -1406,7 +1415,7 @@ export const ClientWebsiteContentScreen = ({
         },
       );
     },
-    [session?.accessToken],
+    [getValidAccessToken, session?.accessToken],
   );
 
   const buildGenerationPrompt = useCallback(
@@ -1414,8 +1423,15 @@ export const ClientWebsiteContentScreen = ({
       const promptTemplate = getPromptTemplateByType(row.type);
 
       if (!promptTemplate) {
+        const availablePromptTypes = Object.keys(promptTemplateByType).sort();
+
         throw new Error(
-          `No active AI prompt found for page type "${normalizePageTypeForPrompt(row.type)}".`,
+          [
+            `No active AI prompt found for page type "${normalizePageTypeForPrompt(row.type)}".`,
+            availablePromptTypes.length
+              ? `Available active prompt types: ${availablePromptTypes.join(", ")}.`
+              : "No active website content prompts are currently loaded from AI Hub.",
+          ].join(" "),
         );
       }
 
@@ -1455,6 +1471,7 @@ export const ClientWebsiteContentScreen = ({
       generationClientDetails,
       getParentPillarRow,
       getPromptTemplateByType,
+      promptTemplateByType,
     ],
   );
 
@@ -1522,16 +1539,48 @@ ${plainContent}`.trim();
       }
 
       try {
+        const prompt = buildGenerationPrompt(row);
+
+        // eslint-disable-next-line no-console -- Temporary prompt inspection while validating Claude content generation.
+        console.log("[Website content generation prompt]", {
+          clientId,
+          contentLength: row.contentLength,
+          keyword: row.keyword,
+          prompt,
+          rowId: row.id,
+          title: row.title,
+          type: row.type,
+        });
+
+        if (!SHOULD_SUBMIT_WEBSITE_CONTENT_PROMPTS) {
+          updateRowById(row.id, { status: row.status });
+          if (options?.openModal ?? true) {
+            setGenerationModal((current) => ({
+              ...current,
+              error: "",
+              isGenerating: false,
+              isOpen: false,
+            }));
+          }
+          if (options?.showSuccessToast ?? true) {
+            toast.success(
+              "Prompt logged to browser console. API call skipped.",
+            );
+          }
+
+          return;
+        }
+
         if (!session?.accessToken) {
           throw new Error("Session expired. Please login again.");
         }
 
-        const prompt = buildGenerationPrompt(row);
-        const response = await manusApi.generateText(session.accessToken, {
+        const accessToken = await getValidAccessToken();
+        const response = await manusApi.generateText(accessToken, {
           clientId,
           maxCharacters: getMaxOutputTokensForContentLength(row.contentLength),
           prompt,
-          provider: "OPENAI",
+          provider: "ANTHROPIC",
         });
         const generatedContent = sanitizeGeneratedRichTextHtml(
           response.text?.trim() || "",
@@ -1542,11 +1591,11 @@ ${plainContent}`.trim();
         }
 
         const seoPrompt = buildSeoFieldsPrompt(row, generatedContent);
-        const seoResponse = await manusApi.generateText(session.accessToken, {
+        const seoResponse = await manusApi.generateText(accessToken, {
           clientId,
           maxCharacters: 700,
           prompt: seoPrompt,
-          provider: "OPENAI",
+          provider: "ANTHROPIC",
         });
         const generatedSeoFields = parseGeneratedSeoFields(
           seoResponse.text?.trim() || "",
@@ -1610,6 +1659,7 @@ ${plainContent}`.trim();
       buildSeoFieldsPrompt,
       buildGenerationPrompt,
       clientId,
+      getValidAccessToken,
       openGenerationModal,
       persistRowPatch,
       session?.accessToken,
@@ -2407,13 +2457,11 @@ ${plainContent}`.trim();
       throw new Error("Client is required.");
     }
 
-    const clusteringEnabled = Boolean(
-      draftKeywordPayload?.enableContentClustering ??
-        values.enableContentClustering,
-    );
+    const clusteringEnabled = values.keywords.length > 1;
     const pillarKeywordId = values.keywords[0]?.id ?? null;
+    const accessToken = await getValidAccessToken();
 
-    await keywordContentListsApi.createKeywordContentList(session.accessToken, {
+    await keywordContentListsApi.createKeywordContentList(accessToken, {
       audience: values.audience || "",
       clientId,
       enableContentClustering: clusteringEnabled,
@@ -2781,9 +2829,10 @@ ${plainContent}`.trim();
                   }
 
                   try {
+                    const accessToken = await getValidAccessToken();
                     const response =
                       await keywordContentListsApi.saveClientContentBreakdown(
-                        session.accessToken,
+                        accessToken,
                         {
                           clientId,
                           items: liveDraftBreakdown,
@@ -3729,19 +3778,33 @@ ${plainContent}`.trim();
             throw new Error("Session expired. Please login again.");
           }
 
-          const response = await keywordResearchApi.getKeywordOverview(
-            session.accessToken,
-            {
-              clientId,
-              countryIsoCode: payload.countryIsoCode,
-              forceRefresh: true,
-              keywords: payload.keywords,
-              languageCode: payload.languageCode,
-              languageName: payload.language,
-              locationCode: payload.locationCode,
-            },
-          );
-          const keywordDetails: KeywordResearchItem[] = response.keywords;
+          let keywordDetails: KeywordResearchItem[] = [];
+
+          try {
+            const accessToken = await getValidAccessToken();
+            const response = await keywordResearchApi.getKeywordOverview(
+              accessToken,
+              {
+                clientId,
+                countryIsoCode: payload.countryIsoCode,
+                forceRefresh: true,
+                keywords: payload.keywords,
+                languageCode: payload.languageCode,
+                languageName: payload.language,
+                locationCode: payload.locationCode,
+              },
+            );
+
+            keywordDetails = response.keywords;
+          } catch (error) {
+            toast.warning(
+              "Keyword metrics unavailable. Continuing without DataForSEO metrics.",
+              {
+                description: error instanceof Error ? error.message : undefined,
+                timeout: 5000,
+              },
+            );
+          }
 
           const detailMap = new Map(
             keywordDetails.map((item) => [item.keyword.toLowerCase(), item]),

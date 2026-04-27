@@ -14,6 +14,7 @@ import {
   ArrowUpToLine,
   EllipsisVertical,
   Eye,
+  MapPinned,
   Plus,
   RotateCcw,
   Star,
@@ -40,6 +41,7 @@ import { useScanRunSocket } from "@/hooks/use-scan-run-socket";
 type LocalRankingRow = {
   businessName: string;
   clientId: string;
+  distance: string;
   frequency: string;
   gridSize: string;
   id: string;
@@ -135,9 +137,60 @@ const getGridSize = (totalCoordinates?: number | null) => {
   return String(totalCoordinates);
 };
 
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const calculateDistanceKm = (
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number },
+) => {
+  const earthRadiusKm = 6371;
+  const deltaLatitude = toRadians(end.latitude - start.latitude);
+  const deltaLongitude = toRadians(end.longitude - start.longitude);
+  const startLatitude = toRadians(start.latitude);
+  const endLatitude = toRadians(end.latitude);
+  const a =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(startLatitude) *
+      Math.cos(endLatitude) *
+      Math.sin(deltaLongitude / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const formatDistance = (item: LocalRankingKeyword) => {
+  const points = item.coordinates ?? [];
+
+  if (points.length < 2) {
+    return "-";
+  }
+
+  let nearestDistanceKm = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < points.length; index += 1) {
+    for (let nextIndex = index + 1; nextIndex < points.length; nextIndex += 1) {
+      const distanceKm = calculateDistanceKm(points[index], points[nextIndex]);
+
+      if (distanceKm > 0 && distanceKm < nearestDistanceKm) {
+        nearestDistanceKm = distanceKm;
+      }
+    }
+  }
+
+  if (!Number.isFinite(nearestDistanceKm)) {
+    return "-";
+  }
+
+  const isMiles = item.coverageUnit === "MILES";
+  const value = isMiles ? nearestDistanceKm / 1.60934 : nearestDistanceKm;
+  const unit = isMiles ? "mi" : "km";
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
+};
+
 const mapRankingRow = (item: LocalRankingKeyword): LocalRankingRow => ({
   businessName: item.clientName || "Client",
   clientId: String(item.clientId ?? ""),
+  distance: formatDistance(item),
   gridSize: getGridSize(item.totalCoordinates),
   frequency: formatFrequency(item.frequency),
   id: String(item.scanId),
@@ -326,6 +379,18 @@ export const ClientLocalRankingsTable = ({
     runId: activeRun?.runId ?? null,
     scanId: activeRun?.scanId ?? null,
   });
+  const selectedRowIds = useMemo(() => {
+    if (selectedKeys === "all") {
+      return rows.map((row) => row.id);
+    }
+
+    return Array.from(selectedKeys).map(String);
+  }, [rows, selectedKeys]);
+  const selectedExportRows = useMemo(() => {
+    const selectedIds = new Set(selectedRowIds);
+
+    return rows.filter((row) => selectedIds.has(row.id));
+  }, [rows, selectedRowIds]);
   const keywordsInProgressCount = useMemo(
     () => rows.filter((row) => row.isProcessing).length,
     [rows],
@@ -705,6 +770,14 @@ export const ClientLocalRankingsTable = ({
         ),
       },
       {
+        key: "distance",
+        label: "Distance",
+        className: thClassName,
+        renderCell: (item) => (
+          <span className="text-sm text-[#111827]">{item.distance}</span>
+        ),
+      },
+      {
         key: "nextScanDate",
         label: "Next Scan Date",
         className: thClassName,
@@ -864,6 +937,7 @@ export const ClientLocalRankingsTable = ({
       "Previous Scan",
       "Latest Scan",
       "Grid Size",
+      "Distance",
       "Next Scan Date",
       "Scans Generated",
       "Frequency",
@@ -876,6 +950,7 @@ export const ClientLocalRankingsTable = ({
       row.previousScan,
       row.latestScan,
       row.gridSize,
+      row.distance,
       row.nextScanDate,
       row.scansGenerated,
       row.frequency,
@@ -900,6 +975,22 @@ export const ClientLocalRankingsTable = ({
     }, 0);
     toast.success("CSV exported successfully.");
   }, [currentPage, rows, toast]);
+
+  const handleExportSelectedMaps = useCallback(() => {
+    if (!selectedExportRows.length) {
+      toast.warning("Select at least one keyword row to export maps.");
+
+      return;
+    }
+
+    window.open(
+      `/print/scan-maps/${encodeURIComponent(
+        selectedExportRows.map((row) => row.id).join(","),
+      )}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }, [selectedExportRows, toast]);
 
   return (
     <>
@@ -941,6 +1032,14 @@ export const ClientLocalRankingsTable = ({
               onPress={handleExportCsv}
             >
               Export CSV
+            </Button>
+            <Button
+              isDisabled={!selectedExportRows.length}
+              startContent={<MapPinned size={14} />}
+              variant="bordered"
+              onPress={handleExportSelectedMaps}
+            >
+              Export Maps
             </Button>
             <Button
               className="bg-[#022279] text-white"
@@ -1007,6 +1106,7 @@ export const ClientLocalRankingsTable = ({
               clientId: String(clientId ?? ""),
               frequency: formatFrequency(payload.frequency),
               gridSize: "-",
+              distance: "-",
               id: String(payload.scanId),
               intent: "-",
               isProcessing: true,

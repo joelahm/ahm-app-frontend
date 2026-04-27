@@ -12,9 +12,10 @@ const keywordResearchApiClient = axios.create({
 
 const parseError = (error: unknown) => {
   if (axios.isAxiosError(error)) {
-    const message =
-      (error.response?.data as { message?: string } | undefined)?.message ??
-      error.message;
+    const data = error.response?.data as
+      | { error?: { message?: string }; message?: string }
+      | undefined;
+    const message = data?.error?.message ?? data?.message ?? error.message;
 
     return message || "Something went wrong.";
   }

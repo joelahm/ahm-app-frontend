@@ -25,6 +25,7 @@ type ScanListView = "deleted" | "history" | "recurring";
 
 type ScanRow = {
   businessName: string;
+  distance: string;
   frequency: string;
   id: string;
   intent: string;
@@ -79,6 +80,26 @@ const formatFrequency = (value?: string | null) => {
     .toLowerCase()
     .replaceAll("_", "-")
     .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const calculateDistanceKm = (
+  start: { latitude: number; longitude: number },
+  end: { latitude: number; longitude: number },
+) => {
+  const earthRadiusKm = 6371;
+  const deltaLatitude = toRadians(end.latitude - start.latitude);
+  const deltaLongitude = toRadians(end.longitude - start.longitude);
+  const startLatitude = toRadians(start.latitude);
+  const endLatitude = toRadians(end.latitude);
+  const a =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(startLatitude) *
+      Math.cos(endLatitude) *
+      Math.sin(deltaLongitude / 2) ** 2;
+
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
 const normalizeStatus = (
@@ -145,6 +166,36 @@ const formatGridSize = (scan: ClientScanDetails) => {
   }
 
   return `${points} points`;
+};
+
+const formatDistance = (scan: ClientScanDetails) => {
+  const points = scan.coverage ?? [];
+
+  if (points.length < 2) {
+    return "-";
+  }
+
+  let nearestDistanceKm = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < points.length; index += 1) {
+    for (let nextIndex = index + 1; nextIndex < points.length; nextIndex += 1) {
+      const distanceKm = calculateDistanceKm(points[index], points[nextIndex]);
+
+      if (distanceKm > 0 && distanceKm < nearestDistanceKm) {
+        nearestDistanceKm = distanceKm;
+      }
+    }
+  }
+
+  if (!Number.isFinite(nearestDistanceKm)) {
+    return "-";
+  }
+
+  const isMiles = scan.coverageUnit === "MILES";
+  const value = isMiles ? nearestDistanceKm / 1.60934 : nearestDistanceKm;
+  const unit = isMiles ? "mi" : "km";
+
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
 };
 
 const formatIntent = (_scan: ClientScanDetails) => "-";
@@ -258,6 +309,7 @@ const mapScanRow = (
   averages?: ScanAverageSnapshot,
 ): ScanRow => ({
   businessName: getBusinessName(scan),
+  distance: formatDistance(scan),
   frequency: formatFrequency(scan.frequency),
   id: String(scan.id),
   intent: formatIntent(scan),
@@ -358,6 +410,14 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <span className="text-sm text-[#111827]">{item.gridSize}</span>
+    ),
+  },
+  {
+    key: "distance",
+    label: "Distance",
+    className: thClassName,
+    renderCell: (item) => (
+      <span className="text-sm text-[#111827]">{item.distance}</span>
     ),
   },
   {

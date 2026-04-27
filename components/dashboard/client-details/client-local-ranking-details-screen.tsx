@@ -13,7 +13,8 @@ import {
 import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
 import { Spinner } from "@heroui/spinner";
 import clsx from "clsx";
-import { ChevronDown, LayoutGrid, Star, Users } from "lucide-react";
+import { ArrowLeft, ChevronDown, LayoutGrid, Star, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { clientsApi } from "@/apis/clients";
 import { scansApi, type ScanComparisonRun } from "@/apis/scans";
@@ -209,6 +210,44 @@ const formatGridSizeLabel = (
   return `Grid Points ${coverage.length}`;
 };
 
+const formatDistanceLabel = (
+  coverage: Array<{ latitude: number; longitude: number }>,
+  coverageUnit?: string | null,
+) => {
+  if (coverage.length < 2) {
+    return "Distance -";
+  }
+
+  let nearestDistanceKm = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < coverage.length; index += 1) {
+    for (
+      let nextIndex = index + 1;
+      nextIndex < coverage.length;
+      nextIndex += 1
+    ) {
+      const distanceKm = calculateDistanceKm(
+        coverage[index],
+        coverage[nextIndex],
+      );
+
+      if (distanceKm > 0 && distanceKm < nearestDistanceKm) {
+        nearestDistanceKm = distanceKm;
+      }
+    }
+  }
+
+  if (!Number.isFinite(nearestDistanceKm)) {
+    return "Distance -";
+  }
+
+  const isMiles = coverageUnit === "MILES";
+  const value = isMiles ? nearestDistanceKm / 1.60934 : nearestDistanceKm;
+  const unit = isMiles ? "mi" : "km";
+
+  return `Distance ${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
+};
+
 const formatRankHeader = (value?: string | null) => {
   if (!value) {
     return "Rank";
@@ -369,6 +408,7 @@ export const ClientLocalRankingDetailsScreen = ({
   clientId,
   rankingId,
 }: ClientLocalRankingDetailsScreenProps) => {
+  const router = useRouter();
   const { session } = useAuth();
   const [comparisonRuns, setComparisonRuns] = useState<ScanComparisonRun[]>([]);
   const [coverage, setCoverage] = useState<
@@ -538,6 +578,10 @@ export const ClientLocalRankingDetailsScreen = ({
     () => formatAreaLabel(coverage, coverageUnit),
     [coverage, coverageUnit],
   );
+  const distanceLabel = useMemo(
+    () => formatDistanceLabel(coverage, coverageUnit),
+    [coverage, coverageUnit],
+  );
   const competitorRows = useMemo<CompetitorRow[]>(() => {
     const latestRun = comparisonRuns[0];
     const previousRun = comparisonRuns[1];
@@ -674,14 +718,39 @@ export const ClientLocalRankingDetailsScreen = ({
         </Card>
       ) : (
         <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Button
+                isIconOnly
+                aria-label="Back to local rankings"
+                className="h-10 w-10 rounded-lg border border-default-200 bg-white text-[#111827]"
+                variant="bordered"
+                onPress={() => {
+                  router.push(`/dashboard/clients/${clientId}/local-rankings`);
+                }}
+              >
+                <ArrowLeft size={16} />
+              </Button>
+              <h2 className="text-lg font-semibold tracking-[-0.03em] text-[#111827]">
+                Local Ranking
+              </h2>
+            </div>
+            <Button
+              className="h-10 rounded-xl bg-[#5446e8] px-4 text-xs font-semibold text-white"
+              isDisabled={isExportingPdf || isLoading}
+              isLoading={isExportingPdf}
+              onPress={exportPdf}
+            >
+              Open Export Page
+            </Button>
+          </div>
+
           <Card className={panelClass} shadow="none">
             <CardBody className="flex flex-col gap-4 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-wrap items-center gap-1.5">
-                <h2 className="font-semibold tracking-[-0.03em] text-[#111827]">
-                  Local Ranking
-                </h2>
                 <Chip className={toolbarChipClass}>{gridSizeLabel}</Chip>
                 <Chip className={toolbarChipClass}>{areaLabel}</Chip>
+                <Chip className={toolbarChipClass}>{distanceLabel}</Chip>
                 <Chip className={toolbarChipClass}>
                   Keyword {keywordLabel || "-"}
                 </Chip>
@@ -716,14 +785,6 @@ export const ClientLocalRankingDetailsScreen = ({
                     <DropdownItem key="2">2</DropdownItem>
                   </DropdownMenu>
                 </Dropdown>
-                <Button
-                  className="h-10 rounded-xl bg-[#5446e8] px-4 text-xs font-semibold text-white"
-                  isDisabled={isExportingPdf || isLoading}
-                  isLoading={isExportingPdf}
-                  onPress={exportPdf}
-                >
-                  Open Export Page
-                </Button>
                 <Button
                   className="h-10 rounded-xl border border-default-200 bg-white px-4 text-xs font-medium text-[#111827]"
                   variant="bordered"

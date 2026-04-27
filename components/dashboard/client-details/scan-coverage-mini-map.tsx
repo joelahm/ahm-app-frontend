@@ -9,7 +9,7 @@ interface ScanCoverageMiniMapProps {
     latitude: number;
     longitude: number;
   } | null;
-  height?: number;
+  height?: number | string;
   label?: string | null;
   onMapReady?: () => void;
   points?: Array<{

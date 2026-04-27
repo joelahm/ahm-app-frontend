@@ -310,7 +310,7 @@ const normalizeExcludedKeywordsValue = (value: string) =>
 export const KeywordResearchScreen = () => {
   const router = useRouter();
   const toast = useAppToast();
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [activeTab, setActiveTab] = useState("keywords");
   const [keywordMode, setKeywordMode] = useState("similar-keywords");
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set([]));
@@ -404,11 +404,12 @@ export const KeywordResearchScreen = () => {
     const loadCountries = async () => {
       try {
         setIsLoadingLocations(true);
+        const accessToken = await getValidAccessToken();
         const [countriesResponse, languagesResponse, clientsResponse] =
           await Promise.all([
-            keywordResearchApi.getCountries(session.accessToken),
-            keywordResearchApi.getLanguages(session.accessToken),
-            clientsApi.getClients(session.accessToken),
+            keywordResearchApi.getCountries(accessToken),
+            keywordResearchApi.getLanguages(accessToken),
+            clientsApi.getClients(accessToken),
           ]);
 
         if (!isMounted) {
@@ -476,7 +477,7 @@ export const KeywordResearchScreen = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   const executeSearch = useCallback(
     async (payload: KeywordResearchRequestBody) => {
@@ -491,14 +492,12 @@ export const KeywordResearchScreen = () => {
       try {
         setIsLoading(true);
         setLoadError("");
+        const accessToken = await getValidAccessToken();
 
         const [similarKeywordsResponse, keywordSuggestionsResponse] =
           await Promise.all([
-            keywordResearchApi.getSimilarKeywords(session.accessToken, payload),
-            keywordResearchApi.getKeywordSuggestions(
-              session.accessToken,
-              payload,
-            ),
+            keywordResearchApi.getSimilarKeywords(accessToken, payload),
+            keywordResearchApi.getKeywordSuggestions(accessToken, payload),
           ]);
 
         setSimilarKeywordResults(
@@ -521,7 +520,7 @@ export const KeywordResearchScreen = () => {
         setIsLoading(false);
       }
     },
-    [session?.accessToken],
+    [getValidAccessToken, session?.accessToken],
   );
 
   const handleSearch = useCallback(() => {
@@ -965,11 +964,13 @@ export const KeywordResearchScreen = () => {
       return;
     }
 
-    void scansApi
-      .saveLocalRankingKeywords(
-        session.accessToken,
-        localRankingsSelectedClientId,
-        keywords,
+    void getValidAccessToken()
+      .then((accessToken) =>
+        scansApi.saveLocalRankingKeywords(
+          accessToken,
+          localRankingsSelectedClientId,
+          keywords,
+        ),
       )
       .then(() => {
         setIsLocalRankingsChoiceOpen(false);
@@ -982,7 +983,13 @@ export const KeywordResearchScreen = () => {
             error instanceof Error ? error.message : "Please try again.",
         });
       });
-  }, [exportRows, localRankingsSelectedClientId, session?.accessToken, toast]);
+  }, [
+    exportRows,
+    getValidAccessToken,
+    localRankingsSelectedClientId,
+    session?.accessToken,
+    toast,
+  ]);
 
   const handleSaveWebsiteContentKeywords = useCallback(
     async (values: WebsiteContentFormValues) => {
@@ -994,29 +1001,36 @@ export const KeywordResearchScreen = () => {
         throw new Error("Client is required.");
       }
 
-      await keywordContentListsApi.createKeywordContentList(
-        session.accessToken,
-        {
-          audience: values.audience || "",
-          clientId: websiteContentSelectedClientId,
-          enableContentClustering: Boolean(values.enableContentClustering),
-          keywords: values.keywords.map((item) => ({
-            contentType: item.contentType || "",
-            cpc: item.cpc,
-            id: item.id,
-            intent: item.intent,
-            kd: item.kd,
-            keyword: item.keyword,
-            searchVolume: item.searchVolume,
-            title: item.title || "",
-          })),
-          location: websiteContentLocation || "Website Content",
-          topic: values.topic || "",
-        },
-      );
+      const clusteringEnabled = values.keywords.length > 1;
+      const pillarKeywordId = values.keywords[0]?.id ?? null;
+      const accessToken = await getValidAccessToken();
+
+      await keywordContentListsApi.createKeywordContentList(accessToken, {
+        audience: values.audience || "",
+        clientId: websiteContentSelectedClientId,
+        enableContentClustering: clusteringEnabled,
+        keywords: values.keywords.map((item, index) => ({
+          contentType: item.contentType || "",
+          cpc: item.cpc,
+          id: item.id,
+          intent: item.intent,
+          isPillarArticle: clusteringEnabled && index === 0,
+          kd: item.kd,
+          keyword: item.keyword,
+          parentKeywordId:
+            clusteringEnabled && index > 0 && pillarKeywordId
+              ? pillarKeywordId
+              : null,
+          searchVolume: item.searchVolume,
+          title: item.title || "",
+        })),
+        location: websiteContentLocation || "Website Content",
+        topic: values.topic || "",
+      });
       setSaveSuccessMessage("Keyword list saved successfully.");
     },
     [
+      getValidAccessToken,
       session?.accessToken,
       websiteContentLocation,
       websiteContentSelectedClientId,

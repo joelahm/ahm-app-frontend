@@ -244,6 +244,31 @@ const toStringOrNull = (value: unknown) => {
   return trimmed ? trimmed : null;
 };
 
+const normalizeCompetitorKeyPart = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const normalizeCompetitorDomain = (value: unknown) =>
+  normalizeCompetitorKeyPart(value)
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("/")[0]
+    .split("?")[0];
+
+const buildCompetitorNameAddressKey = (
+  name?: string | null,
+  address?: string | null,
+) => {
+  const normalizedName = normalizeCompetitorKeyPart(name);
+
+  if (!normalizedName) {
+    return null;
+  }
+
+  return `${normalizedName}::${normalizeCompetitorKeyPart(address)}`;
+};
+
 const buildQuickKeywordFromRun = ({
   keyword,
   run,
@@ -407,6 +432,105 @@ const buildQuickKeywordFromRun = ({
   const worstRank = rankedCoordinates.length
     ? Math.max(...rankedCoordinates.map((row) => Number(row.rankAbsolute)))
     : null;
+  const targetPlaceIds = new Set(
+    rankedCoordinates
+      .map((row) => row.matchedPlaceId)
+      .map(normalizeCompetitorKeyPart)
+      .filter(Boolean),
+  );
+  const targetDomains = new Set(
+    rankedCoordinates
+      .map((row) => row.matchedDomain)
+      .map(normalizeCompetitorDomain)
+      .filter(Boolean),
+  );
+  const targetBusinessNames = new Set(
+    rankedCoordinates
+      .map((row) => row.matchedTitle)
+      .map(normalizeCompetitorKeyPart)
+      .filter(Boolean),
+  );
+  const targetNameAddressKeys = new Set(
+    rankedCoordinates
+      .map((row) =>
+        buildCompetitorNameAddressKey(row.matchedTitle, row.matchedAddress),
+      )
+      .filter(Boolean),
+  );
+  const targetCompetitorKey =
+    Array.from(targetPlaceIds)[0] ||
+    Array.from(targetDomains)[0] ||
+    Array.from(targetNameAddressKeys)[0] ||
+    "quick-scan-target";
+  const isTargetCompetitorEntry = ([key, entry]: [
+    string,
+    {
+      address: string | null;
+      businessName: string;
+      domain: string | null;
+    },
+  ]) => {
+    const normalizedKey = normalizeCompetitorKeyPart(key);
+    const normalizedDomain = normalizeCompetitorDomain(entry.domain || key);
+    const normalizedBusinessName = normalizeCompetitorKeyPart(
+      entry.businessName,
+    );
+    const nameAddressKey = buildCompetitorNameAddressKey(
+      entry.businessName,
+      entry.address,
+    );
+
+    return (
+      targetPlaceIds.has(normalizedKey) ||
+      targetDomains.has(normalizedDomain) ||
+      targetNameAddressKeys.has(normalizedKey) ||
+      (nameAddressKey ? targetNameAddressKeys.has(nameAddressKey) : false) ||
+      (targetBusinessNames.has(normalizedBusinessName) &&
+        (!normalizedDomain ||
+          targetDomains.size === 0 ||
+          targetDomains.has(normalizedDomain)))
+    );
+  };
+  const matchedCompetitorEntries = Array.from(competitorMap.entries()).filter(
+    isTargetCompetitorEntry,
+  );
+  const existingTargetCompetitor = matchedCompetitorEntries[0]
+    ? matchedCompetitorEntries[0][1]
+    : null;
+
+  if (rankedCoordinates.length) {
+    matchedCompetitorEntries.forEach(([key]) => {
+      competitorMap.delete(key);
+    });
+
+    competitorMap.set(targetCompetitorKey, {
+      address:
+        rankedCoordinates.find((row) => row.matchedAddress)?.matchedAddress ||
+        existingTargetCompetitor?.address ||
+        null,
+      businessName:
+        rankedCoordinates.find((row) => row.matchedTitle)?.matchedTitle ||
+        existingTargetCompetitor?.businessName ||
+        "Scanned GBP",
+      domain:
+        rankedCoordinates.find((row) => row.matchedDomain)?.matchedDomain ||
+        existingTargetCompetitor?.domain ||
+        null,
+      rankCount: rankedCoordinates.length,
+      rankTotal: rankedCoordinates.reduce(
+        (sum, row) => sum + Number(row.rankAbsolute),
+        0,
+      ),
+      rating:
+        rankedCoordinates.find((row) => row.matchedRating !== null)
+          ?.matchedRating ??
+        existingTargetCompetitor?.rating ??
+        null,
+      reviewsCount: existingTargetCompetitor?.reviewsCount ?? null,
+      bestRank,
+    });
+  }
+
   const competitors = Array.from(competitorMap.entries())
     .map(([key, item]) => ({
       key,

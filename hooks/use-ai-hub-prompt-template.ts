@@ -18,6 +18,9 @@ interface UseAiHubPromptTemplateResult {
   promptTemplate: string;
 }
 
+const normalizePromptType = (value: string) =>
+  value.trim().replace(/\s+/g, " ").toLowerCase();
+
 export const useAiHubPromptTemplate = ({
   accessToken,
   clientId,
@@ -54,25 +57,17 @@ export const useAiHubPromptTemplate = ({
           return;
         }
 
-        const candidateClientIds = Array.from(
-          new Set(
-            [clientId, clientDetailsResponse.id]
-              .filter((value) => value !== null && value !== undefined)
-              .map((value) => String(value)),
-          ),
-        );
+        const requestedPromptType = normalizePromptType(typeOfPost);
+        const promptMatchesType = (itemType: string) =>
+          normalizePromptType(itemType) === requestedPromptType;
 
         const matchingPrompt =
           promptsResponse.aiPrompts.find(
             (item) =>
-              candidateClientIds.includes(String(item.clientId)) &&
-              item.typeOfPost === typeOfPost &&
-              item.status === "Active",
+              promptMatchesType(item.typeOfPost) && item.status === "Active",
           ) ??
-          promptsResponse.aiPrompts.find(
-            (item) =>
-              candidateClientIds.includes(String(item.clientId)) &&
-              item.typeOfPost === typeOfPost,
+          promptsResponse.aiPrompts.find((item) =>
+            promptMatchesType(item.typeOfPost),
           ) ??
           null;
 

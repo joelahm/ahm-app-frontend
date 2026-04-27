@@ -20,11 +20,13 @@ import { useRouter } from "next/navigation";
 
 import { scansApi } from "@/apis/scans";
 import { useAuth } from "@/components/auth/auth-context";
-import { loadGoogleMapsScript } from "@/components/form/google-maps-loader";
+import { ScanCoverageMiniMap } from "@/components/dashboard/client-details/scan-coverage-mini-map";
+import { annotateOffshoreCoverage } from "@/components/dashboard/scan-offshore-detection";
 import {
   GooglePlacesAutocomplete,
   type GooglePlacesAutocompleteItem,
 } from "@/components/form/google-places-autocomplete";
+import { loadGoogleMapsScript } from "@/components/form/google-maps-loader";
 import { TokenInputField } from "@/components/form/token-input-field";
 import { useAppToast } from "@/hooks/use-app-toast";
 
@@ -36,7 +38,18 @@ const coverageSizeOptions = [
   { label: "25x25", value: "25" },
 ];
 
-const coverageDistanceOptions = ["1", "5", "10", "15", "20", "25"];
+const coverageDistanceOptions = [
+  "0.1",
+  "0.3",
+  "0.5",
+  "0.8",
+  "1",
+  "5",
+  "10",
+  "15",
+  "20",
+  "25",
+];
 const frequencyOptions = ["DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY"];
 const scheduleTimeOptions = [
   "01:00",
@@ -272,6 +285,62 @@ type QuickGbpPreview = {
   website?: string | null;
 };
 
+const formatCoordinate = (value: number) => value.toFixed(5);
+
+const QuickScanMapPreview = ({
+  isLoading,
+  preview,
+}: {
+  isLoading: boolean;
+  preview: {
+    center: { latitude: number; longitude: number } | null;
+    label?: string | null;
+    points: Array<{ label: string; latitude: number; longitude: number }>;
+  };
+}) => {
+  return (
+    <div className="lg:sticky lg:top-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-sm font-medium text-[#111827]">Pin preview</p>
+        {preview.points.length ? (
+          <span className="text-xs font-medium text-default-500">
+            {preview.points.length} points
+          </span>
+        ) : null}
+      </div>
+      {isLoading ? (
+        <div className="grid aspect-square place-items-center rounded-xl border border-default-200 bg-[linear-gradient(180deg,#f8fbff_0%,#eef2ff_100%)] px-6 text-center text-sm text-default-500">
+          Loading selected location...
+        </div>
+      ) : preview.center ? (
+        <div className="aspect-square w-full">
+          <ScanCoverageMiniMap
+            center={preview.center}
+            height="100%"
+            label={preview.label}
+            points={preview.points}
+          />
+        </div>
+      ) : (
+        <div className="grid aspect-square place-items-center rounded-xl border border-default-200 bg-[linear-gradient(180deg,#f8fbff_0%,#eef2ff_100%)] px-6 text-center text-sm text-default-500">
+          Select a GBP with coordinates to preview pins.
+        </div>
+      )}
+      {preview.center ? (
+        <div className="mt-3 rounded-lg border border-default-200 bg-white p-3 text-xs text-default-500">
+          <p className="font-medium text-[#111827]">
+            {preview.label || "Selected location"}
+          </p>
+          <p>
+            {formatCoordinate(preview.center.latitude)},{" "}
+            {formatCoordinate(preview.center.longitude)}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 export const QuickScanScreen = () => {
   const router = useRouter();
   const toast = useAppToast();
@@ -307,6 +376,9 @@ export const QuickScanScreen = () => {
   });
   const isRecurring = watch("isRecurring");
   const scheduleDate = watch("scheduleDate");
+  const coverageDistance = watch("coverageDistance");
+  const coverageSize = watch("coverageSize");
+  const coverageUnit = watch("coverageUnit");
   const scheduleDateValue = useMemo(
     () => toDateValue(scheduleDate),
     [scheduleDate],
@@ -319,6 +391,57 @@ export const QuickScanScreen = () => {
       gbpPreview?.longitude !== undefined,
     [gbpPreview?.latitude, gbpPreview?.longitude],
   );
+  const coveragePreview = useMemo(() => {
+    const label =
+      gbpPreview?.businessName ??
+      selectedPlace?.mainText ??
+      gbpPreview?.address ??
+      selectedPlace?.secondaryText;
+
+    if (!hasCoordinates) {
+      return {
+        center: null,
+        label,
+        points: [],
+      };
+    }
+
+    const center = {
+      latitude: Number(gbpPreview?.latitude),
+      longitude: Number(gbpPreview?.longitude),
+    };
+
+    if (!coverageDistance || !coverageSize) {
+      return {
+        center,
+        label,
+        points: [],
+      };
+    }
+
+    return {
+      center,
+      label,
+      points: generateGridCoverage({
+        centerLatitude: center.latitude,
+        centerLongitude: center.longitude,
+        distance: Number(coverageDistance),
+        size: Number(coverageSize),
+        unit: coverageUnit,
+      }),
+    };
+  }, [
+    coverageDistance,
+    coverageSize,
+    coverageUnit,
+    gbpPreview?.address,
+    gbpPreview?.businessName,
+    gbpPreview?.latitude,
+    gbpPreview?.longitude,
+    hasCoordinates,
+    selectedPlace?.mainText,
+    selectedPlace?.secondaryText,
+  ]);
 
   const handleSelectPlace = async (
     item: GooglePlacesAutocompleteItem | null,
@@ -409,13 +532,19 @@ export const QuickScanScreen = () => {
       });
 
       const accessToken = await getValidAccessToken();
-      const coverage = generateGridCoverage({
+      const generatedCoverage = generateGridCoverage({
         centerLatitude: Number(gbpPreview.latitude),
         centerLongitude: Number(gbpPreview.longitude),
         distance: Number(validated.coverageDistance),
         size: Number(validated.coverageSize),
         unit: validated.coverageUnit,
       });
+      const coverage = await annotateOffshoreCoverage(generatedCoverage);
+      const offshoreCount = coverage.filter((point) => point.isOffshore).length;
+
+      if (offshoreCount) {
+        toast.warning(`${offshoreCount} offshore grid points will show as X.`);
+      }
 
       await scansApi.createScan(accessToken, {
         coverage,
@@ -492,245 +621,106 @@ export const QuickScanScreen = () => {
         <CardHeader className="border-b border-default-200 pb-3">
           <h2 className="text-base font-semibold text-[#111827]">Scan Setup</h2>
         </CardHeader>
-        <CardBody className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-[#111827]">
-              Google Business Profile
-            </p>
-            <GooglePlacesAutocomplete
-              placeholder="Search GBP"
-              value={selectedPlace?.description ?? ""}
-              onSelect={(item) => {
-                void handleSelectPlace(item);
-              }}
-            />
-          </div>
-
-          <Card className="border border-default-200 bg-[#F8FAFC] shadow-none">
-            <CardBody className="space-y-2 p-3">
-              {isLoadingGbp ? (
-                <p className="text-sm text-default-500">
-                  Loading GBP details...
+        <CardBody>
+          <div className="grid gap-5 lg:grid-cols-[minmax(360px,0.85fr)_minmax(400px,1.15fr)]">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-[#111827]">
+                  Google Business Profile
                 </p>
-              ) : gbpPreview ? (
-                <>
-                  <div className="flex items-start gap-2">
-                    <Building2 className="mt-0.5 text-[#1D4ED8]" size={16} />
-                    <div>
-                      <p className="text-sm font-semibold text-[#111827]">
-                        {gbpPreview.businessName ||
-                          selectedPlace?.mainText ||
-                          "-"}
-                      </p>
-                      <p className="text-xs text-default-500">
-                        {gbpPreview.address ||
-                          selectedPlace?.secondaryText ||
-                          "-"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-xs text-default-500">
-                    <span className="inline-flex items-center gap-1">
-                      <MapPin size={13} />
-                      {hasCoordinates
-                        ? `${gbpPreview.latitude}, ${gbpPreview.longitude}`
-                        : "Coordinates unavailable"}
-                    </span>
-                    {gbpPreview.website ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Globe size={13} />
-                        {gbpPreview.website}
-                      </span>
-                    ) : null}
-                  </div>
-                </>
-              ) : (
-                <p className="inline-flex items-center gap-2 text-sm text-default-500">
-                  <Search size={14} />
-                  Search and select a GBP to continue.
-                </p>
-              )}
-            </CardBody>
-          </Card>
-
-          <Controller
-            control={control}
-            name="keywords"
-            render={({ field }) => (
-              <TokenInputField
-                errorMessage={errors.keywords?.message}
-                label="Keywords"
-                placeholder="Add keyword"
-                tokens={field.value ?? []}
-                onChange={field.onChange}
-              />
-            )}
-          />
-          <Controller
-            control={control}
-            name="labels"
-            render={({ field }) => (
-              <TokenInputField
-                errorMessage={errors.labels?.message}
-                label="Labels"
-                placeholder="Add label"
-                tokens={field.value ?? []}
-                onChange={field.onChange}
-              />
-            )}
-          />
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Controller
-              control={control}
-              name="coverageSize"
-              render={({ field }) => (
-                <Select
-                  label="Grid size"
-                  selectedKeys={field.value ? [field.value] : []}
-                  size="sm"
-                  onSelectionChange={(keys) => {
-                    const selected = Array.from(keys as Set<string>)[0] ?? "";
-
-                    field.onChange(selected);
+                <GooglePlacesAutocomplete
+                  placeholder="Search GBP"
+                  value={selectedPlace?.description ?? ""}
+                  onSelect={(item) => {
+                    void handleSelectPlace(item);
                   }}
-                >
-                  {coverageSizeOptions.map((option) => (
-                    <SelectItem key={option.value}>{option.label}</SelectItem>
-                  ))}
-                </Select>
-              )}
-            />
-            <Controller
-              control={control}
-              name="coverageDistance"
-              render={({ field }) => (
-                <Select
-                  label="Distance between points"
-                  selectedKeys={field.value ? [field.value] : []}
-                  size="sm"
-                  onSelectionChange={(keys) => {
-                    const selected = Array.from(keys as Set<string>)[0] ?? "";
+                />
+              </div>
 
-                    field.onChange(selected);
-                  }}
-                >
-                  {coverageDistanceOptions.map((option) => (
-                    <SelectItem key={option}>{option}</SelectItem>
-                  ))}
-                </Select>
-              )}
-            />
-            <Controller
-              control={control}
-              name="coverageUnit"
-              render={({ field }) => (
-                <Select
-                  label="Unit"
-                  selectedKeys={field.value ? [field.value] : []}
-                  size="sm"
-                  onSelectionChange={(keys) => {
-                    const selected = Array.from(keys as Set<string>)[0] ?? "";
+              <Card className="border border-default-200 bg-[#F8FAFC] shadow-none">
+                <CardBody className="space-y-2 p-3">
+                  {isLoadingGbp ? (
+                    <p className="text-sm text-default-500">
+                      Loading GBP details...
+                    </p>
+                  ) : gbpPreview ? (
+                    <>
+                      <div className="flex items-start gap-2">
+                        <Building2
+                          className="mt-0.5 text-[#1D4ED8]"
+                          size={16}
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-[#111827]">
+                            {gbpPreview.businessName ||
+                              selectedPlace?.mainText ||
+                              "-"}
+                          </p>
+                          <p className="text-xs text-default-500">
+                            {gbpPreview.address ||
+                              selectedPlace?.secondaryText ||
+                              "-"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-xs text-default-500">
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin size={13} />
+                          {hasCoordinates
+                            ? `${gbpPreview.latitude}, ${gbpPreview.longitude}`
+                            : "Coordinates unavailable"}
+                        </span>
+                        {gbpPreview.website ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Globe size={13} />
+                            {gbpPreview.website}
+                          </span>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="inline-flex items-center gap-2 text-sm text-default-500">
+                      <Search size={14} />
+                      Search and select a GBP to continue.
+                    </p>
+                  )}
+                </CardBody>
+              </Card>
 
-                    field.onChange(selected);
-                  }}
-                >
-                  <SelectItem key="MILES">Miles</SelectItem>
-                  <SelectItem key="KILOMETERS">Kilometers</SelectItem>
-                </Select>
-              )}
-            />
-          </div>
-
-          <Controller
-            control={control}
-            name="isRecurring"
-            render={({ field }) => (
-              <Switch isSelected={field.value} onValueChange={field.onChange}>
-                Enable recurring scan
-              </Switch>
-            )}
-          />
-
-          {isRecurring ? (
-            <div className="grid gap-3 sm:grid-cols-4">
               <Controller
                 control={control}
-                name="frequency"
+                name="keywords"
                 render={({ field }) => (
-                  <Select
-                    errorMessage={errors.frequency?.message}
-                    isInvalid={!!errors.frequency}
-                    label="Frequency"
-                    selectedKeys={field.value ? [field.value] : []}
-                    size="sm"
-                    onSelectionChange={(keys) => {
-                      const selected = Array.from(keys as Set<string>)[0] ?? "";
-
-                      field.onChange(selected);
-                    }}
-                  >
-                    {frequencyOptions.map((option) => (
-                      <SelectItem key={option}>{option}</SelectItem>
-                    ))}
-                  </Select>
-                )}
-              />
-              <Controller
-                control={control}
-                name="repeatTime"
-                render={({ field }) => (
-                  <Input
-                    errorMessage={errors.repeatTime?.message}
-                    isInvalid={!!errors.repeatTime}
-                    label="Repeat for (runs)"
-                    size="sm"
-                    value={field.value ?? ""}
-                    onValueChange={field.onChange}
+                  <TokenInputField
+                    errorMessage={errors.keywords?.message}
+                    label="Keywords"
+                    placeholder="Add keyword"
+                    tokens={field.value ?? []}
+                    onChange={field.onChange}
                   />
                 )}
               />
               <Controller
                 control={control}
-                name="scheduleDate"
-                render={() => (
-                  <DatePicker
-                    aria-label="Start date"
-                    className="w-full"
-                    isInvalid={!!errors.scheduleDate}
-                    label="Start date"
-                    minValue={todayValue}
-                    size="sm"
-                    value={scheduleDateValue}
-                    onChange={(value) => {
-                      if (!value) {
-                        setValue("scheduleDate", "", {
-                          shouldDirty: true,
-                          shouldTouch: true,
-                          shouldValidate: true,
-                        });
-
-                        return;
-                      }
-
-                      setValue("scheduleDate", formatDateValue(value), {
-                        shouldDirty: true,
-                        shouldTouch: true,
-                        shouldValidate: true,
-                      });
-                    }}
+                name="labels"
+                render={({ field }) => (
+                  <TokenInputField
+                    errorMessage={errors.labels?.message}
+                    label="Labels"
+                    placeholder="Add label"
+                    tokens={field.value ?? []}
+                    onChange={field.onChange}
                   />
                 )}
               />
-              <div className="grid grid-cols-2 gap-3">
+
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Controller
                   control={control}
-                  name="scheduleTime"
+                  name="coverageSize"
                   render={({ field }) => (
                     <Select
-                      errorMessage={errors.scheduleTime?.message}
-                      isInvalid={!!errors.scheduleTime}
-                      label="Start time"
+                      label="Grid size"
                       selectedKeys={field.value ? [field.value] : []}
                       size="sm"
                       onSelectionChange={(keys) => {
@@ -740,7 +730,30 @@ export const QuickScanScreen = () => {
                         field.onChange(selected);
                       }}
                     >
-                      {scheduleTimeOptions.map((option) => (
+                      {coverageSizeOptions.map((option) => (
+                        <SelectItem key={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="coverageDistance"
+                  render={({ field }) => (
+                    <Select
+                      label="Distance between points"
+                      selectedKeys={field.value ? [field.value] : []}
+                      size="sm"
+                      onSelectionChange={(keys) => {
+                        const selected =
+                          Array.from(keys as Set<string>)[0] ?? "";
+
+                        field.onChange(selected);
+                      }}
+                    >
+                      {coverageDistanceOptions.map((option) => (
                         <SelectItem key={option}>{option}</SelectItem>
                       ))}
                     </Select>
@@ -748,12 +761,10 @@ export const QuickScanScreen = () => {
                 />
                 <Controller
                   control={control}
-                  name="scheduleMeridiem"
+                  name="coverageUnit"
                   render={({ field }) => (
                     <Select
-                      errorMessage={errors.scheduleMeridiem?.message}
-                      isInvalid={!!errors.scheduleMeridiem}
-                      label="AM/PM"
+                      label="Unit"
                       selectedKeys={field.value ? [field.value] : []}
                       size="sm"
                       onSelectionChange={(keys) => {
@@ -763,26 +774,164 @@ export const QuickScanScreen = () => {
                         field.onChange(selected);
                       }}
                     >
-                      {meridiemOptions.map((option) => (
-                        <SelectItem key={option}>{option}</SelectItem>
-                      ))}
+                      <SelectItem key="MILES">Miles</SelectItem>
+                      <SelectItem key="KILOMETERS">Kilometers</SelectItem>
                     </Select>
                   )}
                 />
               </div>
-            </div>
-          ) : null}
 
-          <div className="flex justify-end">
-            <Button
-              className="bg-[#022279] text-white"
-              isLoading={isSubmitting}
-              onPress={() => {
-                void handleSubmit(submitQuickScan)();
-              }}
-            >
-              Run Quick Scan
-            </Button>
+              <Controller
+                control={control}
+                name="isRecurring"
+                render={({ field }) => (
+                  <Switch
+                    isSelected={field.value}
+                    onValueChange={field.onChange}
+                  >
+                    Enable recurring scan
+                  </Switch>
+                )}
+              />
+
+              {isRecurring ? (
+                <div className="grid gap-3 sm:grid-cols-4">
+                  <Controller
+                    control={control}
+                    name="frequency"
+                    render={({ field }) => (
+                      <Select
+                        errorMessage={errors.frequency?.message}
+                        isInvalid={!!errors.frequency}
+                        label="Frequency"
+                        selectedKeys={field.value ? [field.value] : []}
+                        size="sm"
+                        onSelectionChange={(keys) => {
+                          const selected =
+                            Array.from(keys as Set<string>)[0] ?? "";
+
+                          field.onChange(selected);
+                        }}
+                      >
+                        {frequencyOptions.map((option) => (
+                          <SelectItem key={option}>{option}</SelectItem>
+                        ))}
+                      </Select>
+                    )}
+                  />
+                  <Controller
+                    control={control}
+                    name="repeatTime"
+                    render={({ field }) => (
+                      <Input
+                        errorMessage={errors.repeatTime?.message}
+                        isInvalid={!!errors.repeatTime}
+                        label="Repeat for (runs)"
+                        size="sm"
+                        value={field.value ?? ""}
+                        onValueChange={field.onChange}
+                      />
+                    )}
+                  />
+                  <Controller
+                    control={control}
+                    name="scheduleDate"
+                    render={() => (
+                      <DatePicker
+                        aria-label="Start date"
+                        className="w-full"
+                        isInvalid={!!errors.scheduleDate}
+                        label="Start date"
+                        minValue={todayValue}
+                        size="sm"
+                        value={scheduleDateValue}
+                        onChange={(value) => {
+                          if (!value) {
+                            setValue("scheduleDate", "", {
+                              shouldDirty: true,
+                              shouldTouch: true,
+                              shouldValidate: true,
+                            });
+
+                            return;
+                          }
+
+                          setValue("scheduleDate", formatDateValue(value), {
+                            shouldDirty: true,
+                            shouldTouch: true,
+                            shouldValidate: true,
+                          });
+                        }}
+                      />
+                    )}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Controller
+                      control={control}
+                      name="scheduleTime"
+                      render={({ field }) => (
+                        <Select
+                          errorMessage={errors.scheduleTime?.message}
+                          isInvalid={!!errors.scheduleTime}
+                          label="Start time"
+                          selectedKeys={field.value ? [field.value] : []}
+                          size="sm"
+                          onSelectionChange={(keys) => {
+                            const selected =
+                              Array.from(keys as Set<string>)[0] ?? "";
+
+                            field.onChange(selected);
+                          }}
+                        >
+                          {scheduleTimeOptions.map((option) => (
+                            <SelectItem key={option}>{option}</SelectItem>
+                          ))}
+                        </Select>
+                      )}
+                    />
+                    <Controller
+                      control={control}
+                      name="scheduleMeridiem"
+                      render={({ field }) => (
+                        <Select
+                          errorMessage={errors.scheduleMeridiem?.message}
+                          isInvalid={!!errors.scheduleMeridiem}
+                          label="AM/PM"
+                          selectedKeys={field.value ? [field.value] : []}
+                          size="sm"
+                          onSelectionChange={(keys) => {
+                            const selected =
+                              Array.from(keys as Set<string>)[0] ?? "";
+
+                            field.onChange(selected);
+                          }}
+                        >
+                          {meridiemOptions.map((option) => (
+                            <SelectItem key={option}>{option}</SelectItem>
+                          ))}
+                        </Select>
+                      )}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex justify-end">
+                <Button
+                  className="bg-[#022279] text-white"
+                  isLoading={isSubmitting}
+                  onPress={() => {
+                    void handleSubmit(submitQuickScan)();
+                  }}
+                >
+                  Run Quick Scan
+                </Button>
+              </div>
+            </div>
+            <QuickScanMapPreview
+              isLoading={isLoadingGbp}
+              preview={coveragePreview}
+            />
           </div>
         </CardBody>
       </Card>

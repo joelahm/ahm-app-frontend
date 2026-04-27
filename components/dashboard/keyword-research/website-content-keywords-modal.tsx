@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
-import { Input } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -27,20 +26,21 @@ import { Trash2, X } from "lucide-react";
 import { manusApi } from "@/apis/manus";
 import { useAuth } from "@/components/auth/auth-context";
 import { useAiHubPromptTemplate } from "@/hooks/use-ai-hub-prompt-template";
+import { useAppToast } from "@/hooks/use-app-toast";
 import {
   buildAiPromptTemplateValues,
   resolveAiPromptTemplate,
 } from "@/lib/ai-prompt-template";
 
 const contentTypeOptions = [
-  "Service Page",
   "Homepage",
   "Treatment Page",
   "Condition Page",
   "Blog Page",
   "Press Release",
-  "Location Page",
 ];
+
+const TITLE_GENERATION_MODEL = "claude-3-5-haiku-20241022";
 
 const websiteContentSchema = yup.object({
   audience: yup.string().trim().default(""),
@@ -153,19 +153,18 @@ export const WebsiteContentKeywordsModal = ({
   onOpenChange,
   onSubmit,
 }: WebsiteContentKeywordsModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
   const [activeStep, setActiveStep] = useState<2 | 3>(2);
   const [generatingRowIndex, setGeneratingRowIndex] = useState<number | null>(
     null,
   );
   const isGeneratingTitleRef = useRef(false);
-  const [submitError, setSubmitError] = useState("");
   const {
     control,
     clearErrors,
-    formState: { errors, isSubmitting },
+    formState: { isSubmitting },
     handleSubmit,
-    register,
     reset,
     setError,
     watch,
@@ -209,6 +208,9 @@ export const WebsiteContentKeywordsModal = ({
     [fields, watchedKeywords],
   );
   const isGeneratingTitles = generatingRowIndex !== null;
+  const showErrorToast = (message: string) => {
+    toast.danger(message);
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -218,13 +220,11 @@ export const WebsiteContentKeywordsModal = ({
     reset(buildDefaultValues(keywords));
     setActiveStep(2);
     setGeneratingRowIndex(null);
-    setSubmitError("");
     clearErrors();
   }, [clearErrors, isOpen, keywords, reset]);
 
   const closeModal = () => {
     setGeneratingRowIndex(null);
-    setSubmitError("");
     onOpenChange(false);
   };
 
@@ -232,8 +232,6 @@ export const WebsiteContentKeywordsModal = ({
     if (isGeneratingTitleRef.current) {
       return;
     }
-
-    setSubmitError("");
 
     const keyword = watchedKeywords?.[index]?.keyword?.trim() ?? "";
 
@@ -249,7 +247,7 @@ export const WebsiteContentKeywordsModal = ({
         message: "Content type is required before generating title.",
         type: "manual",
       });
-      setSubmitError("Select content type before generating title.");
+      showErrorToast("Select content type before generating title.");
 
       return;
     }
@@ -266,7 +264,7 @@ export const WebsiteContentKeywordsModal = ({
     const promptTemplate = metaTitlePromptTemplate?.trim() ?? "";
 
     if (!promptTemplate) {
-      setSubmitError(
+      showErrorToast(
         "Meta Title prompt template is not configured for this client in AI Hub.",
       );
 
@@ -297,7 +295,7 @@ export const WebsiteContentKeywordsModal = ({
           })
         : "";
     } catch (error) {
-      setSubmitError(
+      showErrorToast(
         error instanceof Error
           ? error.message
           : "Client is required before generating title.",
@@ -308,7 +306,7 @@ export const WebsiteContentKeywordsModal = ({
 
     resolvedPrompt = resolvedPrompt.trim();
     if (!resolvedPrompt) {
-      setSubmitError(
+      showErrorToast(
         "Resolved prompt is empty. Check your AI Hub template placeholders.",
       );
 
@@ -325,16 +323,19 @@ export const WebsiteContentKeywordsModal = ({
 
       isGeneratingTitleRef.current = true;
       setGeneratingRowIndex(index);
-      const response = await manusApi.generateText(session.accessToken, {
+      const accessToken = await getValidAccessToken();
+      const response = await manusApi.generateText(accessToken, {
         clientId: effectiveClientId,
         maxCharacters: Number(maxCharacters),
+        model: TITLE_GENERATION_MODEL,
         prompt: resolvedPrompt,
+        provider: "ANTHROPIC",
       });
 
       generatedTitle = response.text.trim();
     } catch (error) {
       generationFailed = true;
-      setSubmitError(
+      showErrorToast(
         error instanceof Error
           ? error.message
           : "Failed to generate title using Manus.",
@@ -351,7 +352,7 @@ export const WebsiteContentKeywordsModal = ({
     const title = generatedTitle.trim().slice(0, Number(maxCharacters));
 
     if (!title) {
-      setSubmitError("Manus returned an empty title.");
+      showErrorToast("Manus returned an empty title.");
 
       return;
     }
@@ -375,7 +376,6 @@ export const WebsiteContentKeywordsModal = ({
   const currentHeading = sectionHeadingByStep[activeStep];
 
   const submitFinal = handleSubmit(async (values) => {
-    setSubmitError("");
     clearErrors();
 
     try {
@@ -390,7 +390,7 @@ export const WebsiteContentKeywordsModal = ({
       closeModal();
     } catch (error) {
       if (!(error instanceof yup.ValidationError)) {
-        setSubmitError(
+        showErrorToast(
           error instanceof Error
             ? error.message
             : "Failed to save website content keywords.",
@@ -399,6 +399,7 @@ export const WebsiteContentKeywordsModal = ({
         return;
       }
 
+      showErrorToast(error.inner[0]?.message || error.message);
       error.inner.forEach((issue) => {
         if (!issue.path) {
           return;
@@ -438,9 +439,6 @@ export const WebsiteContentKeywordsModal = ({
         </ModalHeader>
 
         <ModalBody className="space-y-2 px-6 py-6">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
           {isGeneratingTitles ? (
             <div className="flex items-center gap-2 text-xs text-[#4B5563]">
               <Spinner size="sm" />
@@ -569,12 +567,34 @@ export const WebsiteContentKeywordsModal = ({
                           />
                         </TableCell>
                         <TableCell>
-                          <Input
-                            {...register(`keywords.${item.rowIndex}.title`)}
-                            maxLength={55}
-                            placeholder="Enter title"
-                            radius="md"
-                            variant="bordered"
+                          <Controller
+                            control={control}
+                            name={`keywords.${item.rowIndex}.title`}
+                            render={({ field }) => (
+                              <div
+                                contentEditable
+                                suppressContentEditableWarning
+                                aria-label={`Title for ${item.keyword}`}
+                                className="min-h-[58px] min-w-[220px] rounded-md border border-default-200 px-3 py-2 text-xs leading-5 outline-none transition-colors empty:before:text-default-400 empty:before:content-[attr(data-placeholder)] focus:border-primary"
+                                data-placeholder="Enter title"
+                                role="textbox"
+                                tabIndex={0}
+                                onBlur={field.onBlur}
+                                onInput={(event) => {
+                                  const element = event.currentTarget;
+                                  const nextValue = element.textContent ?? "";
+                                  const limitedValue = nextValue.slice(0, 55);
+
+                                  if (nextValue !== limitedValue) {
+                                    element.textContent = limitedValue;
+                                  }
+
+                                  field.onChange(limitedValue);
+                                }}
+                              >
+                                {field.value ?? ""}
+                              </div>
+                            )}
                           />
                         </TableCell>
                         <TableCell>
@@ -701,10 +721,6 @@ export const WebsiteContentKeywordsModal = ({
               </div>
             )}
           </div>
-
-          {errors.keywords?.message ? (
-            <p className="text-sm text-danger">{errors.keywords.message}</p>
-          ) : null}
         </ModalBody>
 
         <ModalFooter className="justify-between px-6 pb-6 pt-0">

@@ -25,12 +25,13 @@ const parseError = (error: unknown) => {
 interface GenerateTextPayload {
   clientId?: string;
   maxCharacters?: number;
-  provider?: "MANUS" | "OPENAI";
+  model?: string;
+  provider?: "ANTHROPIC" | "MANUS" | "OPENAI";
   prompt: string;
 }
 
 interface GenerateTextResponse {
-  taskId: string;
+  taskId: string | null;
   text: string;
 }
 

@@ -29,9 +29,11 @@ const parseError = (error: unknown) => {
 export interface CreateScanRequestBody {
   clientId?: number;
   coverage: Array<{
+    isOffshore?: boolean;
     label: string;
     latitude: number;
     longitude: number;
+    offshoreReason?: string;
   }>;
   coverageUnit: "KILOMETERS" | "MILES";
   quickScanContext?: {
@@ -110,6 +112,7 @@ export interface LocalRankingCoordinate {
   apiLogId?: number | null;
   coordinateLabel: string;
   id: number;
+  isOffshore?: boolean;
   latitude: number;
   longitude: number;
   matchedAddress?: string | null;
@@ -120,12 +123,14 @@ export interface LocalRankingCoordinate {
   matchedTitle?: string | null;
   rankAbsolute?: number | null;
   rankGroup?: number | null;
+  offshoreReason?: string | null;
 }
 
 export interface LocalRankingKeyword {
   clientAddress?: string | null;
   clientId?: number | null;
   clientName?: string | null;
+  coverageUnit?: string | null;
   averageRank?: number | null;
   bestRank?: number | null;
   coordinates: LocalRankingCoordinate[];

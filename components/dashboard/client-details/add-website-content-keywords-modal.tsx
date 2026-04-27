@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
-import { Input, Textarea } from "@heroui/input";
+import { Textarea } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -11,7 +11,6 @@ import {
   ModalHeader,
   ModalFooter,
 } from "@heroui/modal";
-import { Switch } from "@heroui/switch";
 import { X } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
@@ -86,7 +85,7 @@ export interface AddWebsiteContentKeywordsPayload {
 
 interface AddWebsiteContentKeywordsModalProps {
   isOpen: boolean;
-  onNext: (payload: AddWebsiteContentKeywordsPayload) => void;
+  onNext: (payload: AddWebsiteContentKeywordsPayload) => Promise<void> | void;
   onOpenChange: (open: boolean) => void;
 }
 
@@ -95,7 +94,7 @@ export const AddWebsiteContentKeywordsModal = ({
   onNext,
   onOpenChange,
 }: AddWebsiteContentKeywordsModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [activeStep] = useState<1 | 2 | 3>(1);
   const [countryOptions, setCountryOptions] = useState<
     KeywordResearchCountryOption[]
@@ -119,7 +118,7 @@ export const AddWebsiteContentKeywordsModal = ({
     defaultValues: {
       audience: "",
       country: "",
-      enableContentClustering: true,
+      enableContentClustering: false,
       keywords: "",
       language: "",
       topic: "",
@@ -134,7 +133,7 @@ export const AddWebsiteContentKeywordsModal = ({
     reset({
       audience: "",
       country: "",
-      enableContentClustering: true,
+      enableContentClustering: false,
       keywords: "",
       language: "",
       topic: "",
@@ -155,9 +154,10 @@ export const AddWebsiteContentKeywordsModal = ({
     const loadOptions = async () => {
       try {
         setIsLoadingOptions(true);
+        const accessToken = await getValidAccessToken();
         const [countriesResponse, languagesResponse] = await Promise.all([
-          keywordResearchApi.getCountries(session.accessToken),
-          keywordResearchApi.getLanguages(session.accessToken),
+          keywordResearchApi.getCountries(accessToken),
+          keywordResearchApi.getLanguages(accessToken),
         ]);
 
         if (!isMounted) {
@@ -214,7 +214,7 @@ export const AddWebsiteContentKeywordsModal = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, session?.accessToken, setValue]);
+  }, [getValidAccessToken, isOpen, session?.accessToken, setValue]);
 
   const closeModal = () => {
     setSubmitError("");
@@ -232,7 +232,7 @@ export const AddWebsiteContentKeywordsModal = ({
         .map((item) => item.trim())
         .filter(Boolean);
 
-      onNext({
+      await onNext({
         audience: validated.audience?.trim() ?? "",
         country: validated.country,
         countryIsoCode:
@@ -473,55 +473,6 @@ export const AddWebsiteContentKeywordsModal = ({
             <li>Do not leave empty lines.</li>
             <li>Do not add symbols or any special characters.</li>
           </ul>
-
-          <Controller
-            control={control}
-            name="enableContentClustering"
-            render={({ field }) => (
-              <div className="space-y-2">
-                <Switch isSelected={field.value} onValueChange={field.onChange}>
-                  Enable Content Clustering
-                </Switch>
-                <p className="text-sm text-[#6B7280]">
-                  Enabling content clustering, make sure the keywords are
-                  relevant to the topic and audience. The first keyword entry
-                  will be set as the pillar article.
-                </p>
-              </div>
-            )}
-          />
-
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Controller
-              control={control}
-              name="topic"
-              render={({ field }) => (
-                <Input
-                  aria-label="Topic"
-                  label="Topic"
-                  labelPlacement="outside"
-                  placeholder="Enter Topic"
-                  value={field.value ?? ""}
-                  onValueChange={field.onChange}
-                />
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="audience"
-              render={({ field }) => (
-                <Input
-                  aria-label="Audience"
-                  label="Audience"
-                  labelPlacement="outside"
-                  placeholder="Enter Audience"
-                  value={field.value ?? ""}
-                  onValueChange={field.onChange}
-                />
-              )}
-            />
-          </div>
         </ModalBody>
         <ModalFooter className="border-t border-default-200">
           <div className="flex justify-between pt-2 w-full">
@@ -530,12 +481,13 @@ export const AddWebsiteContentKeywordsModal = ({
             </Button>
             <Button
               className="bg-[#022279] px-10 text-white"
+              isDisabled={isLoadingOptions}
               isLoading={isSubmitting}
               onPress={() => {
                 void handleNext();
               }}
             >
-              Next
+              {isSubmitting ? "Fetching..." : "Next"}
             </Button>
           </div>
         </ModalFooter>
