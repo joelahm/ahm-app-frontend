@@ -2321,10 +2321,7 @@ ${plainContent || "N/A"}`.trim();
         savedFeaturedImage = {
           downloadUrl: uploadedImage.url,
           name: uploadedImage.name,
-          previewUrl:
-            uploadedImage.previewUrl ??
-            resolveServerAssetUrl(uploadedImage.url) ??
-            uploadedImage.url,
+          previewUrl: uploadedImage.url,
           sizeLabel: uploadedImage.sizeLabel,
         };
       }

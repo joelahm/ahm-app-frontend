@@ -127,12 +127,12 @@ const readFeaturedImageUrl = (value: unknown) => {
       url?: unknown;
     };
 
-    if (typeof source.previewUrl === "string") {
-      return resolveServerAssetUrl(source.previewUrl);
-    }
-
     if (typeof source.url === "string") {
       return resolveServerAssetUrl(source.url);
+    }
+
+    if (typeof source.previewUrl === "string") {
+      return resolveServerAssetUrl(source.previewUrl);
     }
   }
 
@@ -479,7 +479,7 @@ export const WebsiteContentReviewScreen = ({
           ...current,
           featuredImage: {
             name: uploadedImage.name,
-            previewUrl: uploadedImage.previewUrl,
+            previewUrl: uploadedImage.url,
             sizeLabel: uploadedImage.sizeLabel,
             url: uploadedImage.url,
           },
