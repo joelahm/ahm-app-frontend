@@ -282,6 +282,7 @@ export const WebsiteContentKeywordsModal = ({
               brandName: clientDetails?.businessName?.trim() || "",
               businessName: clientDetails?.businessName?.trim() || "",
               clientDetails,
+              contentTitle: title,
               contentType: currentContentType,
               intent: row?.intent?.trim() || "",
               keyword,
@@ -289,6 +290,10 @@ export const WebsiteContentKeywordsModal = ({
               maxCharacter: maxCharacters,
               pageType: currentContentType,
               requireClient: true,
+              searchVolume:
+                typeof row?.searchVolume === "number"
+                  ? String(row.searchVolume)
+                  : "",
               topic,
               url: clientDetails?.website?.trim() || "",
             }),

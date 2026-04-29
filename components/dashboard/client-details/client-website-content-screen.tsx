@@ -22,13 +22,17 @@ import {
 import { Progress } from "@heroui/progress";
 import { Select, SelectItem } from "@heroui/select";
 import { Spinner } from "@heroui/spinner";
+import { Tab, Tabs } from "@heroui/tabs";
 import { Input, Textarea } from "@heroui/input";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import * as yup from "yup";
+import ReactDiffViewer from "react-diff-viewer-continued";
 import {
   Bold,
+  Copy,
   CornerDownRight,
   Columns3,
+  Download,
   EllipsisVertical,
   ImageIcon,
   Italic,
@@ -42,6 +46,8 @@ import {
   SendHorizontal,
   Settings,
   Search,
+  ShieldCheck,
+  ShieldOff,
   SlidersHorizontal,
   Strikethrough,
   Trash2,
@@ -78,6 +84,12 @@ import {
   resolveAiPromptTemplate,
 } from "@/lib/ai-prompt-template";
 import { manusApi } from "@/apis/manus";
+import {
+  websiteContentReviewsApi,
+  type WebsiteContentReviewActivity,
+  type WebsiteContentReviewDashboardState,
+  type WebsiteContentReviewVersion,
+} from "@/apis/website-content-reviews";
 import { RichTextEditor } from "@/components/editor/rich-text-editor";
 import {
   buildCommentMessage,
@@ -93,6 +105,18 @@ import {
 
 const TOTAL_CREDITS = 80;
 const SHOULD_SUBMIT_WEBSITE_CONTENT_PROMPTS = true;
+
+const buildPublicReviewUrl = (publicPath?: string | null) => {
+  if (!publicPath) {
+    return "";
+  }
+
+  if (typeof window === "undefined") {
+    return publicPath;
+  }
+
+  return `${window.location.origin}${publicPath}`;
+};
 
 const INITIAL_BREAKDOWN = [
   { key: "treatment", label: "Treatment pages", allocated: 10, used: 0 },
@@ -147,6 +171,7 @@ type WebsiteContentRow = {
   altTitle: string | null;
   contentLength: string;
   depth: number;
+  featuredImage: unknown;
   generatedContent: string | null;
   id: string;
   isPillarArticle: boolean;
@@ -162,6 +187,7 @@ type WebsiteContentRow = {
   sv: string;
   title: string;
   type: string;
+  urlSlug: string | null;
 };
 
 type BreakdownTableRow = {
@@ -188,6 +214,13 @@ type GeneratedSeoFields = {
   metaTitle: string;
 };
 
+type GeneratedSeoMetadata = {
+  articleTitle: string;
+  metaDescription: string;
+  metaTitle: string;
+  urlSlug: string;
+};
+
 type WebsiteContentComment = {
   author: {
     avatarUrl: string | null;
@@ -201,6 +234,10 @@ type WebsiteContentComment = {
 };
 
 type FeaturedImageUpload = {
+  dataUrl?: string;
+  downloadUrl?: string;
+  file?: File;
+  isUnsaved?: boolean;
   name: string;
   previewUrl: string;
   sizeLabel: string;
@@ -217,7 +254,34 @@ type EditContentFormValues = {
   metaDescription: string;
   metaTitle: string;
   status: string;
+  urlSlug: string;
 };
+
+type RevisionSnapshot = {
+  generatedContent: string;
+  metaDescription: string;
+  metaTitle: string;
+  title: string;
+  urlSlug: string;
+};
+
+type RevisionOption = {
+  key: string;
+  label: string;
+  snapshot: RevisionSnapshot;
+};
+
+const REVISION_DIFF_FIELDS: {
+  isHtml?: boolean;
+  key: keyof RevisionSnapshot;
+  label: string;
+}[] = [
+  { key: "title", label: "Article Title" },
+  { key: "urlSlug", label: "URL Slug" },
+  { key: "metaTitle", label: "Meta Title" },
+  { key: "metaDescription", label: "Meta Description" },
+  { isHtml: true, key: "generatedContent", label: "Content" },
+];
 
 const EDIT_CONTENT_SCHEMA = yup.object({
   altDescription: yup.string().max(255).default(""),
@@ -230,6 +294,15 @@ const EDIT_CONTENT_SCHEMA = yup.object({
   metaDescription: yup.string().max(320).default(""),
   metaTitle: yup.string().max(160).default(""),
   status: yup.string().trim().required().default("Draft"),
+  urlSlug: yup
+    .string()
+    .trim()
+    .matches(
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+      "URL slug must use lowercase letters, numbers, and hyphens only.",
+    )
+    .max(160)
+    .default(""),
 });
 
 const CONTENT_STATUS_OPTIONS = ["Draft", "Generating", "Completed", "Failed"];
@@ -494,6 +567,71 @@ const toLabelCase = (value: string) =>
     )
     .join(" ");
 
+const toUrlSlug = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+
+const readRevisionValue = (
+  snapshot: Record<string, unknown>,
+  key: keyof RevisionSnapshot,
+) => {
+  const value = snapshot[key];
+
+  return typeof value === "string" ? value : "";
+};
+
+const normalizeRevisionSnapshot = (
+  snapshot?: Record<string, unknown> | null,
+): RevisionSnapshot => {
+  const source = snapshot ?? {};
+
+  return {
+    generatedContent: readRevisionValue(source, "generatedContent"),
+    metaDescription: readRevisionValue(source, "metaDescription"),
+    metaTitle: readRevisionValue(source, "metaTitle"),
+    title: readRevisionValue(source, "title"),
+    urlSlug: readRevisionValue(source, "urlSlug"),
+  };
+};
+
+const formatRevisionSource = (source: string) =>
+  source
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+
+const formatRevisionDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString([], {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  });
+};
+
+const buildRevisionLabel = (
+  version: WebsiteContentReviewVersion,
+  clientName: string,
+) =>
+  `${formatRevisionDate(version.createdAt)} - ${formatRevisionSource(
+    version.source,
+  )} - ${version.createdByName || version.createdByEmail || clientName}`;
+
 const statusChipClass = (status: string) => {
   const normalized = status.toLowerCase();
 
@@ -668,6 +806,106 @@ const parseGeneratedSeoFields = (value: string): GeneratedSeoFields => {
   };
 };
 
+const parseGeneratedSeoMetadata = (value: string): GeneratedSeoMetadata => {
+  const trimmed = value.trim();
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const jsonSource = fencedMatch?.[1]?.trim() || trimmed;
+  const objectMatch = jsonSource.match(/\{[\s\S]*\}/);
+  const normalizedSource = objectMatch?.[0] || jsonSource;
+  let parsed: Record<string, unknown>;
+
+  try {
+    parsed = JSON.parse(normalizedSource) as Record<string, unknown>;
+  } catch {
+    throw new Error("Failed to parse generated SEO metadata.");
+  }
+
+  const metaTitle =
+    typeof parsed.metaTitle === "string" ? parsed.metaTitle.trim() : "";
+  const articleTitle =
+    typeof parsed.articleTitle === "string" ? parsed.articleTitle.trim() : "";
+  const metaDescription =
+    typeof parsed.metaDescription === "string"
+      ? parsed.metaDescription.trim()
+      : "";
+  const urlSlug =
+    typeof parsed.urlSlug === "string" ? parsed.urlSlug.trim() : "";
+
+  if (!articleTitle || !metaTitle || !metaDescription || !urlSlug) {
+    throw new Error("Generated SEO metadata was incomplete.");
+  }
+
+  return {
+    articleTitle,
+    metaDescription,
+    metaTitle,
+    urlSlug: toUrlSlug(urlSlug),
+  };
+};
+
+const readFeaturedImageUrl = (value: unknown) => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value && typeof value === "object") {
+    const source = value as {
+      previewUrl?: unknown;
+      url?: unknown;
+    };
+
+    if (typeof source.url === "string") {
+      return source.url;
+    }
+
+    if (typeof source.previewUrl === "string") {
+      return source.previewUrl;
+    }
+  }
+
+  return "";
+};
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(bytes / 1024, 1).toFixed(0)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
+
+const readFeaturedImageUpload = (
+  value: unknown,
+): FeaturedImageUpload | null => {
+  const imageUrl = readFeaturedImageUrl(value);
+  const previewUrl = resolveServerAssetUrl(imageUrl) ?? imageUrl;
+
+  if (!imageUrl) {
+    return null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      downloadUrl: previewUrl,
+      name: "Featured image",
+      previewUrl,
+      sizeLabel: "",
+    };
+  }
+
+  const source = value as {
+    name?: unknown;
+    sizeLabel?: unknown;
+  };
+
+  return {
+    downloadUrl: previewUrl,
+    name: typeof source.name === "string" ? source.name : "Featured image",
+    previewUrl,
+    sizeLabel: typeof source.sizeLabel === "string" ? source.sizeLabel : "",
+  };
+};
+
 const mapKeywordContentListsToRows = (
   records: Array<{
     id: string;
@@ -676,6 +914,7 @@ const mapKeywordContentListsToRows = (
       altTitle?: string | null;
       contentLength?: string | null;
       contentType?: string | null;
+      featuredImage?: unknown;
       generatedContent?: string | null;
       id?: string | null;
       isPillarArticle?: boolean | null;
@@ -687,6 +926,7 @@ const mapKeywordContentListsToRows = (
       searchVolume?: number | null;
       status?: string | null;
       title?: string | null;
+      urlSlug?: string | null;
     }>;
   }>,
 ) =>
@@ -712,6 +952,7 @@ const mapKeywordContentListsToRows = (
             (typeof item.contentLength === "string" && item.contentLength) ||
             "Short",
           depth: 0,
+          featuredImage: item.featuredImage ?? null,
           generatedContent:
             typeof item.generatedContent === "string" &&
             item.generatedContent.trim()
@@ -746,6 +987,10 @@ const mapKeywordContentListsToRows = (
               : "-",
           title: item.title || "",
           type: item.contentType || "-",
+          urlSlug:
+            typeof item.urlSlug === "string" && item.urlSlug.trim()
+              ? item.urlSlug
+              : null,
         };
       }),
   );
@@ -833,6 +1078,9 @@ export const ClientWebsiteContentScreen = ({
   );
   const [generationClientDetails, setGenerationClientDetails] =
     useState<ClientDetails | null>(null);
+  const [isGenerationContextLoading, setIsGenerationContextLoading] =
+    useState(false);
+  const [isGeneratingEditSeo, setIsGeneratingEditSeo] = useState(false);
   const [promptTemplateByType, setPromptTemplateByType] = useState<
     Record<string, string>
   >({});
@@ -840,9 +1088,28 @@ export const ClientWebsiteContentScreen = ({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const featuredImageInputRef = useRef<HTMLInputElement | null>(null);
+  const lastReviewStateRequestKeyRef = useRef<string | null>(null);
   const [commentsByRowId, setCommentsByRowId] = useState<
     Record<string, WebsiteContentComment[]>
   >({});
+  const [reviewStateByRowId, setReviewStateByRowId] = useState<
+    Record<string, WebsiteContentReviewDashboardState>
+  >({});
+  const [isReviewStateLoading, setIsReviewStateLoading] = useState(false);
+  const [isReviewLinkMutating, setIsReviewLinkMutating] = useState(false);
+  const [isBulkReviewModalOpen, setIsBulkReviewModalOpen] = useState(false);
+  const [isBulkReviewSending, setIsBulkReviewSending] = useState(false);
+  const [bulkReviewEnablingRowId, setBulkReviewEnablingRowId] = useState<
+    string | null
+  >(null);
+  const [bulkReviewMissingRows, setBulkReviewMissingRows] = useState<
+    WebsiteContentRow[]
+  >([]);
+  const [isSendingReviewLink, setIsSendingReviewLink] = useState(false);
+  const [editContentActivityTab, setEditContentActivityTab] =
+    useState("content");
+  const [revisionFromKey, setRevisionFromKey] = useState("");
+  const [revisionToKey, setRevisionToKey] = useState("current");
   const [commentInput, setCommentInput] = useState("");
   const [isSendingComment, setIsSendingComment] = useState(false);
   const [isDeletingCommentId, setIsDeletingCommentId] = useState<string | null>(
@@ -869,6 +1136,8 @@ export const ClientWebsiteContentScreen = ({
     formState: { errors: editContentErrors, isSubmitting: isSavingEditContent },
     handleSubmit: handleEditContentSubmit,
     reset: resetEditContentForm,
+    getValues: getEditContentValues,
+    setValue: setEditContentValue,
   } = useForm<EditContentFormValues>({
     defaultValues: {
       altDescription: "",
@@ -881,8 +1150,12 @@ export const ClientWebsiteContentScreen = ({
       metaDescription: "",
       metaTitle: "",
       status: "Draft",
+      urlSlug: "",
     },
     mode: "onSubmit",
+  });
+  const editContentCurrentValues = useWatch({
+    control: editContentControl,
   });
 
   const loadSavedKeywords = useCallback(async () => {
@@ -947,71 +1220,74 @@ export const ClientWebsiteContentScreen = ({
     };
   }, [loadSavedBreakdown, loadSavedKeywords]);
 
-  useEffect(() => {
+  const loadGenerationContext = useCallback(async () => {
     if (!session?.accessToken || !clientId) {
       setGenerationClientDetails(null);
       setPromptTemplateByType({});
+      setIsGenerationContextLoading(false);
 
       return;
     }
 
+    setIsGenerationContextLoading(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const [promptsResponse, clientDetailsResponse] = await Promise.all([
+        aiPromptsApi.getPrompts(accessToken),
+        clientsApi.getClientById(accessToken, clientId),
+      ]);
+
+      const byType = promptsResponse.aiPrompts.reduce<Record<string, string>>(
+        (acc, prompt) => {
+          const normalizedType = normalizePageTypeForPrompt(prompt.typeOfPost);
+
+          if (
+            !normalizedType ||
+            prompt.status.toLowerCase() !== "active" ||
+            !prompt.prompt?.trim()
+          ) {
+            return acc;
+          }
+
+          const existing = acc[normalizedType];
+
+          if (!existing) {
+            acc[normalizedType] = prompt.prompt?.trim() || "";
+          }
+
+          return acc;
+        },
+        {},
+      );
+
+      setGenerationClientDetails(clientDetailsResponse);
+      setPromptTemplateByType(byType);
+    } catch {
+      setGenerationClientDetails(null);
+      setPromptTemplateByType({});
+    } finally {
+      setIsGenerationContextLoading(false);
+    }
+  }, [clientId, getValidAccessToken, session?.accessToken]);
+
+  useEffect(() => {
     let isMounted = true;
 
-    const loadGenerationContext = async () => {
-      try {
-        const accessToken = await getValidAccessToken();
-        const [promptsResponse, clientDetailsResponse] = await Promise.all([
-          aiPromptsApi.getPrompts(accessToken),
-          clientsApi.getClientById(accessToken, clientId),
-        ]);
+    const load = async () => {
+      await loadGenerationContext();
 
-        if (!isMounted) {
-          return;
-        }
-
-        const byType = promptsResponse.aiPrompts.reduce<Record<string, string>>(
-          (acc, prompt) => {
-            const normalizedType = normalizePageTypeForPrompt(
-              prompt.typeOfPost,
-            );
-
-            if (
-              !normalizedType ||
-              prompt.status.toLowerCase() !== "active" ||
-              !prompt.prompt?.trim()
-            ) {
-              return acc;
-            }
-
-            const existing = acc[normalizedType];
-
-            if (!existing) {
-              acc[normalizedType] = prompt.prompt?.trim() || "";
-            }
-
-            return acc;
-          },
-          {},
-        );
-
-        setGenerationClientDetails(clientDetailsResponse);
-        setPromptTemplateByType(byType);
-      } catch {
-        if (!isMounted) {
-          return;
-        }
-
-        setGenerationClientDetails(null);
-        setPromptTemplateByType({});
+      if (!isMounted) {
+        return;
       }
     };
 
-    void loadGenerationContext();
+    void load();
 
     return () => {
       isMounted = false;
     };
-  }, [clientId, getValidAccessToken, session?.accessToken]);
+  }, [loadGenerationContext]);
 
   const liveUsedByBreakdownKey = useMemo(
     () =>
@@ -1393,11 +1669,13 @@ export const ClientWebsiteContentScreen = ({
         altTitle?: string | null;
         contentLength?: string;
         contentType?: string;
+        featuredImage?: unknown;
         generatedContent?: string | null;
         metaDescription?: string | null;
         metaTitle?: string | null;
         status?: string;
         title?: string;
+        urlSlug?: string | null;
       },
     ) => {
       if (!session?.accessToken) {
@@ -1450,6 +1728,8 @@ export const ClientWebsiteContentScreen = ({
           audience: "",
           businessName: generationClientDetails?.businessName?.trim() || "",
           clientDetails: generationClientDetails,
+          contentLength: row.contentLength,
+          contentTitle: row.title || toLabelCase(row.keyword),
           contentType: normalizePageTypeForPrompt(row.type),
           intent: row.intent || "",
           keyword: row.keyword,
@@ -1459,6 +1739,7 @@ export const ClientWebsiteContentScreen = ({
             "",
           pageType: normalizePageTypeForPrompt(row.type),
           requireClient: true,
+          searchVolume: row.sv,
           topic: row.keyword,
           url: generationClientDetails?.website?.trim() || "",
         }),
@@ -1512,6 +1793,52 @@ Context:
 
 Content:
 ${plainContent}`.trim();
+    },
+    [generationClientDetails],
+  );
+
+  const buildEditSeoPrompt = useCallback(
+    (row: WebsiteContentRow, values: EditContentFormValues) => {
+      const businessName = generationClientDetails?.businessName?.trim() || "";
+      const location =
+        generationClientDetails?.cityState?.trim() ||
+        generationClientDetails?.country?.trim() ||
+        "";
+      const currentArticleTitle =
+        values.articleTitle.trim() || toLabelCase(row.keyword);
+      const currentUrlSlug = values.urlSlug.trim();
+      const plainContent = stripHtmlToPlainText(values.content);
+
+      return `You are generating SEO metadata for a medical website content page.
+
+Return JSON only with this exact shape:
+{
+  "articleTitle": "...",
+  "metaTitle": "...",
+  "metaDescription": "...",
+  "urlSlug": "..."
+}
+
+Rules:
+- articleTitle must be a clear, medically appropriate page title that includes the primary keyword naturally.
+- Treat the current article title and current URL slug as drafts only. You may rewrite them when a better SEO option is available.
+- metaTitle must be SEO-optimized, natural, clinically appropriate, and under 60 characters.
+- metaDescription must be compelling, accurate, and between 140 and 160 characters.
+- urlSlug must be lowercase, use hyphens only, avoid stop-word stuffing, include the primary keyword naturally, and be under 80 characters.
+- Do not make medical claims that are not supported by the content.
+- Do not include markdown, code fences, explanations, or extra keys.
+
+Context:
+- Business Name: ${businessName || "N/A"}
+- Location: ${location || "N/A"}
+- Page Type: ${normalizePageTypeForPrompt(row.type)}
+- Primary Keyword: ${row.keyword}
+- Current Article Title: ${currentArticleTitle}
+- Current URL Slug: ${currentUrlSlug || "N/A"}
+- Search Intent: ${values.intent || row.intent || "Informational"}
+
+Content:
+${plainContent || "N/A"}`.trim();
     },
     [generationClientDetails],
   );
@@ -1756,6 +2083,12 @@ ${plainContent}`.trim();
         return;
       }
 
+      if (isGenerationContextLoading) {
+        toast.info("AI templates are still loading.");
+
+        return;
+      }
+
       if (isClusterParentRow(row)) {
         setClusterConfirmRowId(row.id);
 
@@ -1773,7 +2106,9 @@ ${plainContent}`.trim();
     [
       handleGenerateForRow,
       hasExistingGeneratedContent,
+      isGenerationContextLoading,
       isClusterParentRow,
+      toast,
       writingByRowId,
     ],
   );
@@ -1811,6 +2146,72 @@ ${plainContent}`.trim();
         : null,
     [generationModal.rowId, rows],
   );
+  const activeReviewState = useMemo(
+    () =>
+      editContentRow ? (reviewStateByRowId[editContentRow.id] ?? null) : null,
+    [editContentRow, reviewStateByRowId],
+  );
+  const activeReviewUrl = useMemo(
+    () => buildPublicReviewUrl(activeReviewState?.link?.publicPath),
+    [activeReviewState?.link?.publicPath],
+  );
+  const selectedReviewRows = useMemo(
+    () => rows.filter((row) => row.isSelected),
+    [rows],
+  );
+
+  const fetchReviewStateForRow = useCallback(
+    async (row: WebsiteContentRow) => {
+      if (!session?.accessToken || !row.listId) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const accessToken = await getValidAccessToken();
+      const state = await websiteContentReviewsApi.getDashboardState(
+        accessToken,
+        {
+          keywordId: row.keywordId,
+          listId: row.listId,
+        },
+      );
+
+      setReviewStateByRowId((current) => ({
+        ...current,
+        [row.id]: state,
+      }));
+
+      return state;
+    },
+    [getValidAccessToken, session?.accessToken],
+  );
+
+  const loadReviewStateForRow = useCallback(
+    async (row: WebsiteContentRow, options?: { force?: boolean }) => {
+      const requestKey = `${row.listId}:${row.keywordId}`;
+
+      if (
+        !options?.force &&
+        lastReviewStateRequestKeyRef.current === requestKey
+      ) {
+        return;
+      }
+
+      lastReviewStateRequestKeyRef.current = requestKey;
+      setIsReviewStateLoading(true);
+
+      try {
+        await fetchReviewStateForRow(row);
+      } catch (error) {
+        toast.danger("Failed to load public review state.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setIsReviewStateLoading(false);
+      }
+    },
+    [fetchReviewStateForRow, toast],
+  );
 
   useEffect(() => {
     if (
@@ -1841,7 +2242,16 @@ ${plainContent}`.trim();
       metaDescription: editContentRow.metaDescription?.trim() || "",
       metaTitle: editContentRow.metaTitle?.trim() || articleTitle,
       status: editContentRow.status || "Draft",
+      urlSlug:
+        editContentRow.urlSlug?.trim() ||
+        toUrlSlug(editContentRow.title || editContentRow.keyword),
     });
+    setFeaturedImagesByRowId((current) => ({
+      ...current,
+      [editContentRow.id]: readFeaturedImageUpload(
+        editContentRow.featuredImage,
+      ),
+    }));
   }, [
     editContentRow,
     generationModal.content,
@@ -1849,6 +2259,31 @@ ${plainContent}`.trim();
     generationModal.isOpen,
     resetEditContentForm,
   ]);
+
+  useEffect(() => {
+    if (
+      !generationModal.isOpen ||
+      generationModal.isGenerating ||
+      !editContentRow
+    ) {
+      return;
+    }
+
+    void loadReviewStateForRow(editContentRow);
+  }, [
+    editContentRow,
+    generationModal.isGenerating,
+    generationModal.isOpen,
+    loadReviewStateForRow,
+  ]);
+
+  const featuredImage = useMemo(
+    () =>
+      editContentRow?.id
+        ? (featuredImagesByRowId[editContentRow.id] ?? null)
+        : null,
+    [editContentRow?.id, featuredImagesByRowId],
+  );
 
   const handleSaveEditedContent = useCallback(
     async (values: EditContentFormValues) => {
@@ -1866,50 +2301,386 @@ ${plainContent}`.trim();
         throw new Error("Content is required.");
       }
 
+      const normalizedUrlSlug = toUrlSlug(validated.urlSlug);
+      let savedFeaturedImage = featuredImage;
+
+      if (featuredImage?.isUnsaved && featuredImage.file) {
+        if (!session?.accessToken) {
+          throw new Error("Session expired. Please login again.");
+        }
+
+        const accessToken = await getValidAccessToken();
+        const formData = new FormData();
+
+        formData.append("featuredImage", featuredImage.file);
+        const uploadedImage = await keywordContentListsApi.uploadFeaturedImage(
+          accessToken,
+          formData,
+        );
+
+        savedFeaturedImage = {
+          downloadUrl: uploadedImage.url,
+          name: uploadedImage.name,
+          previewUrl:
+            uploadedImage.previewUrl ??
+            resolveServerAssetUrl(uploadedImage.url) ??
+            uploadedImage.url,
+          sizeLabel: uploadedImage.sizeLabel,
+        };
+      }
+
+      const nextFeaturedImage = featuredImage
+        ? {
+            name: savedFeaturedImage?.name ?? featuredImage.name,
+            previewUrl:
+              savedFeaturedImage?.previewUrl ??
+              savedFeaturedImage?.downloadUrl ??
+              featuredImage.previewUrl,
+            sizeLabel: savedFeaturedImage?.sizeLabel ?? featuredImage.sizeLabel,
+            url:
+              savedFeaturedImage?.downloadUrl ??
+              savedFeaturedImage?.previewUrl ??
+              "",
+          }
+        : null;
+
       await persistRowPatch(editContentRow, {
         altDescription: validated.altDescription,
         altTitle: validated.altTitle,
         contentLength: editContentRow.contentLength,
         contentType: editContentRow.type,
+        featuredImage: nextFeaturedImage,
         generatedContent: validated.content,
         metaDescription: validated.metaDescription,
         metaTitle: validated.metaTitle,
         status: validated.status,
         title: validated.articleTitle,
+        urlSlug: normalizedUrlSlug,
       });
 
       updateRowById(editContentRow.id, {
         altDescription: validated.altDescription,
         altTitle: validated.altTitle,
+        featuredImage: nextFeaturedImage,
         generatedContent: validated.content,
         metaDescription: validated.metaDescription,
         metaTitle: validated.metaTitle,
         status: validated.status,
         title: validated.articleTitle,
+        urlSlug: normalizedUrlSlug,
       });
+      setFeaturedImagesByRowId((current) => ({
+        ...current,
+        [editContentRow.id]: readFeaturedImageUpload(nextFeaturedImage),
+      }));
 
       setGenerationModal((current) => ({
         ...current,
         content: validated.content,
         error: "",
-        isOpen: false,
       }));
+      await loadReviewStateForRow(editContentRow, { force: true });
       toast.success("Content saved.");
     },
-    [editContentRow, persistRowPatch, toast, updateRowById],
+    [
+      editContentRow,
+      featuredImage,
+      getValidAccessToken,
+      loadReviewStateForRow,
+      persistRowPatch,
+      session?.accessToken,
+      toast,
+      updateRowById,
+    ],
+  );
+
+  const handleGenerateEditSeo = useCallback(async () => {
+    if (!editContentRow || isGeneratingEditSeo) {
+      return;
+    }
+
+    if (!session?.accessToken) {
+      toast.danger("Session expired. Please login again.");
+
+      return;
+    }
+
+    setIsGeneratingEditSeo(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const currentValues = getEditContentValues();
+      const prompt = buildEditSeoPrompt(editContentRow, currentValues);
+      const response = await manusApi.generateText(accessToken, {
+        clientId,
+        maxCharacters: 700,
+        prompt,
+        provider: "ANTHROPIC",
+      });
+      const generatedSeo = parseGeneratedSeoMetadata(
+        response.text?.trim() || "",
+      );
+
+      setEditContentValue("articleTitle", generatedSeo.articleTitle, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setEditContentValue("metaTitle", generatedSeo.metaTitle, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setEditContentValue("metaDescription", generatedSeo.metaDescription, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      setEditContentValue("urlSlug", generatedSeo.urlSlug, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      toast.success("SEO fields generated.");
+    } catch (error) {
+      toast.danger("Failed to generate SEO fields.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsGeneratingEditSeo(false);
+    }
+  }, [
+    buildEditSeoPrompt,
+    clientId,
+    editContentRow,
+    getEditContentValues,
+    getValidAccessToken,
+    isGeneratingEditSeo,
+    session?.accessToken,
+    setEditContentValue,
+    toast,
+  ]);
+
+  const handleTogglePublicLink = useCallback(async () => {
+    if (!editContentRow || !editContentRow.listId || isReviewLinkMutating) {
+      return;
+    }
+
+    if (!session?.accessToken) {
+      toast.danger("Session expired. Please login again.");
+
+      return;
+    }
+
+    setIsReviewLinkMutating(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+
+      if (activeReviewState?.link?.enabled) {
+        await websiteContentReviewsApi.disableLink(accessToken, {
+          keywordId: editContentRow.keywordId,
+          listId: editContentRow.listId,
+        });
+        toast.success("Public link disabled.");
+      } else {
+        await websiteContentReviewsApi.enableLink(accessToken, {
+          keywordId: editContentRow.keywordId,
+          listId: editContentRow.listId,
+        });
+        toast.success("Public link enabled.");
+      }
+
+      await loadReviewStateForRow(editContentRow, { force: true });
+    } catch (error) {
+      toast.danger("Failed to update public link.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsReviewLinkMutating(false);
+    }
+  }, [
+    activeReviewState?.link?.enabled,
+    editContentRow,
+    getValidAccessToken,
+    isReviewLinkMutating,
+    loadReviewStateForRow,
+    session?.accessToken,
+    toast,
+  ]);
+
+  const handleCopyPublicLink = useCallback(async () => {
+    if (!activeReviewUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(activeReviewUrl);
+      toast.success("Public link copied.");
+    } catch {
+      toast.danger("Unable to copy public link.");
+    }
+  }, [activeReviewUrl, toast]);
+
+  const handleSendLinkToClientReview = useCallback(async () => {
+    if (!editContentRow?.listId || !activeReviewUrl) {
+      toast.warning("Enable the public review link before sending.");
+
+      return;
+    }
+
+    if (!session?.accessToken) {
+      toast.danger("Session expired. Please login again.");
+
+      return;
+    }
+
+    try {
+      setIsSendingReviewLink(true);
+      const accessToken = await getValidAccessToken();
+
+      await websiteContentReviewsApi.sendLinkToClientReview(accessToken, {
+        keywordId: editContentRow.keywordId,
+        listId: editContentRow.listId,
+        publicUrl: activeReviewUrl,
+      });
+
+      toast.success("Review link sent to client.");
+      await loadReviewStateForRow(editContentRow, { force: true });
+    } catch (error) {
+      toast.danger("Failed to send review link.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSendingReviewLink(false);
+    }
+  }, [
+    activeReviewUrl,
+    editContentRow,
+    getValidAccessToken,
+    loadReviewStateForRow,
+    session?.accessToken,
+    toast,
+  ]);
+
+  const sendSelectedRowsForReview = useCallback(
+    async (
+      entries: Array<{
+        row: WebsiteContentRow;
+        state: WebsiteContentReviewDashboardState;
+      }>,
+    ) => {
+      if (!session?.accessToken) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const items = entries.map(({ row, state }) => ({
+        keywordId: row.keywordId,
+        listId: row.listId,
+        publicUrl: buildPublicReviewUrl(state.link?.publicPath),
+      }));
+      const accessToken = await getValidAccessToken();
+
+      await websiteContentReviewsApi.sendLinksToClientReview(accessToken, {
+        items,
+      });
+
+      toast.success("Review links sent to client.");
+      await Promise.all(
+        entries.map(({ row }) => loadReviewStateForRow(row, { force: true })),
+      );
+      setRows((current) =>
+        current.map((row) =>
+          row.isSelected ? { ...row, isSelected: false } : row,
+        ),
+      );
+    },
+    [getValidAccessToken, loadReviewStateForRow, session?.accessToken, toast],
+  );
+
+  const handleBulkSendForReview = useCallback(async () => {
+    if (selectedReviewRows.length === 0 || isBulkReviewSending) {
+      return;
+    }
+
+    try {
+      setIsBulkReviewSending(true);
+      const entries = await Promise.all(
+        selectedReviewRows.map(async (row) => ({
+          row,
+          state: await fetchReviewStateForRow(row),
+        })),
+      );
+      const missingRows = entries
+        .filter(({ state }) => !state.link?.enabled || !state.link.publicPath)
+        .map(({ row }) => row);
+
+      if (missingRows.length > 0) {
+        setBulkReviewMissingRows(missingRows);
+        setIsBulkReviewModalOpen(true);
+
+        return;
+      }
+
+      setBulkReviewMissingRows([]);
+      setIsBulkReviewModalOpen(false);
+      await sendSelectedRowsForReview(entries);
+    } catch (error) {
+      toast.danger("Failed to send review links.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsBulkReviewSending(false);
+    }
+  }, [
+    fetchReviewStateForRow,
+    isBulkReviewSending,
+    selectedReviewRows,
+    sendSelectedRowsForReview,
+    toast,
+  ]);
+
+  const handleEnableBulkPublicLink = useCallback(
+    async (row: WebsiteContentRow) => {
+      if (!session?.accessToken) {
+        toast.danger("Session expired. Please login again.");
+
+        return;
+      }
+
+      try {
+        setBulkReviewEnablingRowId(row.id);
+        const accessToken = await getValidAccessToken();
+
+        await websiteContentReviewsApi.enableLink(accessToken, {
+          keywordId: row.keywordId,
+          listId: row.listId,
+        });
+        const state = await fetchReviewStateForRow(row);
+
+        if (state.link?.enabled && state.link.publicPath) {
+          setBulkReviewMissingRows((current) =>
+            current.filter((item) => item.id !== row.id),
+          );
+        }
+
+        toast.success("Public link enabled.");
+      } catch (error) {
+        toast.danger("Failed to enable public link.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setBulkReviewEnablingRowId(null);
+      }
+    },
+    [fetchReviewStateForRow, getValidAccessToken, session?.accessToken, toast],
   );
 
   const modalComments = useMemo(
     () =>
       editContentRow?.id ? (commentsByRowId[editContentRow.id] ?? []) : [],
     [commentsByRowId, editContentRow?.id],
-  );
-  const featuredImage = useMemo(
-    () =>
-      editContentRow?.id
-        ? (featuredImagesByRowId[editContentRow.id] ?? null)
-        : null,
-    [editContentRow?.id, featuredImagesByRowId],
   );
 
   const formatCommentAuthor = (comment: WebsiteContentComment) => {
@@ -1936,6 +2707,164 @@ ${plainContent}`.trim();
     }
 
     return parsed.toLocaleString();
+  };
+
+  const formatReviewActor = (activity: WebsiteContentReviewActivity) =>
+    activity.actorName ||
+    activity.actorEmail ||
+    (activity.actorType === "PUBLIC_REVIEWER" ? "Client reviewer" : "User");
+
+  const formatReviewActivity = (activity: WebsiteContentReviewActivity) => {
+    if (activity.action === "FIELD_UPDATED" && activity.fieldName) {
+      return `${formatReviewActor(activity)} changed ${activity.fieldName}`;
+    }
+
+    if (activity.action === "COMMENT_ADDED") {
+      return `${formatReviewActor(activity)} added a comment`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_ENABLED") {
+      return `${formatReviewActor(activity)} enabled the public link`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_DISABLED") {
+      return `${formatReviewActor(activity)} disabled the public link`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_SENT_TO_CLIENT") {
+      return `${formatReviewActor(activity)} sent content for client review`;
+    }
+
+    if (activity.action === "MANUAL_BACKUP_CREATED") {
+      return `${formatReviewActor(activity)} created a backup`;
+    }
+
+    return `${formatReviewActor(activity)} updated this content`;
+  };
+
+  const revisionClientName =
+    generationClientDetails?.businessName ||
+    generationClientDetails?.clientName ||
+    "Client";
+  const currentRevisionSnapshot = useMemo<RevisionSnapshot>(
+    () => ({
+      generatedContent: editContentCurrentValues.content ?? "",
+      metaDescription: editContentCurrentValues.metaDescription ?? "",
+      metaTitle: editContentCurrentValues.metaTitle ?? "",
+      title: editContentCurrentValues.articleTitle ?? "",
+      urlSlug: editContentCurrentValues.urlSlug ?? "",
+    }),
+    [
+      editContentCurrentValues.articleTitle,
+      editContentCurrentValues.content,
+      editContentCurrentValues.metaDescription,
+      editContentCurrentValues.metaTitle,
+      editContentCurrentValues.urlSlug,
+    ],
+  );
+  const revisionOptions = useMemo<RevisionOption[]>(() => {
+    const sortedVersions = [...(activeReviewState?.versions ?? [])].sort(
+      (left, right) =>
+        new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime(),
+    );
+    const options: RevisionOption[] = [];
+    const originalVersion = sortedVersions[0];
+
+    if (originalVersion) {
+      options.push({
+        key: `version:${originalVersion.id}`,
+        label: "Original",
+        snapshot: normalizeRevisionSnapshot(originalVersion.snapshot),
+      });
+    }
+
+    sortedVersions.slice(1).forEach((version) => {
+      options.push({
+        key: `version:${version.id}`,
+        label: buildRevisionLabel(version, revisionClientName),
+        snapshot: normalizeRevisionSnapshot(version.snapshot),
+      });
+    });
+
+    options.push({
+      key: "current",
+      label: "Current",
+      snapshot: currentRevisionSnapshot,
+    });
+
+    return options;
+  }, [
+    activeReviewState?.versions,
+    currentRevisionSnapshot,
+    revisionClientName,
+  ]);
+  const revisionFromOption =
+    revisionOptions.find((option) => option.key === revisionFromKey) ??
+    revisionOptions[Math.max(revisionOptions.length - 2, 0)];
+  const revisionToOption =
+    revisionOptions.find((option) => option.key === revisionToKey) ??
+    revisionOptions[revisionOptions.length - 1];
+  const restoreRevisionLabel =
+    revisionFromOption && revisionFromOption.key !== "current"
+      ? `Restore to ${revisionFromOption.label}`
+      : "Restore This Version";
+
+  useEffect(() => {
+    if (!generationModal.isOpen || revisionOptions.length === 0) {
+      return;
+    }
+
+    const optionKeys = new Set(revisionOptions.map((option) => option.key));
+    const latestSavedRevisionKey =
+      revisionOptions.length > 1
+        ? revisionOptions[revisionOptions.length - 2]?.key
+        : revisionOptions[0]?.key;
+
+    if (!revisionFromKey || !optionKeys.has(revisionFromKey)) {
+      setRevisionFromKey(latestSavedRevisionKey ?? "");
+    }
+
+    if (!revisionToKey || !optionKeys.has(revisionToKey)) {
+      setRevisionToKey("current");
+    }
+  }, [generationModal.isOpen, revisionFromKey, revisionOptions, revisionToKey]);
+
+  const handleRestoreRevision = () => {
+    if (!revisionFromOption || revisionFromOption.key === "current") {
+      return;
+    }
+
+    const snapshot = revisionFromOption.snapshot;
+
+    setEditContentValue("articleTitle", snapshot.title, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setEditContentValue("urlSlug", toUrlSlug(snapshot.urlSlug), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setEditContentValue("metaTitle", snapshot.metaTitle, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setEditContentValue("metaDescription", snapshot.metaDescription, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setEditContentValue(
+      "content",
+      toEditorHtmlContent(snapshot.generatedContent || "<p></p>"),
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      },
+    );
+    setEditContentActivityTab("content");
+    toast.success("Revision restored to editor.", {
+      description: "Review the restored content, then save to publish it.",
+    });
   };
 
   const refreshEditorState = () => {
@@ -2146,7 +3075,7 @@ ${plainContent}`.trim();
   }, [editContentRow?.id]);
 
   const handleFeaturedImageUpload = useCallback(
-    (fileList: FileList | null) => {
+    async (fileList: FileList | null) => {
       if (!editContentRow || !fileList || fileList.length === 0) {
         return;
       }
@@ -2159,25 +3088,33 @@ ${plainContent}`.trim();
         return;
       }
 
-      const previewUrl = URL.createObjectURL(file);
-      const sizeLabel = `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+      try {
+        const previewUrl = URL.createObjectURL(file);
+        const sizeLabel = formatBytes(file.size);
 
-      setFeaturedImagesByRowId((current) => {
-        const previous = current[editContentRow.id];
+        setFeaturedImagesByRowId((current) => {
+          const previous = current[editContentRow.id];
 
-        if (previous?.previewUrl) {
-          URL.revokeObjectURL(previous.previewUrl);
-        }
+          if (previous?.previewUrl?.startsWith("blob:")) {
+            URL.revokeObjectURL(previous.previewUrl);
+          }
 
-        return {
-          ...current,
-          [editContentRow.id]: {
-            name: file.name,
-            previewUrl,
-            sizeLabel,
-          },
-        };
-      });
+          return {
+            ...current,
+            [editContentRow.id]: {
+              file,
+              isUnsaved: true,
+              name: file.name,
+              previewUrl,
+              sizeLabel,
+            },
+          };
+        });
+      } catch (error) {
+        toast.danger("Failed to preview image.", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      }
     },
     [editContentRow, toast],
   );
@@ -2190,7 +3127,7 @@ ${plainContent}`.trim();
     setFeaturedImagesByRowId((current) => {
       const previous = current[editContentRow.id];
 
-      if (previous?.previewUrl) {
+      if (previous?.previewUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(previous.previewUrl);
       }
 
@@ -2201,10 +3138,24 @@ ${plainContent}`.trim();
     });
   }, [editContentRow]);
 
+  const handleDownloadFeaturedImage = useCallback(() => {
+    if (!featuredImage?.downloadUrl || featuredImage.isUnsaved) {
+      return;
+    }
+
+    const link = document.createElement("a");
+
+    link.href = featuredImage.downloadUrl;
+    link.download = featuredImage.name || "featured-image";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }, [featuredImage]);
+
   useEffect(
     () => () => {
       Object.values(featuredImagesByRowId).forEach((item) => {
-        if (item?.previewUrl) {
+        if (item?.previewUrl?.startsWith("blob:")) {
           URL.revokeObjectURL(item.previewUrl);
         }
       });
@@ -2376,7 +3327,9 @@ ${plainContent}`.trim();
         return (
           <div className="flex items-center justify-end gap-2">
             <Button
-              isDisabled={Boolean(writingByRowId[item.id])}
+              isDisabled={
+                Boolean(writingByRowId[item.id]) || isGenerationContextLoading
+              }
               isLoading={Boolean(writingByRowId[item.id])}
               radius="md"
               size="sm"
@@ -2385,9 +3338,11 @@ ${plainContent}`.trim();
                 handleWriteClick(item);
               }}
             >
-              {writingByRowId[item.id]
-                ? "Generating..."
-                : getWriteButtonLabel(item)}
+              {isGenerationContextLoading
+                ? "Loading AI..."
+                : writingByRowId[item.id]
+                  ? "Generating..."
+                  : getWriteButtonLabel(item)}
             </Button>
             <Dropdown placement="bottom-end">
               <DropdownTrigger>
@@ -2571,6 +3526,17 @@ ${plainContent}`.trim();
             </Button>
             <Button startContent={<Columns3 size={14} />} variant="bordered">
               Columns
+            </Button>
+            <Button
+              isDisabled={selectedReviewRows.length === 0}
+              isLoading={isBulkReviewSending}
+              startContent={<SendHorizontal size={14} />}
+              variant="bordered"
+              onPress={() => {
+                void handleBulkSendForReview();
+              }}
+            >
+              Send for review
             </Button>
             <Button
               className="bg-[#022279] text-white"
@@ -3036,419 +4002,645 @@ ${plainContent}`.trim();
                 {generationModal.error}
               </div>
             ) : (
-              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <Controller
-                      control={editContentControl}
-                      name="status"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-status"
-                          >
-                            Status
-                          </label>
-                          <Select
-                            aria-label="Status"
-                            id="edit-content-status"
-                            selectedKeys={field.value ? [field.value] : []}
-                            size="sm"
-                            variant="bordered"
-                            onSelectionChange={(keys) => {
-                              const [next] =
-                                keys === "all"
-                                  ? []
-                                  : Array.from(keys).map(String);
-
-                              if (next) {
-                                field.onChange(next);
-                              }
-                            }}
-                          >
-                            {CONTENT_STATUS_OPTIONS.map((option) => (
-                              <SelectItem key={option}>{option}</SelectItem>
-                            ))}
-                          </Select>
-                        </div>
-                      )}
-                    />
-                    <Controller
-                      control={editContentControl}
-                      name="keyword"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-keyword"
-                          >
-                            Keyword
-                          </label>
-                          <Input
-                            {...field}
-                            isReadOnly
-                            id="edit-content-keyword"
-                            size="sm"
-                            variant="bordered"
-                          />
-                        </div>
-                      )}
-                    />
-                    <Controller
-                      control={editContentControl}
-                      name="intent"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-intent"
-                          >
-                            Intent
-                          </label>
-                          <Select
-                            aria-label="Intent"
-                            id="edit-content-intent"
-                            selectedKeys={field.value ? [field.value] : []}
-                            size="sm"
-                            variant="bordered"
-                            onSelectionChange={(keys) => {
-                              const [next] =
-                                keys === "all"
-                                  ? []
-                                  : Array.from(keys).map(String);
-
-                              if (next) {
-                                field.onChange(next);
-                              }
-                            }}
-                          >
-                            {INTENT_OPTIONS.map((option) => (
-                              <SelectItem key={option}>{option}</SelectItem>
-                            ))}
-                          </Select>
-                        </div>
-                      )}
-                    />
-                    <Controller
-                      control={editContentControl}
-                      name="citation"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-citation"
-                          >
-                            Citation
-                          </label>
-                          <Select
-                            aria-label="Citation"
-                            id="edit-content-citation"
-                            selectedKeys={field.value ? [field.value] : []}
-                            size="sm"
-                            variant="bordered"
-                            onSelectionChange={(keys) => {
-                              const [next] =
-                                keys === "all"
-                                  ? []
-                                  : Array.from(keys).map(String);
-
-                              if (next) {
-                                field.onChange(next);
-                              }
-                            }}
-                          >
-                            {CITATION_OPTIONS.map((option) => (
-                              <SelectItem key={option}>{option}</SelectItem>
-                            ))}
-                          </Select>
-                        </div>
-                      )}
-                    />
-                  </div>
-
-                  <Controller
-                    control={editContentControl}
-                    name="metaTitle"
-                    render={({ field }) => (
-                      <div className="space-y-1">
-                        <label
-                          className="text-xs font-medium text-[#374151]"
-                          htmlFor="edit-content-meta-title"
-                        >
-                          Meta Title
-                        </label>
-                        <Input
-                          {...field}
-                          id="edit-content-meta-title"
-                          size="sm"
-                          variant="bordered"
-                        />
-                      </div>
-                    )}
-                  />
-                  <Controller
-                    control={editContentControl}
-                    name="metaDescription"
-                    render={({ field }) => (
-                      <div className="space-y-1">
-                        <label
-                          className="text-xs font-medium text-[#374151]"
-                          htmlFor="edit-content-meta-description"
-                        >
-                          Meta Description
-                        </label>
-                        <Textarea
-                          {...field}
-                          id="edit-content-meta-description"
-                          size="sm"
-                          variant="bordered"
-                        />
-                      </div>
-                    )}
-                  />
-                  <Controller
-                    control={editContentControl}
-                    name="articleTitle"
-                    render={({ field }) => (
-                      <div className="space-y-1">
-                        <label
-                          className="text-xs font-medium text-[#374151]"
-                          htmlFor="edit-content-article-title"
-                        >
-                          Article Title
-                        </label>
-                        <Input
-                          {...field}
-                          errorMessage={editContentErrors.articleTitle?.message}
-                          id="edit-content-article-title"
-                          isInvalid={Boolean(editContentErrors.articleTitle)}
-                          size="sm"
-                          variant="bordered"
-                        />
-                      </div>
-                    )}
-                    rules={{ required: "Article title is required." }}
-                  />
-
-                  <div className="space-y-1">
-                    <label
-                      className="text-sm font-medium text-[#374151]"
-                      htmlFor="edit-content-body"
-                    >
-                      Content
-                    </label>
-                    <Controller
-                      control={editContentControl}
-                      name="content"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <RichTextEditor
-                            editorId="edit-content-body"
-                            minHeightClassName="min-h-[260px]"
-                            placeholder="Write generated content..."
-                            value={field.value || "<p></p>"}
-                            onBlur={field.onBlur}
-                            onChange={field.onChange}
-                          />
-                          {editContentErrors.content ? (
-                            <p className="text-xs text-danger">
-                              {editContentErrors.content.message}
-                            </p>
-                          ) : null}
-                        </div>
-                      )}
-                      rules={{ required: "Content is required." }}
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <label
-                      className="text-sm font-medium text-[#374151]"
-                      htmlFor="edit-content-featured-image"
-                    >
-                      Featured Image
-                    </label>
-                    <div className="w-[170px] rounded-xl border border-default-200 p-2">
-                      <button
-                        className="block w-full"
-                        type="button"
-                        onClick={() => {
-                          if (featuredImage?.previewUrl) {
-                            setPreviewAttachment({
-                              name: featuredImage.name,
-                              url: featuredImage.previewUrl,
-                            });
-                          } else {
-                            featuredImageInputRef.current?.click();
-                          }
-                        }}
-                      >
-                        {featuredImage?.previewUrl ? (
-                          <Image
-                            unoptimized
-                            alt={featuredImage.name}
-                            className="h-24 w-full rounded-lg object-cover"
-                            height={96}
-                            src={featuredImage.previewUrl}
-                            width={160}
-                          />
-                        ) : (
-                          <div className="flex h-24 items-center justify-center rounded-lg bg-[#F3F4F6] text-xs text-[#6B7280]">
-                            No image
+              <Tabs
+                aria-label="Edit content sections"
+                classNames={{
+                  panel: "px-0 pb-0 pt-4",
+                  tabList: "w-full",
+                }}
+                selectedKey={editContentActivityTab}
+                size="sm"
+                onSelectionChange={(key) => {
+                  setEditContentActivityTab(String(key));
+                }}
+              >
+                <Tab key="content" title="Content">
+                  <div className="space-y-5">
+                    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+                      <div className="space-y-3">
+                        <div className="space-y-3 rounded-lg border border-default-200 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              {activeReviewState?.link?.enabled ? (
+                                <ShieldCheck
+                                  className="text-success"
+                                  size={16}
+                                />
+                              ) : (
+                                <ShieldOff
+                                  className="text-[#9CA3AF]"
+                                  size={16}
+                                />
+                              )}
+                              <h4 className="text-sm font-semibold text-[#111827]">
+                                Public Review Link
+                              </h4>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              {activeReviewState?.link?.expiresAt ? (
+                                <p className="text-xs text-[#6B7280]">
+                                  Expires{" "}
+                                  {formatCommentTime(
+                                    activeReviewState.link.expiresAt,
+                                  )}
+                                </p>
+                              ) : null}
+                              {isReviewStateLoading ? (
+                                <Spinner size="sm" />
+                              ) : null}
+                            </div>
                           </div>
-                        )}
-                      </button>
-                      {featuredImage ? (
-                        <>
-                          <p className="mt-2 truncate text-xs text-[#111827]">
-                            {featuredImage.name}
-                          </p>
-                          <p className="text-[11px] text-[#9CA3AF]">
-                            {featuredImage.sizeLabel}
-                          </p>
-                        </>
-                      ) : null}
-                      <div className="mt-2 flex items-center gap-2">
-                        <Button
-                          isIconOnly
-                          radius="full"
-                          size="sm"
-                          variant="flat"
-                          onPress={() => {
-                            featuredImageInputRef.current?.click();
-                          }}
-                        >
-                          <ImageIcon size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          isDisabled={!featuredImage}
-                          radius="full"
-                          size="sm"
-                          variant="flat"
-                          onPress={handleRemoveFeaturedImage}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                      <input
-                        ref={featuredImageInputRef}
-                        accept="image/*"
-                        className="hidden"
-                        id="edit-content-featured-image"
-                        type="file"
-                        onChange={(event) => {
-                          handleFeaturedImageUpload(event.target.files);
-                          event.target.value = "";
-                        }}
-                      />
-                    </div>
-                    <Controller
-                      control={editContentControl}
-                      name="altTitle"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-alt-title"
-                          >
-                            Alt Title
-                          </label>
-                          <Input
-                            {...field}
-                            id="edit-content-alt-title"
-                            size="sm"
-                            variant="bordered"
-                          />
-                        </div>
-                      )}
-                    />
-                    <Controller
-                      control={editContentControl}
-                      name="altDescription"
-                      render={({ field }) => (
-                        <div className="space-y-1">
-                          <label
-                            className="text-xs font-medium text-[#374151]"
-                            htmlFor="edit-content-alt-description"
-                          >
-                            Alt Description
-                          </label>
-                          <Input
-                            {...field}
-                            id="edit-content-alt-description"
-                            size="sm"
-                            variant="bordered"
-                          />
-                        </div>
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex min-h-[200px] max-h-[800px] flex-col rounded-xl">
-                  <div className="border-b border-default-200 pb-3">
-                    <h4 className="text-sm font-semibold text-[#111827]">
-                      Comments
-                    </h4>
-                  </div>
-                  <div className="flex-1 space-y-4 overflow-y-auto py-3 text-sm text-[#4B5563]">
-                    {modalComments.length === 0 ? (
-                      <div className="rounded-lg bg-[#F9FAFB] p-3">
-                        No comments yet for this content.
-                      </div>
-                    ) : (
-                      modalComments.map((comment) => {
-                        const parsedComment = parseCommentAttachments(
-                          comment.comment,
-                        );
-                        const authorName = formatCommentAuthor(comment);
-                        const mappedAttachments = parsedComment.attachments.map(
-                          (attachment, index) => {
-                            const mapped = attachment.id
-                              ? (commentAttachmentLibrary[attachment.id] ??
-                                null)
-                              : null;
-
-                            return {
-                              dataUrl: attachment.dataUrl,
-                              id: attachment.id ?? `${comment.id}-${index}`,
-                              isImage:
-                                mapped?.isImage ?? attachment.isImage ?? false,
-                              name: attachment.name,
-                              previewUrl:
-                                attachment.dataUrl ?? mapped?.previewUrl,
-                            };
-                          },
-                        );
-
-                        return (
-                          <div
-                            key={comment.id}
-                            className="border-b border-default-200 p-3"
-                          >
-                            {parsedComment.richHtml ? (
-                              <div
-                                dangerouslySetInnerHTML={{
-                                  __html: sanitizeCommentHtml(
-                                    parsedComment.richHtml,
-                                  ),
+                          <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                            <Input
+                              isReadOnly
+                              aria-label="Public review URL"
+                              className="min-w-0 flex-1"
+                              placeholder="Enable public link to generate URL"
+                              size="sm"
+                              value={activeReviewUrl}
+                              variant="bordered"
+                            />
+                            <div className="flex flex-wrap gap-2 lg:flex-nowrap">
+                              <Button
+                                isIconOnly
+                                isDisabled={!activeReviewUrl}
+                                size="sm"
+                                variant="bordered"
+                                onPress={() => {
+                                  void handleCopyPublicLink();
                                 }}
-                                className="prose prose-sm max-w-none text-sm text-[#111827]"
-                              />
-                            ) : (
-                              <p className="whitespace-pre-wrap text-sm text-[#111827]">
-                                {parsedComment.body || "Attachment"}
-                              </p>
-                            )}
+                              >
+                                <Copy size={15} />
+                              </Button>
+                              <Button
+                                className={
+                                  activeReviewState?.link?.enabled
+                                    ? "text-danger"
+                                    : "bg-[#022279] text-white"
+                                }
+                                isLoading={isReviewLinkMutating}
+                                size="sm"
+                                variant={
+                                  activeReviewState?.link?.enabled
+                                    ? "bordered"
+                                    : "solid"
+                                }
+                                onPress={() => {
+                                  void handleTogglePublicLink();
+                                }}
+                              >
+                                {activeReviewState?.link?.enabled
+                                  ? "Disable Public Link"
+                                  : "Enable Public Link"}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
 
-                            {mappedAttachments.length > 0 ? (
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {mappedAttachments.map((attachment) => (
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <Controller
+                            control={editContentControl}
+                            name="status"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <label
+                                  className="text-xs font-medium text-[#374151]"
+                                  htmlFor="edit-content-status"
+                                >
+                                  Status
+                                </label>
+                                <Select
+                                  aria-label="Status"
+                                  id="edit-content-status"
+                                  selectedKeys={
+                                    field.value ? [field.value] : []
+                                  }
+                                  size="sm"
+                                  variant="bordered"
+                                  onSelectionChange={(keys) => {
+                                    const [next] =
+                                      keys === "all"
+                                        ? []
+                                        : Array.from(keys).map(String);
+
+                                    if (next) {
+                                      field.onChange(next);
+                                    }
+                                  }}
+                                >
+                                  {CONTENT_STATUS_OPTIONS.map((option) => (
+                                    <SelectItem key={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </div>
+                            )}
+                          />
+                          <Controller
+                            control={editContentControl}
+                            name="keyword"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <label
+                                  className="text-xs font-medium text-[#374151]"
+                                  htmlFor="edit-content-keyword"
+                                >
+                                  Keyword
+                                </label>
+                                <Input
+                                  {...field}
+                                  isReadOnly
+                                  id="edit-content-keyword"
+                                  size="sm"
+                                  variant="bordered"
+                                />
+                              </div>
+                            )}
+                          />
+                          <Controller
+                            control={editContentControl}
+                            name="intent"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <label
+                                  className="text-xs font-medium text-[#374151]"
+                                  htmlFor="edit-content-intent"
+                                >
+                                  Intent
+                                </label>
+                                <Select
+                                  aria-label="Intent"
+                                  id="edit-content-intent"
+                                  selectedKeys={
+                                    field.value ? [field.value] : []
+                                  }
+                                  size="sm"
+                                  variant="bordered"
+                                  onSelectionChange={(keys) => {
+                                    const [next] =
+                                      keys === "all"
+                                        ? []
+                                        : Array.from(keys).map(String);
+
+                                    if (next) {
+                                      field.onChange(next);
+                                    }
+                                  }}
+                                >
+                                  {INTENT_OPTIONS.map((option) => (
+                                    <SelectItem key={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </div>
+                            )}
+                          />
+                          <Controller
+                            control={editContentControl}
+                            name="citation"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <label
+                                  className="text-xs font-medium text-[#374151]"
+                                  htmlFor="edit-content-citation"
+                                >
+                                  Citation
+                                </label>
+                                <Select
+                                  aria-label="Citation"
+                                  id="edit-content-citation"
+                                  selectedKeys={
+                                    field.value ? [field.value] : []
+                                  }
+                                  size="sm"
+                                  variant="bordered"
+                                  onSelectionChange={(keys) => {
+                                    const [next] =
+                                      keys === "all"
+                                        ? []
+                                        : Array.from(keys).map(String);
+
+                                    if (next) {
+                                      field.onChange(next);
+                                    }
+                                  }}
+                                >
+                                  {CITATION_OPTIONS.map((option) => (
+                                    <SelectItem key={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </div>
+                            )}
+                          />
+                        </div>
+
+                        <Controller
+                          control={editContentControl}
+                          name="articleTitle"
+                          render={({ field }) => (
+                            <div className="space-y-1">
+                              <label
+                                className="text-xs font-medium text-[#374151]"
+                                htmlFor="edit-content-article-title"
+                              >
+                                Article Title
+                              </label>
+                              <Input
+                                {...field}
+                                errorMessage={
+                                  editContentErrors.articleTitle?.message
+                                }
+                                id="edit-content-article-title"
+                                isInvalid={Boolean(
+                                  editContentErrors.articleTitle,
+                                )}
+                                size="sm"
+                                variant="bordered"
+                              />
+                            </div>
+                          )}
+                          rules={{ required: "Article title is required." }}
+                        />
+
+                        <Controller
+                          control={editContentControl}
+                          name="urlSlug"
+                          render={({ field }) => (
+                            <div className="space-y-1">
+                              <label
+                                className="text-xs font-medium text-[#374151]"
+                                htmlFor="edit-content-url-slug"
+                              >
+                                URL Slug
+                              </label>
+                              <Input
+                                {...field}
+                                errorMessage={
+                                  editContentErrors.urlSlug?.message
+                                }
+                                id="edit-content-url-slug"
+                                isInvalid={Boolean(editContentErrors.urlSlug)}
+                                size="sm"
+                                variant="bordered"
+                                onBlur={(event) => {
+                                  field.onChange(toUrlSlug(event.target.value));
+                                  field.onBlur();
+                                }}
+                              />
+                            </div>
+                          )}
+                        />
+
+                        <Controller
+                          control={editContentControl}
+                          name="metaTitle"
+                          render={({ field }) => (
+                            <div className="space-y-1">
+                              <label
+                                className="text-xs font-medium text-[#374151]"
+                                htmlFor="edit-content-meta-title"
+                              >
+                                Meta Title
+                              </label>
+                              <Input
+                                {...field}
+                                id="edit-content-meta-title"
+                                size="sm"
+                                variant="bordered"
+                              />
+                            </div>
+                          )}
+                        />
+                        <Controller
+                          control={editContentControl}
+                          name="metaDescription"
+                          render={({ field }) => (
+                            <div className="space-y-1">
+                              <label
+                                className="text-xs font-medium text-[#374151]"
+                                htmlFor="edit-content-meta-description"
+                              >
+                                Meta Description
+                              </label>
+                              <Textarea
+                                {...field}
+                                id="edit-content-meta-description"
+                                size="sm"
+                                variant="bordered"
+                              />
+                            </div>
+                          )}
+                        />
+
+                        <div className="flex justify-end">
+                          <Button
+                            className="bg-[#022279] text-white"
+                            isDisabled={
+                              isGeneratingEditSeo ||
+                              generationModal.isGenerating
+                            }
+                            isLoading={isGeneratingEditSeo}
+                            size="sm"
+                            onPress={() => {
+                              void handleGenerateEditSeo();
+                            }}
+                          >
+                            Generate SEO
+                          </Button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label
+                            className="text-sm font-medium text-[#374151]"
+                            htmlFor="edit-content-body"
+                          >
+                            Content
+                          </label>
+                          <Controller
+                            control={editContentControl}
+                            name="content"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <RichTextEditor
+                                  editorId="edit-content-body"
+                                  minHeightClassName="min-h-[260px]"
+                                  placeholder="Write generated content..."
+                                  value={field.value || "<p></p>"}
+                                  onBlur={field.onBlur}
+                                  onChange={field.onChange}
+                                />
+                                {editContentErrors.content ? (
+                                  <p className="text-xs text-danger">
+                                    {editContentErrors.content.message}
+                                  </p>
+                                ) : null}
+                              </div>
+                            )}
+                            rules={{ required: "Content is required." }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex max-h-[800px] flex-col gap-4 rounded-xl">
+                        <div className="space-y-3 rounded-lg border border-default-200 p-3">
+                          <label
+                            className="text-sm font-medium text-[#374151]"
+                            htmlFor="edit-content-featured-image"
+                          >
+                            Featured Image
+                          </label>
+                          <div className="w-full rounded-xl border border-default-200 p-2">
+                            <button
+                              className="block w-full"
+                              type="button"
+                              onClick={() => {
+                                if (featuredImage?.previewUrl) {
+                                  setPreviewAttachment({
+                                    name: featuredImage.name,
+                                    url: featuredImage.previewUrl,
+                                  });
+                                } else {
+                                  featuredImageInputRef.current?.click();
+                                }
+                              }}
+                            >
+                              {featuredImage?.previewUrl ? (
+                                <Image
+                                  unoptimized
+                                  alt={featuredImage.name}
+                                  className="aspect-[2/1.3] w-full rounded-lg object-cover"
+                                  height={160}
+                                  src={featuredImage.previewUrl}
+                                  width={260}
+                                />
+                              ) : (
+                                <div className="flex aspect-[2/1.3] items-center justify-center rounded-lg bg-[#F3F4F6] text-xs text-[#6B7280]">
+                                  No image
+                                </div>
+                              )}
+                            </button>
+                            {featuredImage ? (
+                              <>
+                                <p className="mt-2 truncate text-xs text-[#111827]">
+                                  {featuredImage.name}
+                                </p>
+                                <p className="text-[11px] text-[#9CA3AF]">
+                                  {featuredImage.sizeLabel}
+                                </p>
+                              </>
+                            ) : null}
+                            <div className="mt-2 flex items-center gap-2">
+                              <Button
+                                isIconOnly
+                                radius="full"
+                                size="sm"
+                                variant="flat"
+                                onPress={() => {
+                                  featuredImageInputRef.current?.click();
+                                }}
+                              >
+                                <ImageIcon size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                isDisabled={!featuredImage}
+                                radius="full"
+                                size="sm"
+                                variant="flat"
+                                onPress={handleRemoveFeaturedImage}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                isDisabled={
+                                  !featuredImage?.downloadUrl ||
+                                  featuredImage.isUnsaved
+                                }
+                                radius="full"
+                                size="sm"
+                                variant="flat"
+                                onPress={handleDownloadFeaturedImage}
+                              >
+                                <Download size={14} />
+                              </Button>
+                            </div>
+                            <input
+                              ref={featuredImageInputRef}
+                              accept="image/*"
+                              className="hidden"
+                              id="edit-content-featured-image"
+                              type="file"
+                              onChange={(event) => {
+                                void handleFeaturedImageUpload(
+                                  event.target.files,
+                                );
+                                event.target.value = "";
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div className="border-b border-default-200 pb-3">
+                          <h4 className="text-sm font-semibold text-[#111827]">
+                            Comments
+                          </h4>
+                        </div>
+                        <div className="space-y-4 overflow-y-auto pt-3 text-sm text-[#4B5563] border border-b-0 border-default-200 rounded-md">
+                          {modalComments.length === 0 ? (
+                            <div className="rounded-lg bg-[#F9FAFB] p-3">
+                              No comments yet for this content.
+                            </div>
+                          ) : (
+                            modalComments.map((comment) => {
+                              const parsedComment = parseCommentAttachments(
+                                comment.comment,
+                              );
+                              const authorName = formatCommentAuthor(comment);
+                              const mappedAttachments =
+                                parsedComment.attachments.map(
+                                  (attachment, index) => {
+                                    const mapped = attachment.id
+                                      ? (commentAttachmentLibrary[
+                                          attachment.id
+                                        ] ?? null)
+                                      : null;
+
+                                    return {
+                                      dataUrl: attachment.dataUrl,
+                                      id:
+                                        attachment.id ??
+                                        `${comment.id}-${index}`,
+                                      isImage:
+                                        mapped?.isImage ??
+                                        attachment.isImage ??
+                                        false,
+                                      name: attachment.name,
+                                      previewUrl:
+                                        attachment.dataUrl ??
+                                        mapped?.previewUrl,
+                                    };
+                                  },
+                                );
+
+                              return (
+                                <div
+                                  key={comment.id}
+                                  className="border-b border-default-200 p-3"
+                                >
+                                  {parsedComment.richHtml ? (
+                                    <div
+                                      dangerouslySetInnerHTML={{
+                                        __html: sanitizeCommentHtml(
+                                          parsedComment.richHtml,
+                                        ),
+                                      }}
+                                      className="prose prose-sm max-w-none text-sm text-[#111827]"
+                                    />
+                                  ) : (
+                                    <p className="whitespace-pre-wrap text-sm text-[#111827]">
+                                      {parsedComment.body || "Attachment"}
+                                    </p>
+                                  )}
+
+                                  {mappedAttachments.length > 0 ? (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {mappedAttachments.map((attachment) => (
+                                        <button
+                                          key={attachment.id}
+                                          className="inline-flex items-center gap-1 rounded-full border border-default-200 bg-[#F9FAFB] px-3 py-1 text-xs text-[#374151]"
+                                          type="button"
+                                          onClick={() => {
+                                            if (
+                                              attachment.isImage &&
+                                              attachment.previewUrl
+                                            ) {
+                                              setPreviewAttachment({
+                                                name: attachment.name,
+                                                url: attachment.previewUrl,
+                                              });
+
+                                              return;
+                                            }
+
+                                            if (attachment.previewUrl) {
+                                              window.open(
+                                                attachment.previewUrl,
+                                                "_blank",
+                                                "noopener,noreferrer",
+                                              );
+
+                                              return;
+                                            }
+
+                                            toast.warning(
+                                              "Attachment is unavailable.",
+                                            );
+                                          }}
+                                        >
+                                          <Paperclip size={12} />
+                                          <span>{attachment.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+
+                                  <div className="mt-2 flex items-center justify-between gap-2 text-xs text-[#6B7280]">
+                                    <div className="inline-flex items-center gap-2">
+                                      <Avatar
+                                        classNames={{
+                                          base: "h-5 w-5 bg-[#F3F4F6] text-[#6B7280] text-[10px]",
+                                        }}
+                                        name={authorName}
+                                        size="sm"
+                                        src={resolveServerAssetUrl(
+                                          comment.author?.avatarUrl,
+                                        )}
+                                      />
+                                      <span>{authorName}</span>
+                                      <span>&bull;</span>
+                                      <span>
+                                        {formatCommentTime(comment.createdAt)}
+                                      </span>
+                                    </div>
+                                    {String(comment.author?.id ?? "") ===
+                                    String(session?.user?.id ?? "") ? (
+                                      <Button
+                                        isIconOnly
+                                        className="text-danger"
+                                        isDisabled={
+                                          isDeletingCommentId === comment.id
+                                        }
+                                        radius="full"
+                                        size="sm"
+                                        variant="light"
+                                        onPress={() => {
+                                          void handleDeleteComment(comment.id);
+                                        }}
+                                      >
+                                        <Trash2 size={14} />
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                        <div className="">
+                          {pendingAttachments.length > 0 ? (
+                            <div className="flex flex-wrap gap-2 px-3 pt-3">
+                              {pendingAttachments.map((attachment) => (
+                                <div
+                                  key={attachment.id}
+                                  className="inline-flex items-center gap-2 rounded-full border border-default-200 bg-[#F9FAFB] px-3 py-1 text-xs text-[#374151]"
+                                >
+                                  <Paperclip size={12} />
                                   <button
-                                    key={attachment.id}
-                                    className="inline-flex items-center gap-1 rounded-full border border-default-200 bg-[#F9FAFB] px-3 py-1 text-xs text-[#374151]"
+                                    className="cursor-pointer"
                                     type="button"
                                     onClick={() => {
                                       if (
@@ -3459,260 +4651,351 @@ ${plainContent}`.trim();
                                           name: attachment.name,
                                           url: attachment.previewUrl,
                                         });
-
-                                        return;
                                       }
-
-                                      if (attachment.previewUrl) {
-                                        window.open(
-                                          attachment.previewUrl,
-                                          "_blank",
-                                          "noopener,noreferrer",
-                                        );
-
-                                        return;
-                                      }
-
-                                      toast.warning(
-                                        "Attachment is unavailable.",
+                                    }}
+                                  >
+                                    {attachment.name}
+                                  </button>
+                                  <button
+                                    className="text-[#9CA3AF] hover:text-[#111827]"
+                                    type="button"
+                                    onClick={() => {
+                                      setPendingAttachments((current) =>
+                                        current.filter(
+                                          (item) => item.id !== attachment.id,
+                                        ),
                                       );
                                     }}
                                   >
-                                    <Paperclip size={12} />
-                                    <span>{attachment.name}</span>
+                                    <X size={12} />
                                   </button>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-[#6B7280]">
-                              <div className="inline-flex items-center gap-2">
-                                <Avatar
-                                  classNames={{
-                                    base: "h-5 w-5 bg-[#F3F4F6] text-[#6B7280] text-[10px]",
-                                  }}
-                                  name={authorName}
-                                  size="sm"
-                                  src={resolveServerAssetUrl(
-                                    comment.author?.avatarUrl,
-                                  )}
-                                />
-                                <span>{authorName}</span>
-                                <span>&bull;</span>
-                                <span>
-                                  {formatCommentTime(comment.createdAt)}
-                                </span>
-                              </div>
-                              {String(comment.author?.id ?? "") ===
-                              String(session?.user?.id ?? "") ? (
-                                <Button
-                                  isIconOnly
-                                  className="text-danger"
-                                  isDisabled={
-                                    isDeletingCommentId === comment.id
-                                  }
-                                  radius="full"
-                                  size="sm"
-                                  variant="light"
-                                  onPress={() => {
-                                    void handleDeleteComment(comment.id);
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              ) : null}
+                                </div>
+                              ))}
                             </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                  <div className="">
-                    {pendingAttachments.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 px-3 pt-3">
-                        {pendingAttachments.map((attachment) => (
-                          <div
-                            key={attachment.id}
-                            className="inline-flex items-center gap-2 rounded-full border border-default-200 bg-[#F9FAFB] px-3 py-1 text-xs text-[#374151]"
-                          >
-                            <Paperclip size={12} />
-                            <button
-                              className="cursor-pointer"
-                              type="button"
-                              onClick={() => {
-                                if (
-                                  attachment.isImage &&
-                                  attachment.previewUrl
-                                ) {
-                                  setPreviewAttachment({
-                                    name: attachment.name,
-                                    url: attachment.previewUrl,
-                                  });
-                                }
-                              }}
-                            >
-                              {attachment.name}
-                            </button>
-                            <button
-                              className="text-[#9CA3AF] hover:text-[#111827]"
-                              type="button"
-                              onClick={() => {
-                                setPendingAttachments((current) =>
-                                  current.filter(
-                                    (item) => item.id !== attachment.id,
-                                  ),
-                                );
-                              }}
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
+                          ) : null}
 
-                    <div
-                      ref={commentEditorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      className="mx-0 mt-3 min-h-[72px] rounded-md border border-default-200 px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#022279]"
-                      role="textbox"
-                      onInput={(event) => {
-                        setCommentInput(event.currentTarget.innerText || "");
-                      }}
-                    />
-                    <div className="mt-3 flex items-center justify-between border-t border-default-200 px-3 py-2">
-                      <div className="flex items-center gap-1">
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => applyEditorCommand("bold")}
-                        >
-                          <Bold size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => applyEditorCommand("italic")}
-                        >
-                          <Italic size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => applyEditorCommand("underline")}
-                        >
-                          <Underline size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => applyEditorCommand("strikeThrough")}
-                        >
-                          <Strikethrough size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() =>
-                            applyEditorCommand("insertUnorderedList")
-                          }
-                        >
-                          <List size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => {
-                            attachmentInputRef.current?.click();
-                          }}
-                        >
-                          <Paperclip size={14} />
-                        </Button>
-                        <Button
-                          isIconOnly
-                          size="sm"
-                          variant="light"
-                          onPress={() => {
-                            imageInputRef.current?.click();
-                          }}
-                        >
-                          <ImageIcon size={14} />
-                        </Button>
-                        <input
-                          ref={attachmentInputRef}
-                          multiple
-                          className="hidden"
-                          type="file"
-                          onChange={(event) => {
-                            void handleAttachmentSelection(event.target.files);
-                            event.target.value = "";
-                          }}
-                        />
-                        <input
-                          ref={imageInputRef}
-                          multiple
-                          accept="image/*"
-                          className="hidden"
-                          type="file"
-                          onChange={(event) => {
-                            void handleAttachmentSelection(event.target.files, {
-                              forceImage: true,
-                            });
-                            event.target.value = "";
-                          }}
-                        />
+                          <div
+                            ref={commentEditorRef}
+                            contentEditable
+                            suppressContentEditableWarning
+                            className="mx-0 mt-3 min-h-[72px] rounded-md border border-default-200 px-3 py-2 text-sm text-[#111827] outline-none focus:border-[#022279]"
+                            role="textbox"
+                            onInput={(event) => {
+                              setCommentInput(
+                                event.currentTarget.innerText || "",
+                              );
+                            }}
+                          />
+                          <div className="mt-3 flex items-center justify-between border-t border-default-200 px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() => applyEditorCommand("bold")}
+                              >
+                                <Bold size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() => applyEditorCommand("italic")}
+                              >
+                                <Italic size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() => applyEditorCommand("underline")}
+                              >
+                                <Underline size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() =>
+                                  applyEditorCommand("strikeThrough")
+                                }
+                              >
+                                <Strikethrough size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() =>
+                                  applyEditorCommand("insertUnorderedList")
+                                }
+                              >
+                                <List size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() => {
+                                  attachmentInputRef.current?.click();
+                                }}
+                              >
+                                <Paperclip size={14} />
+                              </Button>
+                              <Button
+                                isIconOnly
+                                size="sm"
+                                variant="light"
+                                onPress={() => {
+                                  imageInputRef.current?.click();
+                                }}
+                              >
+                                <ImageIcon size={14} />
+                              </Button>
+                              <input
+                                ref={attachmentInputRef}
+                                multiple
+                                className="hidden"
+                                type="file"
+                                onChange={(event) => {
+                                  void handleAttachmentSelection(
+                                    event.target.files,
+                                  );
+                                  event.target.value = "";
+                                }}
+                              />
+                              <input
+                                ref={imageInputRef}
+                                multiple
+                                accept="image/*"
+                                className="hidden"
+                                type="file"
+                                onChange={(event) => {
+                                  void handleAttachmentSelection(
+                                    event.target.files,
+                                    {
+                                      forceImage: true,
+                                    },
+                                  );
+                                  event.target.value = "";
+                                }}
+                              />
+                            </div>
+                            <Button
+                              className="bg-[#022279] text-white"
+                              endContent={<SendHorizontal size={14} />}
+                              isDisabled={
+                                isSendingComment ||
+                                (!commentInput.trim() &&
+                                  pendingAttachments.length === 0)
+                              }
+                              isLoading={isSendingComment}
+                              size="sm"
+                              onPress={() => {
+                                void handleAddComment();
+                              }}
+                            >
+                              Send
+                            </Button>
+                          </div>
+                        </div>
                       </div>
-                      <Button
-                        className="bg-[#022279] text-white"
-                        endContent={<SendHorizontal size={14} />}
-                        isDisabled={
-                          isSendingComment ||
-                          (!commentInput.trim() &&
-                            pendingAttachments.length === 0)
-                        }
-                        isLoading={isSendingComment}
-                        size="sm"
-                        onPress={() => {
-                          void handleAddComment();
-                        }}
-                      >
-                        Send
-                      </Button>
                     </div>
                   </div>
-                </div>
-              </div>
+                </Tab>
+                <Tab key="revisions" title="Revisions">
+                  <div className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Select
+                        aria-label="Compare from"
+                        label="Compare from"
+                        selectedKeys={
+                          revisionFromOption ? [revisionFromOption.key] : []
+                        }
+                        size="sm"
+                        variant="bordered"
+                        onSelectionChange={(keys) => {
+                          if (keys === "all") {
+                            return;
+                          }
+
+                          const selectedKey = Array.from(keys)[0];
+
+                          if (selectedKey) {
+                            setRevisionFromKey(String(selectedKey));
+                          }
+                        }}
+                      >
+                        {revisionOptions.map((option) => (
+                          <SelectItem key={option.key}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                      <Select
+                        aria-label="Compare to"
+                        label="Compare to"
+                        selectedKeys={
+                          revisionToOption ? [revisionToOption.key] : []
+                        }
+                        size="sm"
+                        variant="bordered"
+                        onSelectionChange={(keys) => {
+                          if (keys === "all") {
+                            return;
+                          }
+
+                          const selectedKey = Array.from(keys)[0];
+
+                          if (selectedKey) {
+                            setRevisionToKey(String(selectedKey));
+                          }
+                        }}
+                      >
+                        {revisionOptions.map((option) => (
+                          <SelectItem key={option.key}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        className="bg-[#022279] text-white"
+                        isDisabled={
+                          !revisionFromOption ||
+                          revisionFromOption.key === "current"
+                        }
+                        size="sm"
+                        onPress={handleRestoreRevision}
+                      >
+                        {restoreRevisionLabel}
+                      </Button>
+                    </div>
+                    <div className="max-h-[560px] space-y-4 overflow-y-auto pr-1">
+                      {REVISION_DIFF_FIELDS.map((field) => {
+                        const oldValue = field.isHtml
+                          ? stripHtmlToPlainText(
+                              revisionFromOption?.snapshot[field.key] ?? "",
+                            )
+                          : (revisionFromOption?.snapshot[field.key] ?? "");
+                        const newValue = field.isHtml
+                          ? stripHtmlToPlainText(
+                              revisionToOption?.snapshot[field.key] ?? "",
+                            )
+                          : (revisionToOption?.snapshot[field.key] ?? "");
+
+                        return (
+                          <div
+                            key={field.key}
+                            className="overflow-hidden rounded-lg border border-default-200"
+                          >
+                            <div className="border-b border-default-200 bg-[#F9FAFB] px-3 py-2 text-sm font-semibold text-[#111827]">
+                              {field.label}
+                            </div>
+                            {oldValue === newValue ? (
+                              <p className="px-3 py-3 text-sm text-[#6B7280]">
+                                No changes.
+                              </p>
+                            ) : (
+                              <ReactDiffViewer
+                                disableWorker
+                                hideLineNumbers
+                                splitView
+                                newValue={newValue}
+                                oldValue={oldValue}
+                                showDiffOnly={false}
+                                styles={{
+                                  contentText: {
+                                    fontSize: "12px",
+                                  },
+                                  variables: {
+                                    light: {
+                                      addedBackground: "#ECFDF3",
+                                      removedBackground: "#FEF2F2",
+                                    },
+                                  },
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Tab>
+                <Tab key="history" title="History Logs">
+                  <div className="max-h-[620px] space-y-3 overflow-y-auto text-sm">
+                    {activeReviewState?.activities.length ? (
+                      activeReviewState.activities.map((activity) => (
+                        <div
+                          key={activity.id}
+                          className="rounded-lg border border-default-200 p-3 text-[#4B5563]"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p>{formatReviewActivity(activity)}</p>
+                            <span className="shrink-0 text-xs text-[#9CA3AF]">
+                              {formatCommentTime(activity.createdAt)}
+                            </span>
+                          </div>
+                          {activity.action === "FIELD_UPDATED" ? (
+                            <p className="mt-1 line-clamp-3 text-xs text-[#9CA3AF]">
+                              {activity.oldValue
+                                ? `"${activity.oldValue}"`
+                                : "Empty"}{" "}
+                              to{" "}
+                              {activity.newValue
+                                ? `"${activity.newValue}"`
+                                : "Empty"}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-lg bg-[#F9FAFB] p-3 text-sm text-[#6B7280]">
+                        No activity yet.
+                      </p>
+                    )}
+                  </div>
+                </Tab>
+              </Tabs>
             )}
           </ModalBody>
-          <ModalFooter>
-            {!generationModal.isGenerating && !generationModal.error ? (
-              <Button
-                className="bg-[#022279] text-white"
-                isLoading={isSavingEditContent}
-                onPress={() => {
-                  void handleEditContentSubmit(async (values) => {
-                    try {
-                      await handleSaveEditedContent(values);
-                    } catch (error) {
-                      const message =
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to save content.";
+          <ModalFooter className="border-t border-default-200">
+            {!generationModal.isGenerating &&
+            !generationModal.error &&
+            editContentActivityTab === "content" ? (
+              <>
+                <Button
+                  isDisabled={!activeReviewState?.link?.enabled}
+                  isLoading={isSendingReviewLink}
+                  startContent={<SendHorizontal size={14} />}
+                  variant="bordered"
+                  onPress={handleSendLinkToClientReview}
+                >
+                  Sent to client for review
+                </Button>
+                <Button
+                  className="bg-[#022279] text-white"
+                  isLoading={isSavingEditContent}
+                  onPress={() => {
+                    void handleEditContentSubmit(async (values) => {
+                      try {
+                        await handleSaveEditedContent(values);
+                      } catch (error) {
+                        const message =
+                          error instanceof Error
+                            ? error.message
+                            : "Failed to save content.";
 
-                      toast.danger(message);
-                    }
-                  })();
-                }}
-              >
-                Save
-              </Button>
+                        toast.danger(message);
+                      }
+                    })();
+                  }}
+                >
+                  Save
+                </Button>
+              </>
             ) : null}
             <Button
               variant="bordered"
@@ -3768,6 +5051,75 @@ ${plainContent}`.trim();
               />
             ) : null}
           </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        isOpen={isBulkReviewModalOpen}
+        size="lg"
+        onOpenChange={setIsBulkReviewModalOpen}
+      >
+        <ModalContent>
+          <ModalHeader>
+            <div>
+              <h3 className="text-base font-semibold text-[#111827]">
+                Public links required
+              </h3>
+              <p className="mt-1 text-sm font-normal text-[#6B7280]">
+                These selected articles need public review links before they can
+                be sent.
+              </p>
+            </div>
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-3">
+              {bulkReviewMissingRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-default-200 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#111827]">
+                      {row.title || row.keyword}
+                    </p>
+                    <p className="truncate text-xs text-[#6B7280]">
+                      {row.keyword}
+                    </p>
+                  </div>
+                  <Button
+                    className="shrink-0"
+                    isLoading={bulkReviewEnablingRowId === row.id}
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      void handleEnableBulkPublicLink(row);
+                    }}
+                  >
+                    Enable public link
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => {
+                setIsBulkReviewModalOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isLoading={isBulkReviewSending}
+              onPress={() => {
+                void handleBulkSendForReview();
+              }}
+            >
+              Try Again
+            </Button>
+          </ModalFooter>
         </ModalContent>
       </Modal>
 

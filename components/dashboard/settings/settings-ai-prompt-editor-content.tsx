@@ -134,13 +134,7 @@ export const SettingsAIPromptEditorContent = ({
     [customValueOptions, dynamicValuesSourceFilter],
   );
   const dynamicValueSourceFilterOptions = useMemo(
-    () => [
-      "all",
-      "Client Details",
-      "Keyword Research",
-      "Web Content",
-      "GBP Postings",
-    ],
+    () => ["all", "Client Details", "Web Content", "GBP Postings"],
     [],
   );
 

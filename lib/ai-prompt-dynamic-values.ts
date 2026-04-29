@@ -14,15 +14,17 @@ export type AIPromptPostType =
 export interface AIPromptDynamicValueOption {
   label: string;
   postTypes: AIPromptPostType[] | "all";
-  source:
-    | "Client Details"
-    | "Keyword Research"
-    | "Web Content"
-    | "GBP Postings";
+  source: "Client Details" | "Web Content" | "GBP Postings";
   token: string;
 }
 
 export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
+  {
+    label: "Client Title",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_title}}",
+  },
   {
     label: "Client Name",
     postTypes: "all",
@@ -42,25 +44,25 @@ export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
     token: "{{client_niche}}",
   },
   {
-    label: "Profession",
+    label: "Personal Email Address",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_profession}}",
+    token: "{{client_personal_email}}",
   },
   {
-    label: "Type Of Practice",
+    label: "Business Email Address",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_type_of_practice}}",
+    token: "{{client_business_email}}",
   },
   {
-    label: "Practice Introduction",
+    label: "Personal Phone Number",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_practice_introduction}}",
+    token: "{{client_personal_phone}}",
   },
   {
-    label: "Business Phone",
+    label: "Business Phone Number",
     postTypes: "all",
     source: "Client Details",
     token: "{{client_business_phone}}",
@@ -72,64 +74,154 @@ export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
     token: "{{client_website}}",
   },
   {
+    label: "Practice Structure",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_practice_structure}}",
+  },
+  {
+    label: "Type of Practice",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_type_of_practice}}",
+  },
+  {
+    label: "GMC Registration Number",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_gmc_registration_number}}",
+  },
+  {
+    label: "Building Name",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_building_name}}",
+  },
+  {
+    label: "Unit Number",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_unit_number}}",
+  },
+  {
+    label: "Street Address",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_street_address}}",
+  },
+  {
+    label: "Region",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_region}}",
+  },
+  {
+    label: "Post Code",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_post_code}}",
+  },
+  {
     label: "Country",
     postTypes: "all",
     source: "Client Details",
     token: "{{client_country}}",
   },
   {
-    label: "City / State",
+    label: "Target Area",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_city_state}}",
+    token: "{{client_target_area}}",
   },
   {
-    label: "Visible Area",
+    label: "Nearby Areas Served",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_visible_area}}",
+    token: "{{client_nearby_areas_served}}",
   },
   {
-    label: "Top Treatments",
+    label: "Practice Hours",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_practice_hours}}",
+  },
+  {
+    label: "Credentials",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_credentials}}",
+  },
+  {
+    label: "Major Accomplishments",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_major_accomplishments}}",
+  },
+  {
+    label: "What makes your practice unique to competitors",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_unique_to_competitors}}",
+  },
+  {
+    label: "Top 3 Medical Specialties",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_top_medical_specialties}}",
+  },
+  {
+    label: "Sub-specialty",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_sub_specialty}}",
+  },
+  {
+    label: "Top 3 Treatments You Want To Be Visible For",
     postTypes: "all",
     source: "Client Details",
     token: "{{client_top_treatments}}",
   },
   {
-    label: "Special Interests",
+    label: "Link to Google Business Profile",
     postTypes: "all",
     source: "Client Details",
-    token: "{{client_special_interests}}",
+    token: "{{client_gbp_link}}",
   },
   {
-    label: "Keyword",
+    label: "Discord Channel",
     postTypes: "all",
-    source: "Keyword Research",
-    token: "{{keyword}}",
+    source: "Client Details",
+    token: "{{client_discord_channel}}",
   },
   {
-    label: "Search Volume",
+    label: "Facebook",
     postTypes: "all",
-    source: "Keyword Research",
-    token: "{{keyword_search_volume}}",
+    source: "Client Details",
+    token: "{{client_facebook}}",
   },
   {
-    label: "Keyword Intent",
+    label: "Instagram",
     postTypes: "all",
-    source: "Keyword Research",
-    token: "{{keyword_intent}}",
+    source: "Client Details",
+    token: "{{client_instagram}}",
   },
   {
-    label: "Keyword Difficulty",
+    label: "LinkedIn",
     postTypes: "all",
-    source: "Keyword Research",
-    token: "{{keyword_kd}}",
+    source: "Client Details",
+    token: "{{client_linkedin}}",
   },
   {
-    label: "CPC",
+    label: "List of treatments",
     postTypes: "all",
-    source: "Keyword Research",
-    token: "{{keyword_cpc}}",
+    source: "Client Details",
+    token: "{{client_treatment_and_services}}",
+  },
+  {
+    label: "List of Conditions",
+    postTypes: "all",
+    source: "Client Details",
+    token: "{{client_conditions_treated}}",
   },
   {
     label: "Content Keyword",
@@ -147,6 +239,36 @@ export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
     token: "{{webcontent_keyword}}",
   },
   {
+    label: "Search Volume",
+    postTypes: [
+      "Homepage",
+      "Treatment Page",
+      "Condition Page",
+      "Blog Page",
+      "Press Release",
+      "Guest Post",
+      "Service Page",
+      "Meta Title",
+    ],
+    source: "Web Content",
+    token: "{{webcontent_search_volume}}",
+  },
+  {
+    label: "Intent",
+    postTypes: [
+      "Homepage",
+      "Treatment Page",
+      "Condition Page",
+      "Blog Page",
+      "Press Release",
+      "Guest Post",
+      "Service Page",
+      "Meta Title",
+    ],
+    source: "Web Content",
+    token: "{{webcontent_intent}}",
+  },
+  {
     label: "Content Type",
     postTypes: [
       "Homepage",
@@ -160,6 +282,21 @@ export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
     ],
     source: "Web Content",
     token: "{{webcontent_content_type}}",
+  },
+  {
+    label: "Title",
+    postTypes: [
+      "Homepage",
+      "Treatment Page",
+      "Condition Page",
+      "Blog Page",
+      "Press Release",
+      "Guest Post",
+      "Service Page",
+      "Meta Title",
+    ],
+    source: "Web Content",
+    token: "{{webcontent_title}}",
   },
   {
     label: "Content Length",

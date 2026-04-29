@@ -30,6 +30,7 @@ export interface SaveKeywordContentListKeyword {
   contentLength?: string;
   contentType: string;
   cpc: number | null;
+  featuredImage?: unknown;
   generatedContent?: string | null;
   id: string;
   intent: string | null;
@@ -42,6 +43,7 @@ export interface SaveKeywordContentListKeyword {
   searchVolume: number | null;
   status?: string;
   title: string;
+  urlSlug?: string | null;
 }
 
 export interface SaveKeywordContentListPayload {
@@ -80,6 +82,15 @@ export interface ContentBreakdownItem {
 export interface ClientContentBreakdownResponse {
   clientId: string;
   items: ContentBreakdownItem[];
+}
+
+export interface UploadedWebsiteContentFeaturedImage {
+  mimeType?: string;
+  name: string;
+  previewUrl: string;
+  size?: number;
+  sizeLabel: string;
+  url: string;
 }
 
 export const keywordContentListsApi = {
@@ -162,6 +173,7 @@ export const keywordContentListsApi = {
       altTitle?: string | null;
       contentLength?: string;
       contentType?: string;
+      featuredImage?: unknown;
       generatedContent?: string | null;
       keywordId: string;
       listId: string;
@@ -171,6 +183,7 @@ export const keywordContentListsApi = {
       parentKeywordId?: string | null;
       status?: string;
       title?: string;
+      urlSlug?: string | null;
     },
   ) => {
     try {
@@ -185,6 +198,35 @@ export const keywordContentListsApi = {
       );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  uploadFeaturedImage: async (
+    accessToken: string,
+    payload: FormData,
+  ): Promise<UploadedWebsiteContentFeaturedImage> => {
+    try {
+      const response = await keywordContentListsApiClient.post(
+        "/api/v1/keyword-content-lists/featured-image",
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      const responseData = response.data as
+        | { featuredImage?: UploadedWebsiteContentFeaturedImage }
+        | undefined;
+
+      if (!responseData?.featuredImage?.url) {
+        throw new Error("Featured image upload response was incomplete.");
+      }
+
+      return responseData.featuredImage;
     } catch (error) {
       throw new Error(parseError(error));
     }

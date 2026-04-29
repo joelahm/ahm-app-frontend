@@ -438,6 +438,7 @@ export interface ClientDetails {
   createdAt: string | null;
   createdBy: number | string | null;
   credentials: string | null;
+  discordChannel: string | null;
   facebook: string | null;
   gbpLink: string | null;
   gmcRegistrationNumber: string | null;
@@ -509,6 +510,7 @@ export interface UpdateClientRequestBody {
   highQualityHeadshot: string[];
   gmcRegistrationNumber: string;
   credentials: string;
+  discordChannel: string;
   instagram: string;
   linkedin: string;
   niche: string;
@@ -814,6 +816,7 @@ const parseClientDetailsResponse = (value: unknown): ClientDetails => {
         ? source.createdBy
         : null,
     credentials: asString(source.credentials),
+    discordChannel: asString(source.discordChannel),
     facebook: asString(source.facebook),
     gbpLink: asString(source.gbpLink),
     gmcRegistrationNumber: asString(source.gmcRegistrationNumber),
@@ -2731,6 +2734,27 @@ export const clientsApi = {
       );
 
       return parseClientDetailsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  testClientDiscordConnection: async (
+    accessToken: string,
+    clientId: string | number,
+    payload: { discordChannel?: string },
+  ) => {
+    try {
+      const response = await clientsApiClient.post(
+        `/api/v1/clients/${clientId}/discord/test`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
     } catch (error) {
       throw new Error(parseError(error));
     }

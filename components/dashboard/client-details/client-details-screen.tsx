@@ -50,6 +50,26 @@ const days = [
 
 const sectionCard = "rounded-xl border border-default-200 bg-white";
 const fieldLabel = "mb-1.5 block text-xs text-[#585763]";
+const CLIENT_TITLE_OPTIONS = [
+  "Dr",
+  "Prof",
+  "Mr",
+  "Ms",
+  "Mrs",
+  "Miss",
+  "Mx",
+  "Nurse",
+  "Sister",
+  "Matron",
+  "Midwife",
+  "Pharmacist",
+  "Psychologist",
+  "Physiotherapist",
+  "Occupational Therapist",
+  "Dietitian",
+  "Radiographer",
+  "Paramedic",
+];
 
 type UploadValue = Array<File | string>;
 type PracticeHour = {
@@ -144,6 +164,7 @@ const clientDetailsSchema = yup.object({
   credentials: yup.string().default(""),
   majorAccomplishments: yup.string().default(""),
   gbpLink: yup.string().default(""),
+  discordChannel: yup.string().default(""),
   facebook: yup.string().default(""),
   instagram: yup.string().default(""),
   linkedin: yup.string().default(""),
@@ -469,6 +490,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   >([]);
   const [countrySearch, setCountrySearch] = useState("");
   const [detailsError, setDetailsError] = useState("");
+  const [isTestingDiscordChannel, setIsTestingDiscordChannel] = useState(false);
   const [fetchedClientName, setFetchedClientName] = useState("");
   const [topMedicalSpecialties, setTopMedicalSpecialties] = useState<string[]>(
     [],
@@ -545,6 +567,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     handleSubmit,
     reset,
     clearErrors,
+    getValues,
     setError,
     watch,
     formState: { errors, isSubmitting },
@@ -576,6 +599,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       credentials: "",
       majorAccomplishments: "",
       gbpLink: "",
+      discordChannel: "",
       facebook: "",
       instagram: "",
       linkedin: "",
@@ -761,6 +785,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           clientName: client.clientName ?? "",
           country: client.country ?? "",
           credentials: client.credentials ?? "",
+          discordChannel: client.discordChannel ?? "",
           facebook: client.facebook ?? "",
           gbpLink: client.gbpLink ?? "",
           gmcRegistrationNumber: client.gmcRegistrationNumber ?? "",
@@ -913,6 +938,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           conditionsTreated,
           country: values.country,
           credentials: values.credentials,
+          discordChannel: values.discordChannel,
           facebook: values.facebook,
           gbpLink: values.gbpLink,
           gmcRegistrationNumber: values.gmcRegistrationNumber,
@@ -962,6 +988,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         formData.append("clientName", basePayload.clientName);
         formData.append("country", basePayload.country);
         formData.append("credentials", basePayload.credentials);
+        formData.append("discordChannel", basePayload.discordChannel);
         formData.append("facebook", basePayload.facebook);
         formData.append("gbpLink", basePayload.gbpLink);
         formData.append(
@@ -1076,6 +1103,46 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     }
   };
 
+  const handleTestDiscordConnection = async () => {
+    const discordChannel = getValues("discordChannel")?.trim() ?? "";
+
+    if (!discordChannel) {
+      toast.warning("Discord channel is required.");
+
+      return;
+    }
+
+    if (!session) {
+      toast.danger("You need to be logged in to test Discord.");
+
+      return;
+    }
+
+    try {
+      setIsTestingDiscordChannel(true);
+      const accessToken = await getValidAccessToken();
+
+      await clientsApi.testClientDiscordConnection(accessToken, clientId, {
+        discordChannel,
+      });
+
+      toast.success("Discord connection is working.", {
+        description: "The bot can access this channel.",
+      });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to send Discord test message.";
+
+      toast.danger("Discord connection failed", {
+        description: errorMessage,
+      });
+    } finally {
+      setIsTestingDiscordChannel(false);
+    }
+  };
+
   return (
     <section className="client-details-shell relative space-y-4">
       <ClientProfileAside
@@ -1165,13 +1232,24 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                     control={control}
                     name="profession"
                     render={({ field }) => (
-                      <Input
+                      <Select
+                        aria-label="Client Title"
+                        placeholder="Select title"
                         radius="sm"
+                        selectedKeys={field.value ? [field.value] : []}
                         size="sm"
-                        value={field.value ?? ""}
                         onBlur={field.onBlur}
-                        onChange={field.onChange}
-                      />
+                        onSelectionChange={(keys) => {
+                          const [selectedKey] =
+                            keys === "all" ? [] : Array.from(keys).map(String);
+
+                          field.onChange(selectedKey ?? "");
+                        }}
+                      >
+                        {CLIENT_TITLE_OPTIONS.map((option) => (
+                          <SelectItem key={option}>{option}</SelectItem>
+                        ))}
+                      </Select>
                     )}
                   />
                 </div>
@@ -1710,6 +1788,39 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   />
                 )}
               />
+            </div>
+
+            <div>
+              <p className={fieldLabel}>Discord Channel</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                <Controller
+                  control={control}
+                  name="discordChannel"
+                  render={({ field }) => (
+                    <Input
+                      className="min-w-0 flex-1"
+                      errorMessage={errors.discordChannel?.message}
+                      isInvalid={!!errors.discordChannel}
+                      placeholder="#client-channel or channel ID"
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+                <Button
+                  isLoading={isTestingDiscordChannel}
+                  radius="sm"
+                  size="sm"
+                  startContent={<TestTubeDiagonal size={14} />}
+                  variant="bordered"
+                  onPress={handleTestDiscordConnection}
+                >
+                  Test Connect
+                </Button>
+              </div>
             </div>
 
             <div>
