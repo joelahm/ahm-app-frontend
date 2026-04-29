@@ -254,6 +254,7 @@ export const WebsiteContentKeywordsModal = ({
     clearErrors(`keywords.${index}.contentType`);
     const topic = watch("topic")?.trim() ?? "";
     const audience = watch("audience")?.trim() ?? "";
+    const currentTitle = row?.title?.trim() || keyword;
     const inferredLocation =
       selectedLocation?.trim() ||
       clientDetails?.cityState?.trim() ||
@@ -282,7 +283,7 @@ export const WebsiteContentKeywordsModal = ({
               brandName: clientDetails?.businessName?.trim() || "",
               businessName: clientDetails?.businessName?.trim() || "",
               clientDetails,
-              contentTitle: title,
+              contentTitle: currentTitle,
               contentType: currentContentType,
               intent: row?.intent?.trim() || "",
               keyword,
