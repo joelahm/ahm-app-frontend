@@ -159,7 +159,7 @@ export const SettingsProjectTemplatesContent = () => {
         key: "projectName",
         label: "Project Name",
         renderCell: (item) => (
-          <span className="text-sm font-medium text-[#1F2937]">
+          <span className="line-clamp-2 text-sm font-medium text-[#1F2937]">
             {item.projectName}
           </span>
         ),
@@ -169,7 +169,9 @@ export const SettingsProjectTemplatesContent = () => {
         key: "description",
         label: "Description",
         renderCell: (item) => (
-          <span className="text-sm text-[#1F2937]">{item.description}</span>
+          <span className="line-clamp-2 text-sm text-[#1F2937]">
+            {item.description}
+          </span>
         ),
       },
       {
@@ -177,9 +179,9 @@ export const SettingsProjectTemplatesContent = () => {
         key: "totalTasks",
         label: "Total Tasks",
         renderCell: (item) => (
-          <div className="flex items-center gap-3 text-sm text-[#1F2937]">
-            <ClipboardCheck className="text-[#111827]" size={18} />
-            <span>{item.totalTasks} tasks</span>
+          <div className="flex items-center gap-3 whitespace-nowrap text-sm text-[#1F2937]">
+            <ClipboardCheck className="flex-none text-[#111827]" size={18} />
+            <span className="whitespace-nowrap">{item.totalTasks} tasks</span>
           </div>
         ),
       },
@@ -188,7 +190,9 @@ export const SettingsProjectTemplatesContent = () => {
         key: "dateCreated",
         label: "Date Created",
         renderCell: (item) => (
-          <span className="text-sm text-[#1F2937]">{item.dateCreated}</span>
+          <span className="whitespace-nowrap text-sm text-[#1F2937]">
+            {item.dateCreated}
+          </span>
         ),
       },
       {
@@ -196,7 +200,9 @@ export const SettingsProjectTemplatesContent = () => {
         key: "createdBy",
         label: "Created by",
         renderCell: (item) => (
-          <span className="text-sm text-[#1F2937]">{item.createdBy}</span>
+          <span className="whitespace-nowrap text-sm text-[#1F2937]">
+            {item.createdBy}
+          </span>
         ),
       },
       {

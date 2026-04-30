@@ -6,6 +6,12 @@ import * as yup from "yup";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Checkbox } from "@heroui/checkbox";
+import {
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@heroui/dropdown";
 import { Input, Textarea } from "@heroui/input";
 import {
   Modal,
@@ -23,7 +29,16 @@ import {
   TableHeader,
   TableRow,
 } from "@heroui/table";
-import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  EllipsisVertical,
+  GripVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   type ProjectTemplate,
@@ -36,6 +51,7 @@ import {
   type AddProjectTemplateTaskFormValues,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const createProjectTemplateSchema = yup.object({
   description: yup.string().default(""),
@@ -108,12 +124,12 @@ const getVisibleTaskRows = (rows: ProjectTemplateTaskRow[]) => {
   return rows.filter((row) => {
     if (row.level === 0) {
       expansionByLevel.clear();
-      expansionByLevel.set(0, true);
+      expansionByLevel.set(0, Boolean(row.isExpanded));
 
       return true;
     }
 
-    for (let level = 1; level <= row.level - 1; level += 1) {
+    for (let level = 0; level <= row.level - 1; level += 1) {
       if (!expansionByLevel.get(level)) {
         return false;
       }
@@ -151,6 +167,122 @@ const hasChildRows = (
   return false;
 };
 
+const getTaskSubtreeEndIndex = (
+  rows: ProjectTemplateTaskRow[],
+  startIndex: number,
+) => {
+  const sourceRow = rows[startIndex];
+
+  if (!sourceRow) {
+    return startIndex;
+  }
+
+  let endIndex = startIndex + 1;
+
+  while (endIndex < rows.length && rows[endIndex].level > sourceRow.level) {
+    endIndex += 1;
+  }
+
+  return endIndex;
+};
+
+const getDescendantTaskIds = (
+  rows: ProjectTemplateTaskRow[],
+  taskId: string,
+) => {
+  const sourceIndex = rows.findIndex((row) => row.id === taskId);
+
+  if (sourceIndex < 0) {
+    return new Set<string>();
+  }
+
+  const endIndex = getTaskSubtreeEndIndex(rows, sourceIndex);
+
+  return new Set(rows.slice(sourceIndex + 1, endIndex).map((row) => row.id));
+};
+
+const parseDueDateTriggerDays = (value?: string) => {
+  const match = value?.match(/^(\d+)/);
+
+  return match?.[1] ?? "0";
+};
+
+const moveTaskRows = ({
+  nextParentTaskId,
+  rows,
+  taskId,
+}: {
+  nextParentTaskId?: string;
+  rows: ProjectTemplateTaskRow[];
+  taskId: string;
+}) => {
+  const sourceIndex = rows.findIndex((row) => row.id === taskId);
+
+  if (sourceIndex < 0) {
+    return rows;
+  }
+
+  const sourceRow = rows[sourceIndex];
+  const endIndex = getTaskSubtreeEndIndex(rows, sourceIndex);
+  const subtree = rows.slice(sourceIndex, endIndex);
+  const subtreeIds = new Set(subtree.map((row) => row.id));
+  const normalizedParentTaskId =
+    nextParentTaskId && !subtreeIds.has(nextParentTaskId)
+      ? nextParentTaskId
+      : undefined;
+  const rowsWithoutSubtree = [
+    ...rows.slice(0, sourceIndex),
+    ...rows.slice(endIndex),
+  ];
+  const parentRow = normalizedParentTaskId
+    ? rowsWithoutSubtree.find((row) => row.id === normalizedParentTaskId)
+    : null;
+  const nextLevel = parentRow ? Math.min(parentRow.level + 1, 2) : 0;
+  const maxRelativeDepth = subtree.reduce(
+    (maxDepth, row) => Math.max(maxDepth, row.level - sourceRow.level),
+    0,
+  );
+
+  if (nextLevel + maxRelativeDepth > 2) {
+    return rows;
+  }
+
+  const levelDelta = nextLevel - sourceRow.level;
+  const updatedSubtree = subtree.map((row, index) => ({
+    ...row,
+    level: Math.min(Math.max(row.level + levelDelta, 0), 2),
+    parentTaskId: index === 0 ? normalizedParentTaskId : row.parentTaskId,
+  }));
+  const normalizedRows = rowsWithoutSubtree.map((row) =>
+    row.id === normalizedParentTaskId ? { ...row, isExpanded: true } : row,
+  );
+
+  if (!parentRow) {
+    return [...normalizedRows, ...updatedSubtree];
+  }
+
+  let insertIndex = normalizedRows.findIndex((row) => row.id === parentRow.id);
+
+  if (insertIndex < 0) {
+    return [...normalizedRows, ...updatedSubtree];
+  }
+
+  insertIndex += 1;
+
+  while (
+    insertIndex < normalizedRows.length &&
+    normalizedRows[insertIndex].level > parentRow.level
+  ) {
+    insertIndex += 1;
+  }
+
+  return [
+    ...normalizedRows.slice(0, insertIndex),
+    ...updatedSubtree,
+    ...normalizedRows.slice(insertIndex),
+  ];
+};
+
 const buildTaskRowName = (
   task: ProjectTemplateTaskRow,
   hasChildren: boolean,
@@ -158,11 +290,24 @@ const buildTaskRowName = (
 ) => {
   if (task.level === 0) {
     return (
-      <div className="flex items-center gap-2">
+      <button
+        className="flex items-center gap-2 text-left"
+        type="button"
+        onClick={() => (hasChildren ? onToggleExpand(task.id) : undefined)}
+      >
+        {hasChildren ? (
+          task.isExpanded ? (
+            <ChevronDown className="flex-none" size={14} />
+          ) : (
+            <ChevronRight className="flex-none" size={14} />
+          )
+        ) : (
+          <span className="inline-block w-[14px]" />
+        )}
         <span className="text-sm font-medium text-[#1F2937]">
           {task.taskName}
         </span>
-      </div>
+      </button>
     );
   }
 
@@ -175,9 +320,9 @@ const buildTaskRowName = (
       >
         {hasChildren ? (
           task.isExpanded ? (
-            <ChevronDown size={14} />
+            <ChevronDown className="flex-none" size={14} />
           ) : (
-            <ChevronRight size={14} />
+            <ChevronRight className="flex-none" size={14} />
           )
         ) : (
           <span className="inline-block w-[14px]" />
@@ -232,6 +377,9 @@ export const NewProjectTemplateModal = ({
 }: NewProjectTemplateModalProps) => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [taskRows, setTaskRows] =
@@ -393,6 +541,9 @@ export const NewProjectTemplateModal = ({
 
   const resetModal = () => {
     setCurrentStep(1);
+    setDragOverTaskId(null);
+    setDraggingTaskId(null);
+    setEditingTaskId(null);
     setIsAddTaskModalOpen(false);
     setTaskRows(initialTaskRows);
     setSubmitError("");
@@ -505,7 +656,139 @@ export const NewProjectTemplateModal = ({
       return;
     }
 
-    setTaskRows((current) => current.filter((row) => row.id !== taskId));
+    setTaskRows((current) => {
+      const sourceIndex = current.findIndex((row) => row.id === taskId);
+
+      if (sourceIndex < 0) {
+        return current;
+      }
+
+      const endIndex = getTaskSubtreeEndIndex(current, sourceIndex);
+      const deletedIds = new Set(
+        current.slice(sourceIndex, endIndex).map((row) => row.id),
+      );
+
+      return current
+        .filter((row) => !deletedIds.has(row.id))
+        .map((row) =>
+          row.blockedTaskId && deletedIds.has(row.blockedTaskId)
+            ? {
+                ...row,
+                blockedTaskId: undefined,
+                dependency: "-",
+                dependencyType: undefined,
+                dueDateTrigger: "On trigger date",
+                enableDependency: false,
+              }
+            : row,
+        );
+    });
+  };
+
+  const updateTask = (
+    taskId: string,
+    payload: AddProjectTemplateTaskFormValues,
+  ) => {
+    setTaskRows((current) => {
+      const sourceIndex = current.findIndex((row) => row.id === taskId);
+
+      if (sourceIndex < 0) {
+        return current;
+      }
+
+      const assignee = taskUsers.find((user) => user.id === payload.assigneeId);
+      const parentIndex = current.findIndex(
+        (row) => row.id === payload.parentTaskId,
+      );
+      const parentRow = parentIndex >= 0 ? current[parentIndex] : null;
+      const nextLevel = parentRow ? Math.min(parentRow.level + 1, 2) : 0;
+      const sourceRow = current[sourceIndex];
+      const updatedTaskRow = {
+        ...sourceRow,
+        assigneeId: payload.assigneeId,
+        assigneeName: assignee?.name ?? "",
+        blockedTaskId: payload.blockedTaskId,
+        dependency:
+          payload.enableDependency && payload.blockedTaskId
+            ? (current.find((item) => item.id === payload.blockedTaskId)
+                ?.taskName ?? "-")
+            : "-",
+        dependencyType: payload.dependencyType,
+        dueDateTrigger: payload.enableDependency
+          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
+          : "On trigger date",
+        enableDependency: payload.enableDependency,
+        labels: payload.labels,
+        level: nextLevel,
+        parentTaskId: payload.parentTaskId,
+        status: payload.status,
+        taskDescription: payload.description?.trim() || "-",
+        taskName: payload.taskTitle,
+        title: payload.taskTitle,
+      };
+
+      if ((payload.parentTaskId ?? "") === (sourceRow.parentTaskId ?? "")) {
+        return current.map((row) => (row.id === taskId ? updatedTaskRow : row));
+      }
+
+      const movedRows = moveTaskRows({
+        nextParentTaskId: payload.parentTaskId || undefined,
+        rows: current,
+        taskId,
+      });
+
+      return movedRows.map((row) =>
+        row.id === taskId
+          ? {
+              ...updatedTaskRow,
+              level: row.level,
+              parentTaskId: row.parentTaskId,
+            }
+          : row,
+      );
+    });
+  };
+
+  const moveTask = (taskId: string, nextParentTaskId?: string) => {
+    setTaskRows((current) =>
+      moveTaskRows({
+        nextParentTaskId,
+        rows: current,
+        taskId,
+      }),
+    );
+  };
+
+  const handleMakeTaskTopLevel = (draggedId?: string) => {
+    const taskId = draggedId || draggingTaskId;
+
+    if (!taskId) {
+      return;
+    }
+
+    moveTask(taskId);
+  };
+
+  const handleDropOnTask = (
+    targetRow: ProjectTemplateTaskRow,
+    draggedId?: string,
+  ) => {
+    const taskId = draggedId || draggingTaskId;
+
+    if (!taskId || taskId === targetRow.id) {
+      return;
+    }
+
+    const descendants = getDescendantTaskIds(taskRows, taskId);
+
+    if (descendants.has(targetRow.id)) {
+      return;
+    }
+
+    const parentTaskId =
+      targetRow.level >= 2 ? targetRow.parentTaskId : targetRow.id;
+
+    moveTask(taskId, parentTaskId);
   };
 
   const toggleTaskSelection = (taskId: string, isSelected: boolean) => {
@@ -552,6 +835,60 @@ export const NewProjectTemplateModal = ({
       })),
     [taskRows],
   );
+  const editingTask = useMemo(
+    () => taskRows.find((row) => row.id === editingTaskId) ?? null,
+    [editingTaskId, taskRows],
+  );
+  const editableParentTaskOptions = useMemo(() => {
+    if (!editingTaskId) {
+      return parentTaskOptions;
+    }
+
+    const excludedIds = getDescendantTaskIds(taskRows, editingTaskId);
+
+    excludedIds.add(editingTaskId);
+
+    return parentTaskOptions.filter((option) => !excludedIds.has(option.id));
+  }, [editingTaskId, parentTaskOptions, taskRows]);
+  const editableBlockedTaskOptions = useMemo(() => {
+    if (!editingTaskId) {
+      return blockedTaskOptions;
+    }
+
+    const excludedIds = getDescendantTaskIds(taskRows, editingTaskId);
+
+    excludedIds.add(editingTaskId);
+
+    return blockedTaskOptions.filter((option) => !excludedIds.has(option.id));
+  }, [blockedTaskOptions, editingTaskId, taskRows]);
+  const editingTaskInitialValues =
+    useMemo<Partial<AddProjectTemplateTaskFormValues> | null>(() => {
+      if (!editingTask) {
+        return null;
+      }
+
+      const taskStatus = TASK_STATUS_OPTIONS.includes(
+        editingTask.status as AddProjectTemplateTaskFormValues["status"],
+      )
+        ? (editingTask.status as AddProjectTemplateTaskFormValues["status"])
+        : TASK_STATUS_OPTIONS[0];
+
+      return {
+        assigneeId: editingTask.assigneeId ?? "",
+        blockedTaskId: editingTask.blockedTaskId ?? "",
+        dependencyType: editingTask.dependencyType ?? "",
+        description:
+          editingTask.taskDescription === "-"
+            ? ""
+            : editingTask.taskDescription,
+        enableDependency: Boolean(editingTask.enableDependency),
+        labels: editingTask.labels,
+        parentTaskId: editingTask.parentTaskId ?? "",
+        remapDays: parseDueDateTriggerDays(editingTask.dueDateTrigger),
+        status: taskStatus,
+        taskTitle: editingTask.taskName,
+      };
+    }, [editingTask]);
 
   const renderTaskTable = ({ isFullHeight = false } = {}) => (
     <div
@@ -577,11 +914,32 @@ export const NewProjectTemplateModal = ({
             className="bg-[#022279] text-white"
             radius="md"
             startContent={<Plus size={16} />}
-            onPress={() => setIsAddTaskModalOpen(true)}
+            onPress={() => {
+              setEditingTaskId(null);
+              setIsAddTaskModalOpen(true);
+            }}
           >
             New Task
           </Button>
         </div>
+      </div>
+      <div
+        className="border-b border-default-200 bg-[#F8FAFC] px-4 py-3 text-sm text-[#6B7280]"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const draggedId =
+            event.dataTransfer?.getData("text/plain") ||
+            event.dataTransfer?.getData("application/project-template-task");
+
+          handleMakeTaskTopLevel(draggedId || undefined);
+          setDraggingTaskId(null);
+          setDragOverTaskId(null);
+        }}
+      >
+        Drag a task here to make it a parent task
       </div>
       <div
         className={
@@ -650,7 +1008,51 @@ export const NewProjectTemplateModal = ({
                   : false;
 
               return (
-                <TableRow key={item.id}>
+                <TableRow
+                  key={item.id}
+                  draggable
+                  className={dragOverTaskId === item.id ? "bg-[#EEF2FF]" : ""}
+                  onDragEnd={() => {
+                    setDraggingTaskId(null);
+                    setDragOverTaskId(null);
+                  }}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    if (draggingTaskId && draggingTaskId !== item.id) {
+                      setDragOverTaskId(item.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverTaskId === item.id) {
+                      setDragOverTaskId(null);
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDragStart={(event) => {
+                    event.dataTransfer?.setData("text/plain", item.id);
+                    event.dataTransfer?.setData(
+                      "application/project-template-task",
+                      item.id,
+                    );
+                    event.dataTransfer!.effectAllowed = "move";
+                    setDraggingTaskId(item.id);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId =
+                      event.dataTransfer?.getData("text/plain") ||
+                      draggingTaskId;
+
+                    if (draggedId) {
+                      handleDropOnTask(item, draggedId);
+                    }
+
+                    setDraggingTaskId(null);
+                    setDragOverTaskId(null);
+                  }}
+                >
                   {[
                     <TableCell key="select">
                       <Checkbox
@@ -661,7 +1063,17 @@ export const NewProjectTemplateModal = ({
                       />
                     </TableCell>,
                     <TableCell key="task-name">
-                      {buildTaskRowName(item, hasChildren, toggleTaskExpansion)}
+                      <div className="flex items-center gap-2">
+                        <GripVertical
+                          className="shrink-0 cursor-grab text-default-400"
+                          size={16}
+                        />
+                        {buildTaskRowName(
+                          item,
+                          hasChildren,
+                          toggleTaskExpansion,
+                        )}
+                      </div>
                     </TableCell>,
                     <TableCell
                       key="task-description"
@@ -700,15 +1112,40 @@ export const NewProjectTemplateModal = ({
                     </TableCell>,
                     <TableCell key="action">
                       <div className="flex justify-end">
-                        <Button
-                          isIconOnly
-                          className="border-danger-200 text-danger"
-                          radius="md"
-                          variant="bordered"
-                          onPress={() => removeTask(item.id)}
-                        >
-                          <Trash2 size={18} />
-                        </Button>
+                        <Dropdown placement="bottom-end">
+                          <DropdownTrigger>
+                            <Button isIconOnly radius="md" variant="bordered">
+                              <EllipsisVertical size={18} />
+                            </Button>
+                          </DropdownTrigger>
+                          <DropdownMenu
+                            aria-label={`Task ${item.taskName} actions`}
+                          >
+                            <DropdownItem
+                              key="edit"
+                              startContent={
+                                <Pencil className="text-[#4F46E5]" size={18} />
+                              }
+                              onPress={() => {
+                                setEditingTaskId(item.id);
+                                setIsAddTaskModalOpen(true);
+                              }}
+                            >
+                              Edit
+                            </DropdownItem>
+                            <DropdownItem
+                              key="delete"
+                              className="text-danger"
+                              color="danger"
+                              startContent={
+                                <Trash2 className="text-danger" size={18} />
+                              }
+                              onPress={() => removeTask(item.id)}
+                            >
+                              Delete
+                            </DropdownItem>
+                          </DropdownMenu>
+                        </Dropdown>
                       </div>
                     </TableCell>,
                   ]}
@@ -952,12 +1389,26 @@ export const NewProjectTemplateModal = ({
         </ModalFooter>
       </ModalContent>
       <AddProjectTemplateTaskModal
-        blockedTaskOptions={blockedTaskOptions}
+        blockedTaskOptions={editableBlockedTaskOptions}
+        initialValues={editingTaskInitialValues}
         isOpen={isAddTaskModalOpen}
-        parentTaskOptions={parentTaskOptions}
+        mode={editingTaskId ? "edit" : "add"}
+        parentTaskOptions={editableParentTaskOptions}
         users={taskUsers}
-        onOpenChange={setIsAddTaskModalOpen}
+        onOpenChange={(open) => {
+          setIsAddTaskModalOpen(open);
+
+          if (!open) {
+            setEditingTaskId(null);
+          }
+        }}
         onSubmit={async (payload) => {
+          if (editingTaskId) {
+            updateTask(editingTaskId, payload);
+
+            return;
+          }
+
           addTask(payload);
         }}
       />

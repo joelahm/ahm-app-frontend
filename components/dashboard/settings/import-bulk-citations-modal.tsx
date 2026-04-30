@@ -76,76 +76,90 @@ const targetFieldToFormKey = {
   "Validation Link": "validationLink",
 } as const satisfies Record<string, keyof BulkCitationImportFormValues>;
 
-const parseCsvLine = (line: string) => {
-  const values: string[] = [];
-  let currentValue = "";
-  let isInsideQuotes = false;
+const sanitizeTextCell = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    const nextCharacter = line[index + 1];
+const sanitizeDomainAuthority = (value: unknown) => {
+  const sanitizedValue = sanitizeTextCell(value).replace(/[^\d.]+/g, "");
+  const parsedValue = Number(sanitizedValue);
 
-    if (character === '"' && isInsideQuotes && nextCharacter === '"') {
-      currentValue += '"';
-      index += 1;
-      continue;
-    }
-
-    if (character === '"') {
-      isInsideQuotes = !isInsideQuotes;
-      continue;
-    }
-
-    if (character === "," && !isInsideQuotes) {
-      values.push(currentValue.trim());
-      currentValue = "";
-      continue;
-    }
-
-    currentValue += character;
-  }
-
-  values.push(currentValue.trim());
-
-  return values;
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
 };
 
-const parseCsvFile = async (file: File) => {
-  const content = await file.text();
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+const getMappedCell = (
+  row: Record<string, string>,
+  header: string | undefined,
+) => sanitizeTextCell(header ? row[header] : "");
 
-  if (lines.length < 2) {
+const getRequiredCitationImportErrors = (rows: ImportedCitationRow[]) =>
+  rows.flatMap((row, index) => {
+    const rowNumber = index + 2;
+    const missingFields = [
+      !row.directorySite ? "Directory Name" : "",
+      !row.niche ? "Niche" : "",
+      !row.validationLink ? "Validation Link" : "",
+    ].filter(Boolean);
+
+    return missingFields.map(
+      (field) => `Row ${rowNumber}: ${field} is required.`,
+    );
+  });
+
+const parseWorksheetRows = (sheetRows: (string | number | null)[][]) => {
+  if (sheetRows.length < 2) {
     throw new Error(
       "The file must include a header row and at least one data row.",
     );
   }
 
-  const headers = parseCsvLine(lines[0]).filter(Boolean);
+  const headers = sheetRows[0]
+    .map((cell) => sanitizeTextCell(cell))
+    .filter(Boolean);
 
   if (!headers.length) {
     throw new Error("No column headers were found in the file.");
   }
 
-  const rows = lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-
-    return headers.reduce<Record<string, string>>(
-      (accumulator, header, index) => {
-        accumulator[header] = values[index] ?? "";
+  const rows = sheetRows
+    .slice(1)
+    .map((row) =>
+      headers.reduce<Record<string, string>>((accumulator, header, index) => {
+        accumulator[header] = sanitizeTextCell(row[index]);
 
         return accumulator;
-      },
-      {},
-    );
-  });
+      }, {}),
+    )
+    .filter((row) => Object.values(row).some((value) => value.length > 0));
 
   return {
     headers,
     rows,
   };
+};
+
+const parseCsvFile = async (file: File) => {
+  const content = await file.text();
+  const workbook = XLSX.read(content, { type: "string" });
+  const firstSheetName = workbook.SheetNames[0];
+
+  if (!firstSheetName) {
+    throw new Error("No worksheet was found in the file.");
+  }
+
+  const worksheet = workbook.Sheets[firstSheetName];
+  const sheetRows = XLSX.utils.sheet_to_json<(string | number | null)[]>(
+    worksheet,
+    {
+      blankrows: false,
+      defval: "",
+      header: 1,
+    },
+  );
+
+  return parseWorksheetRows(sheetRows);
 };
 
 const parseXlsxFile = async (file: File) => {
@@ -167,32 +181,7 @@ const parseXlsxFile = async (file: File) => {
     },
   );
 
-  if (sheetRows.length < 2) {
-    throw new Error(
-      "The file must include a header row and at least one data row.",
-    );
-  }
-
-  const headers = sheetRows[0]
-    .map((cell) => String(cell ?? "").trim())
-    .filter(Boolean);
-
-  if (!headers.length) {
-    throw new Error("No column headers were found in the file.");
-  }
-
-  const rows = sheetRows.slice(1).map((row) =>
-    headers.reduce<Record<string, string>>((accumulator, header, index) => {
-      accumulator[header] = String(row[index] ?? "").trim();
-
-      return accumulator;
-    }, {}),
-  );
-
-  return {
-    headers,
-    rows,
-  };
+  return parseWorksheetRows(sheetRows);
 };
 
 const renderStepCard = (stepNumber: number, currentStep: number) => {
@@ -413,16 +402,21 @@ export const ImportBulkCitationsModal = ({
     setIsImporting(true);
 
     try {
-      await onImport(
-        parsedRows.map((row) => ({
-          da: Number(row[mappings.da] ?? 0),
-          directorySite: row[mappings.directorySite] ?? "",
-          niche: row[mappings.niche] ?? "",
-          payment: row[mappings.payment] ?? "",
-          type: row[mappings.type] ?? "",
-          validationLink: row[mappings.validationLink] ?? "",
-        })),
-      );
+      const importedRows = parsedRows.map((row) => ({
+        da: sanitizeDomainAuthority(getMappedCell(row, mappings.da)),
+        directorySite: getMappedCell(row, mappings.directorySite),
+        niche: getMappedCell(row, mappings.niche),
+        payment: getMappedCell(row, mappings.payment),
+        type: getMappedCell(row, mappings.type),
+        validationLink: getMappedCell(row, mappings.validationLink),
+      }));
+      const validationErrors = getRequiredCitationImportErrors(importedRows);
+
+      if (validationErrors.length) {
+        throw new Error(validationErrors.slice(0, 5).join("\n"));
+      }
+
+      await onImport(importedRows);
       closeModal();
     } catch (error) {
       const message =
