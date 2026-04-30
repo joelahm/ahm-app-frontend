@@ -816,7 +816,7 @@ const parseClientDiscordStatusesResponse = (
           : asArray(root.items);
 
   return rawStatuses
-    .map((item) => {
+    .map((item): ClientDiscordStatus | null => {
       const record = asObject(item);
       const clientId = record.clientId;
 
