@@ -63,26 +63,6 @@ const toolbarChipClass =
   "h-10 rounded-lg border border-default-200 bg-white text-xs text-default-600 shadow-none";
 const panelClass = "border border-default-200 bg-white shadow-none";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const formatAverageRank = (value?: number | null, fallback = "X") =>
   value === null || value === undefined ? fallback : value.toFixed(2);
 
@@ -409,7 +389,7 @@ export const ClientLocalRankingDetailsScreen = ({
   rankingId,
 }: ClientLocalRankingDetailsScreenProps) => {
   const router = useRouter();
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [comparisonRuns, setComparisonRuns] = useState<ScanComparisonRun[]>([]);
   const [coverage, setCoverage] = useState<
     Array<{ latitude: number; longitude: number }>
@@ -436,9 +416,7 @@ export const ClientLocalRankingDetailsScreen = ({
   }, [rankingId]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !scanId) {
+    if (!session?.accessToken || !scanId) {
       setIsLoading(false);
       setComparisonRuns([]);
       setCoverage([]);
@@ -452,6 +430,7 @@ export const ClientLocalRankingDetailsScreen = ({
 
     const loadScreenData = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const [client, gbpDetailsResult, comparisonResponse] =
           await Promise.all([
             clientsApi.getClientById(accessToken, clientId),
@@ -522,7 +501,7 @@ export const ClientLocalRankingDetailsScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, scanId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, scanId, session?.accessToken]);
 
   const mapPanels = useMemo(() => {
     if (!comparisonRuns.length) {

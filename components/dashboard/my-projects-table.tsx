@@ -63,26 +63,6 @@ type MyProjectRow = {
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const getFullName = (firstName?: string | null, lastName?: string | null) => {
   const parts = [firstName, lastName]
     .map((value) => value?.trim() ?? "")
@@ -275,7 +255,7 @@ const columns = ({
 ];
 
 export const MyProjectsTable = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [activeProject, setActiveProject] = useState<MyProjectRow | null>(null);
   const [isTaskListPanelOpen, setIsTaskListPanelOpen] = useState(false);
@@ -285,9 +265,7 @@ export const MyProjectsTable = () => {
     useState<Record<string, string>>({});
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       setTemplateDescriptionByProject({});
 
       return;
@@ -297,6 +275,7 @@ export const MyProjectsTable = () => {
 
     const hydrateTemplates = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response =
           await projectTemplatesApi.listProjectTemplates(accessToken);
 
@@ -334,12 +313,10 @@ export const MyProjectsTable = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       setRows([]);
 
       return;
@@ -349,6 +326,7 @@ export const MyProjectsTable = () => {
 
     const loadProjects = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const clientsResponse = await clientsApi.getClients(accessToken);
         const allClients = clientsResponse ?? [];
         const mappedProjects = await Promise.all(
@@ -456,7 +434,7 @@ export const MyProjectsTable = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken, templateDescriptionByProject]);
+  }, [getValidAccessToken, session?.accessToken, templateDescriptionByProject]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
@@ -485,14 +463,12 @@ export const MyProjectsTable = () => {
     setActiveProject(selectedProject);
     setIsTaskListPanelOpen(true);
 
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !selectedProject) {
+    if (!session?.accessToken || !selectedProject) {
       return;
     }
 
-    void clientsApi
-      .getProjectTasks(accessToken, clientId)
+    void getValidAccessToken()
+      .then((accessToken) => clientsApi.getProjectTasks(accessToken, clientId))
       .then((tasksResponse) => {
         const projectTasks = tasksResponse.tasks
           .filter((task) => String(task.projectId) === projectId)
@@ -525,15 +501,15 @@ export const MyProjectsTable = () => {
   };
 
   const handleRemoveProject = async (clientId: string, projectId: string) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       toast.danger("Session expired", {
         description: "Please login again before removing a project.",
       });
 
       return;
     }
+
+    const accessToken = await getValidAccessToken();
 
     try {
       await clientsApi.deleteClientProject(accessToken, clientId, projectId);

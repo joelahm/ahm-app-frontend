@@ -74,7 +74,7 @@ export const SettingsUsersTable = ({
 }: SettingsUsersTableProps) => {
   const PAGE_SIZE = 10;
   const router = useRouter();
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [fetchedRows, setFetchedRows] = useState<SettingsUserRecord[]>(
     rows ?? [],
   );
@@ -116,12 +116,13 @@ export const SettingsUsersTable = ({
       setDeleteError("");
 
       try {
+        const accessToken = await getValidAccessToken();
         const allUsers = [];
         let page = 1;
         let hasNext = true;
 
         while (hasNext) {
-          const response = await usersApi.getUsers(session.accessToken, {
+          const response = await usersApi.getUsers(accessToken, {
             limit: 100,
             page,
           });
@@ -133,8 +134,8 @@ export const SettingsUsersTable = ({
 
         const [pendingInvitationsResponse, clientsResponse] = await Promise.all(
           [
-            usersApi.getPendingInvitations(session.accessToken),
-            clientsApi.getClients(session.accessToken),
+            usersApi.getPendingInvitations(accessToken),
+            clientsApi.getClients(accessToken),
           ],
         );
 
@@ -267,7 +268,7 @@ export const SettingsUsersTable = ({
     return () => {
       isMounted = false;
     };
-  }, [rows, session?.accessToken, reloadTick]);
+  }, [getValidAccessToken, rows, session?.accessToken, reloadTick]);
 
   const handleRemoveUser = useCallback(
     async (userId: string) => {
@@ -280,7 +281,9 @@ export const SettingsUsersTable = ({
       setDeletingUserId(userId);
 
       try {
-        await usersApi.deleteUser(session.accessToken, userId);
+        const accessToken = await getValidAccessToken();
+
+        await usersApi.deleteUser(accessToken, userId);
         setReloadTick((value) => value + 1);
       } catch (error) {
         setDeleteError(
@@ -290,7 +293,12 @@ export const SettingsUsersTable = ({
         setDeletingUserId(null);
       }
     },
-    [deletingUserId, session?.accessToken, updatingRoleUserId],
+    [
+      deletingUserId,
+      getValidAccessToken,
+      session?.accessToken,
+      updatingRoleUserId,
+    ],
   );
 
   const handleChangeRole = useCallback(
@@ -303,7 +311,9 @@ export const SettingsUsersTable = ({
       setUpdatingRoleUserId(userId);
 
       try {
-        await usersApi.updateUserRole(session.accessToken, userId, role);
+        const accessToken = await getValidAccessToken();
+
+        await usersApi.updateUserRole(accessToken, userId, role);
         setReloadTick((value) => value + 1);
       } catch (error) {
         setActionError(
@@ -313,7 +323,12 @@ export const SettingsUsersTable = ({
         setUpdatingRoleUserId(null);
       }
     },
-    [deletingUserId, session?.accessToken, updatingRoleUserId],
+    [
+      deletingUserId,
+      getValidAccessToken,
+      session?.accessToken,
+      updatingRoleUserId,
+    ],
   );
 
   const handleUsersInvited = useCallback(

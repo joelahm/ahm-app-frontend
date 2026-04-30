@@ -16,26 +16,6 @@ const toolbarChipClass =
   "h-8 rounded-md border border-default-200 bg-white px-2 text-[11px] text-default-600 shadow-none";
 const panelClass = "border border-default-200 bg-white shadow-none";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
 const calculateDistanceKm = (
@@ -189,7 +169,7 @@ type ScanMapGroup = {
 };
 
 export const PrintScanMapsScreen = ({ scanId }: { scanId: string }) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const numericScanIds = useMemo(() => {
     const decodedScanId = decodeURIComponent(scanId);
     const ids = decodedScanId
@@ -204,9 +184,7 @@ export const PrintScanMapsScreen = ({ scanId }: { scanId: string }) => {
   const [groups, setGroups] = useState<ScanMapGroup[]>([]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !numericScanIds.length) {
+    if (!session?.accessToken || !numericScanIds.length) {
       setIsLoading(false);
       setErrorMessage("Invalid scan ID selection or missing session.");
 
@@ -217,6 +195,7 @@ export const PrintScanMapsScreen = ({ scanId }: { scanId: string }) => {
 
     const loadData = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const loadedGroups = await Promise.all(
           numericScanIds.map(async (numericScanId) => {
             const scan = await scansApi.getScanById(accessToken, numericScanId);
@@ -348,7 +327,7 @@ export const PrintScanMapsScreen = ({ scanId }: { scanId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [numericScanIds, session?.accessToken]);
+  }, [getValidAccessToken, numericScanIds, session?.accessToken]);
 
   return (
     <main className="a4-report-wrap bg-default-50 py-8">

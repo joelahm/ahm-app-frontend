@@ -65,7 +65,7 @@ const mapGeneratedSchemaToRow = (
 });
 
 export const GeneratedSchemaListScreen = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [rows, setRows] = useState<GeneratedSchemaRow[]>([]);
   const [loadError, setLoadError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
@@ -81,9 +81,9 @@ export const GeneratedSchemaListScreen = () => {
     const loadGeneratedSchemas = async () => {
       try {
         setLoadError("");
-        const response = await generatedSchemasApi.getGeneratedSchemas(
-          session.accessToken,
-        );
+        const accessToken = await getValidAccessToken();
+        const response =
+          await generatedSchemasApi.getGeneratedSchemas(accessToken);
 
         if (!isMounted) {
           return;
@@ -109,7 +109,7 @@ export const GeneratedSchemaListScreen = () => {
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
@@ -140,10 +140,9 @@ export const GeneratedSchemaListScreen = () => {
     }
 
     try {
-      await generatedSchemasApi.deleteGeneratedSchema(
-        session.accessToken,
-        item.id,
-      );
+      const accessToken = await getValidAccessToken();
+
+      await generatedSchemasApi.deleteGeneratedSchema(accessToken, item.id);
       setRows((current) => current.filter((row) => row.id !== item.id));
       setActionMessage("Schema deleted.");
     } catch (error) {

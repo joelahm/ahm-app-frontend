@@ -53,7 +53,7 @@ export const InviteUserModal = ({
   onOpenChange,
   onInvited,
 }: InviteUserModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [submitError, setSubmitError] = useState("");
   const [clients, setClients] = useState<
     Array<{ id: string; label: string; value: string }>
@@ -93,7 +93,8 @@ export const InviteUserModal = ({
 
     void (async () => {
       try {
-        const response = await clientsApi.getClients(session.accessToken);
+        const accessToken = await getValidAccessToken();
+        const response = await clientsApi.getClients(accessToken);
         const parsedClients = response
           .map((client) => {
             const id = String(client.id);
@@ -117,7 +118,7 @@ export const InviteUserModal = ({
         setClients([]);
       }
     })();
-  }, [isOpen, session?.accessToken]);
+  }, [getValidAccessToken, isOpen, session?.accessToken]);
 
   const handleAddMember = async () => {
     const inviteEmail = getValues("inviteEmail").trim();
@@ -209,9 +210,10 @@ export const InviteUserModal = ({
           throw new Error("Your session has expired. Please login again.");
         }
 
+        const accessToken = await getValidAccessToken();
         const inviteResponse = await usersApi.inviteUsers(
           requestBody,
-          session.accessToken,
+          accessToken,
         );
 
         const invitedEmailSet = new Set(

@@ -1,5 +1,7 @@
 "use client";
 
+import type { ClientDiscordStatus } from "@/apis/clients";
+
 import { useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
@@ -17,6 +19,7 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@heroui/modal";
+import { Spinner } from "@heroui/spinner";
 import {
   CirclePause,
   CirclePlay,
@@ -47,6 +50,8 @@ export interface ClientRecord {
   status: string;
   dateJoined: string;
   lastActivity: string;
+  discordStatus?: ClientDiscordStatus | null;
+  isDiscordStatusLoading?: boolean;
 }
 
 interface ClientListTableProps {
@@ -84,6 +89,27 @@ const defaultHeaderActions: DashboardTableAction[] = [
 ];
 
 const defaultRows: ClientRecord[] = [];
+
+const formatDiscordMessageDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return parsedDate.toLocaleString("en-GB", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: true,
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 
 export const ClientListTable = ({
   title = "Client List",
@@ -171,6 +197,77 @@ export const ClientListTable = ({
             >
               {item.status}
             </Chip>
+          );
+        },
+      },
+      {
+        key: "discordStatus",
+        label: "Discord Status",
+        className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
+        renderCell: (item) => {
+          if (item.isDiscordStatusLoading) {
+            return (
+              <span className="inline-flex items-center gap-2 text-xs text-[#6B7280]">
+                <Spinner size="sm" />
+                Checking...
+              </span>
+            );
+          }
+
+          if (!item.discordStatus) {
+            return (
+              <span className="text-xs text-[#6B7280]">
+                Unable to check Discord
+              </span>
+            );
+          }
+
+          if (item.discordStatus.status === "not_configured") {
+            return (
+              <span className="text-xs text-[#9CA3AF]">
+                No Discord channel added
+              </span>
+            );
+          }
+
+          if (item.discordStatus.status === "invalid_channel") {
+            return (
+              <Chip color="danger" size="sm" variant="flat">
+                Invalid channel
+              </Chip>
+            );
+          }
+
+          if (item.discordStatus.status === "empty") {
+            return (
+              <span className="text-xs text-[#6B7280]">
+                Connected, no messages yet
+              </span>
+            );
+          }
+
+          if (
+            item.discordStatus.status === "error" ||
+            !item.discordStatus.lastMessage
+          ) {
+            return (
+              <Chip color="warning" size="sm" variant="flat">
+                Unable to read messages
+              </Chip>
+            );
+          }
+
+          return (
+            <div className="min-w-[190px]">
+              <p className="text-xs font-medium text-[#111827]">
+                {item.discordStatus.lastMessage.authorName || "Unknown user"}
+              </p>
+              <p className="text-xs text-[#6B7280]">
+                {formatDiscordMessageDate(
+                  item.discordStatus.lastMessage.createdAt,
+                )}
+              </p>
+            </div>
           );
         },
       },

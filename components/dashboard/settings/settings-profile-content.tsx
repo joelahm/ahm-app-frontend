@@ -182,28 +182,8 @@ const settingsProfileSchema = yup.object({
 
 type SettingsProfileFormValues = yup.InferType<typeof settingsProfileSchema>;
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 export const SettingsProfileContent = () => {
-  const { session, updateSessionUser } = useAuth();
+  const { getValidAccessToken, session, updateSessionUser } = useAuth();
   const toast = useAppToast();
   const toastRef = useRef(toast);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -262,9 +242,7 @@ export const SettingsProfileContent = () => {
   });
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       return;
     }
 
@@ -272,6 +250,7 @@ export const SettingsProfileContent = () => {
 
     const hydrateProfile = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const profile = await usersApi.getCurrentUser(accessToken);
 
         if (!isMounted) {
@@ -332,7 +311,7 @@ export const SettingsProfileContent = () => {
     return () => {
       isMounted = false;
     };
-  }, [countryOptions, reset, session?.accessToken]);
+  }, [countryOptions, getValidAccessToken, reset, session?.accessToken]);
 
   useEffect(() => {
     return () => {
@@ -379,11 +358,12 @@ export const SettingsProfileContent = () => {
       const validatedValues = await settingsProfileSchema.validate(values, {
         abortEarly: false,
       });
-      const accessToken = session?.accessToken || getStoredAccessToken();
 
-      if (!accessToken) {
+      if (!session?.accessToken) {
         throw new Error("Your session has expired. Please login again.");
       }
+
+      const accessToken = await getValidAccessToken();
 
       const basicInformationPayload = {
         country: validatedValues.country,

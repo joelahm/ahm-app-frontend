@@ -61,26 +61,6 @@ const toolbarChipClass =
   "h-10 rounded-lg border border-default-200 bg-white text-xs text-default-600 shadow-none";
 const panelClass = "border border-default-200 bg-white shadow-none";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const formatAverageRank = (value?: number | null, fallback = "X") =>
   value === null || value === undefined ? fallback : value.toFixed(2);
 
@@ -734,7 +714,7 @@ const MiniMapPanel = ({
 };
 
 export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const router = useRouter();
   const [comparisonRuns, setComparisonRuns] = useState<LocalRankingKeyword[]>(
     [],
@@ -766,9 +746,7 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
   }, [scanId]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !numericScanId) {
+    if (!session?.accessToken || !numericScanId) {
       setIsLoading(false);
       setComparisonRuns([]);
       setCoverage([]);
@@ -784,6 +762,7 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
 
     const loadScreenData = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const scan = await scansApi.getScanById(accessToken, numericScanId);
 
         if (!isMounted) {
@@ -901,7 +880,7 @@ export const QuickScanDetailsScreen = ({ scanId }: { scanId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [numericScanId, session?.accessToken]);
+  }, [getValidAccessToken, numericScanId, session?.accessToken]);
 
   const mapPanels = useMemo(() => {
     if (!comparisonRuns.length) {

@@ -222,26 +222,6 @@ const buildColumns = ({
   },
 ];
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const formatDateForDisplay = (isoDate: string) => {
   const date = new Date(isoDate);
 
@@ -341,7 +321,7 @@ export const ClientTaskListsTable = ({
   initialTaskId?: string;
   projectId?: string;
 }) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
   const [isDeletingTask, setIsDeletingTask] = useState(false);
   const [isViewTaskOpen, setIsViewTaskOpen] = useState(false);
@@ -395,9 +375,7 @@ export const ClientTaskListsTable = ({
   }, [initialTaskId]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       return;
     }
 
@@ -405,6 +383,7 @@ export const ClientTaskListsTable = ({
 
     const hydrateProjects = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const allProjects: Array<{
           id: number | string;
           project: string | null;
@@ -461,18 +440,17 @@ export const ClientTaskListsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, resolvedProjectId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, resolvedProjectId, session?.accessToken]);
 
   const loadTasks = useCallback(async () => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       setRows([]);
 
       return [] as TaskListRow[];
     }
 
     try {
+      const accessToken = await getValidAccessToken();
       const response = await clientsApi.getProjectTasks(accessToken, clientId);
       const latestCommentByTaskId = new Map<string, string>();
 
@@ -519,7 +497,7 @@ export const ClientTaskListsTable = ({
 
       return [] as TaskListRow[];
     }
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     void loadTasks();
@@ -543,9 +521,7 @@ export const ClientTaskListsTable = ({
   }, [hasProcessedInitialTask, initialTaskId, rows]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       setUsers([]);
 
       return;
@@ -555,6 +531,7 @@ export const ClientTaskListsTable = ({
 
     const hydrateUsers = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const allUsers: Array<{
           avatarUrl?: string | null;
           email: string;
@@ -608,12 +585,10 @@ export const ClientTaskListsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       setClientName("-");
       setClientAddress("-");
 
@@ -624,6 +599,7 @@ export const ClientTaskListsTable = ({
 
     const hydrateClientDetails = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const details = await clientsApi.getClientById(accessToken, clientId);
 
         if (!isMounted) {
@@ -658,12 +634,10 @@ export const ClientTaskListsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session?.accessToken]);
 
   const handleAddTask = async (payload: AddTaskFormValues) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       throw new Error("Your session has expired. Please login again.");
     }
 
@@ -674,6 +648,7 @@ export const ClientTaskListsTable = ({
     const todayIso = new Date().toISOString().slice(0, 10);
     const defaultAssigneeId = users[0]?.id ?? "";
     const defaultStatus = statusOptions[0] ?? TASK_STATUS_OPTIONS[0];
+    const accessToken = await getValidAccessToken();
 
     await clientsApi.createProjectTask(accessToken, resolvedProjectId, {
       assigneeId: defaultAssigneeId,
@@ -691,15 +666,15 @@ export const ClientTaskListsTable = ({
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || isDeletingTask) {
+    if (!session?.accessToken || isDeletingTask) {
       return;
     }
 
     setIsDeletingTask(true);
 
     try {
+      const accessToken = await getValidAccessToken();
+
       await clientsApi.deleteProjectTask(accessToken, taskId);
       await loadTasks();
     } finally {

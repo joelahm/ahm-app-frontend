@@ -114,7 +114,7 @@ export const AddGbpPostingKeywordsModal = ({
   onOpenChange,
   onSubmit,
 }: AddGbpPostingKeywordsModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [activeStep, setActiveStep] = useState<1 | 2>(1);
   const [isLoadingLanguages, setIsLoadingLanguages] = useState(false);
@@ -188,9 +188,8 @@ export const AddGbpPostingKeywordsModal = ({
     const loadLanguages = async () => {
       try {
         setIsLoadingLanguages(true);
-        const response = await keywordResearchApi.getLanguages(
-          session.accessToken,
-        );
+        const accessToken = await getValidAccessToken();
+        const response = await keywordResearchApi.getLanguages(accessToken);
 
         if (!isMounted) {
           return;
@@ -240,7 +239,7 @@ export const AddGbpPostingKeywordsModal = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, session?.accessToken, setValue]);
+  }, [getValidAccessToken, isOpen, session?.accessToken, setValue]);
 
   const closeModal = () => {
     onOpenChange(false);

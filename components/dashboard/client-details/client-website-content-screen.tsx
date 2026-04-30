@@ -118,6 +118,22 @@ const buildPublicReviewUrl = (publicPath?: string | null) => {
   return `${window.location.origin}${publicPath}`;
 };
 
+const logGenerationContextInfo = (
+  message: string,
+  details: Record<string, unknown>,
+) => {
+  // eslint-disable-next-line no-console -- Temporary staging diagnostics for Write Content blocker tracking.
+  console.info(message, details);
+};
+
+const logGenerationContextError = (
+  message: string,
+  details: Record<string, unknown>,
+) => {
+  // eslint-disable-next-line no-console -- Temporary staging diagnostics for Write Content blocker tracking.
+  console.error(message, details);
+};
+
 const INITIAL_BREAKDOWN = [
   { key: "treatment", label: "Treatment pages", allocated: 10, used: 0 },
   { key: "condition", label: "Condition pages", allocated: 5, used: 0 },
@@ -241,6 +257,15 @@ type FeaturedImageUpload = {
   name: string;
   previewUrl: string;
   sizeLabel: string;
+};
+
+type GenerationContextLoadStatus = "idle" | "loading" | "ready" | "error";
+
+type GenerationContextStatus = {
+  client: GenerationContextLoadStatus;
+  clientError: string;
+  prompts: GenerationContextLoadStatus;
+  promptsError: string;
 };
 
 type EditContentFormValues = {
@@ -1036,6 +1061,7 @@ export const ClientWebsiteContentScreen = ({
   clientId?: string;
 }) => {
   const { getValidAccessToken, session } = useAuth();
+  const hasSessionAccessToken = Boolean(session?.accessToken);
   const toast = useAppToast();
   const [breakdown, setBreakdown] =
     useState<BreakdownItem[]>(INITIAL_BREAKDOWN);
@@ -1053,6 +1079,7 @@ export const ClientWebsiteContentScreen = ({
     WebsiteContentKeywordItem[]
   >([]);
   const [rows, setRows] = useState<WebsiteContentRow[]>([]);
+  const [isWebsiteContentLoading, setIsWebsiteContentLoading] = useState(false);
   const [writingByRowId, setWritingByRowId] = useState<Record<string, boolean>>(
     {},
   );
@@ -1078,8 +1105,16 @@ export const ClientWebsiteContentScreen = ({
   );
   const [generationClientDetails, setGenerationClientDetails] =
     useState<ClientDetails | null>(null);
-  const [isGenerationContextLoading, setIsGenerationContextLoading] =
+  const [, setIsGenerationContextLoading] = useState(false);
+  const [hasGenerationContextLoaded, setHasGenerationContextLoaded] =
     useState(false);
+  const [generationContextStatus, setGenerationContextStatus] =
+    useState<GenerationContextStatus>({
+      client: "idle",
+      clientError: "",
+      prompts: "idle",
+      promptsError: "",
+    });
   const [isGeneratingEditSeo, setIsGeneratingEditSeo] = useState(false);
   const [promptTemplateByType, setPromptTemplateByType] = useState<
     Record<string, string>
@@ -1088,6 +1123,9 @@ export const ClientWebsiteContentScreen = ({
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const featuredImageInputRef = useRef<HTMLInputElement | null>(null);
+  const hasGenerationContextLoadedRef = useRef(false);
+  const generationContextLoadedClientIdRef = useRef<string | null>(null);
+  const generationContextLoadIdRef = useRef(0);
   const lastReviewStateRequestKeyRef = useRef<string | null>(null);
   const [commentsByRowId, setCommentsByRowId] = useState<
     Record<string, WebsiteContentComment[]>
@@ -1204,11 +1242,17 @@ export const ClientWebsiteContentScreen = ({
     let isMounted = true;
 
     const load = async () => {
+      setIsWebsiteContentLoading(true);
+
       try {
         await Promise.all([loadSavedKeywords(), loadSavedBreakdown()]);
       } catch {
         if (!isMounted) {
           return;
+        }
+      } finally {
+        if (isMounted) {
+          setIsWebsiteContentLoading(false);
         }
       }
     };
@@ -1221,25 +1265,69 @@ export const ClientWebsiteContentScreen = ({
   }, [loadSavedBreakdown, loadSavedKeywords]);
 
   const loadGenerationContext = useCallback(async () => {
-    if (!session?.accessToken || !clientId) {
+    if (!hasSessionAccessToken || !clientId) {
       setGenerationClientDetails(null);
       setPromptTemplateByType({});
       setIsGenerationContextLoading(false);
+      setHasGenerationContextLoaded(false);
+      hasGenerationContextLoadedRef.current = false;
+      generationContextLoadedClientIdRef.current = null;
+      setGenerationContextStatus({
+        client: "idle",
+        clientError: "",
+        prompts: "idle",
+        promptsError: "",
+      });
 
       return;
     }
 
+    const loadId = generationContextLoadIdRef.current + 1;
+    const hasLoadedContextForClient =
+      hasGenerationContextLoadedRef.current &&
+      generationContextLoadedClientIdRef.current === clientId;
+
+    if (!hasLoadedContextForClient) {
+      hasGenerationContextLoadedRef.current = false;
+      setHasGenerationContextLoaded(false);
+    }
+
+    generationContextLoadIdRef.current = loadId;
     setIsGenerationContextLoading(true);
+    setGenerationContextStatus((current) => ({
+      client: current.client === "ready" ? "ready" : "loading",
+      clientError: "",
+      prompts: current.prompts === "ready" ? "ready" : "loading",
+      promptsError: "",
+    }));
+    logGenerationContextInfo("[web-content] Loading generation context", {
+      clientId,
+      hasLoadedContext: hasLoadedContextForClient,
+      loadId,
+    });
 
     try {
       const accessToken = await getValidAccessToken();
-      const [promptsResponse, clientDetailsResponse] = await Promise.all([
+      const [promptsResult, clientResult] = await Promise.allSettled([
         aiPromptsApi.getPrompts(accessToken),
         clientsApi.getClientById(accessToken, clientId),
       ]);
 
-      const byType = promptsResponse.aiPrompts.reduce<Record<string, string>>(
-        (acc, prompt) => {
+      if (generationContextLoadIdRef.current !== loadId) {
+        logGenerationContextInfo(
+          "[web-content] Ignored stale generation context load",
+          {
+            loadId,
+          },
+        );
+
+        return;
+      }
+
+      if (promptsResult.status === "fulfilled") {
+        const byType = promptsResult.value.aiPrompts.reduce<
+          Record<string, string>
+        >((acc, prompt) => {
           const normalizedType = normalizePageTypeForPrompt(prompt.typeOfPost);
 
           if (
@@ -1257,19 +1345,114 @@ export const ClientWebsiteContentScreen = ({
           }
 
           return acc;
-        },
-        {},
-      );
+        }, {});
 
-      setGenerationClientDetails(clientDetailsResponse);
-      setPromptTemplateByType(byType);
-    } catch {
-      setGenerationClientDetails(null);
-      setPromptTemplateByType({});
+        setPromptTemplateByType(byType);
+        setGenerationContextStatus((current) => ({
+          ...current,
+          prompts: "ready",
+          promptsError: "",
+        }));
+        logGenerationContextInfo("[web-content] AI prompts loaded", {
+          loadId,
+          promptTypes: Object.keys(byType).sort(),
+        });
+      } else {
+        const message =
+          promptsResult.reason instanceof Error
+            ? promptsResult.reason.message
+            : "Failed to load AI prompts.";
+
+        if (!hasGenerationContextLoadedRef.current) {
+          setPromptTemplateByType({});
+        }
+
+        setGenerationContextStatus((current) => ({
+          ...current,
+          prompts: "error",
+          promptsError: message,
+        }));
+        logGenerationContextError("[web-content] AI prompts failed to load", {
+          loadId,
+          message,
+        });
+      }
+
+      if (clientResult.status === "fulfilled") {
+        setGenerationClientDetails(clientResult.value);
+        setGenerationContextStatus((current) => ({
+          ...current,
+          client: "ready",
+          clientError: "",
+        }));
+        logGenerationContextInfo("[web-content] Client details loaded", {
+          clientId,
+          loadId,
+        });
+      } else {
+        const message =
+          clientResult.reason instanceof Error
+            ? clientResult.reason.message
+            : "Failed to load client details.";
+
+        if (!hasGenerationContextLoadedRef.current) {
+          setGenerationClientDetails(null);
+        }
+
+        setGenerationContextStatus((current) => ({
+          ...current,
+          client: "error",
+          clientError: message,
+        }));
+        logGenerationContextError(
+          "[web-content] Client details failed to load",
+          {
+            clientId,
+            loadId,
+            message,
+          },
+        );
+      }
+
+      if (
+        promptsResult.status === "fulfilled" &&
+        clientResult.status === "fulfilled"
+      ) {
+        hasGenerationContextLoadedRef.current = true;
+        generationContextLoadedClientIdRef.current = clientId;
+        setHasGenerationContextLoaded(true);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to load generation context.";
+
+      if (!hasGenerationContextLoadedRef.current) {
+        setGenerationClientDetails(null);
+        setPromptTemplateByType({});
+      }
+
+      setGenerationContextStatus({
+        client: "error",
+        clientError: message,
+        prompts: "error",
+        promptsError: message,
+      });
+      logGenerationContextError(
+        "[web-content] Generation context failed to load",
+        {
+          clientId,
+          loadId,
+          message,
+        },
+      );
     } finally {
-      setIsGenerationContextLoading(false);
+      if (generationContextLoadIdRef.current === loadId) {
+        setIsGenerationContextLoading(false);
+      }
     }
-  }, [clientId, getValidAccessToken, session?.accessToken]);
+  }, [clientId, getValidAccessToken, hasSessionAccessToken]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1288,6 +1471,62 @@ export const ClientWebsiteContentScreen = ({
       isMounted = false;
     };
   }, [loadGenerationContext]);
+
+  const generationContextBlockers = useMemo(() => {
+    if (hasGenerationContextLoaded) {
+      return [];
+    }
+
+    const blockers: string[] = [];
+
+    if (generationContextStatus.prompts === "loading") {
+      blockers.push("AI prompts are still loading.");
+    } else if (generationContextStatus.prompts === "error") {
+      blockers.push(
+        generationContextStatus.promptsError || "AI prompts failed to load.",
+      );
+    } else if (generationContextStatus.prompts !== "ready") {
+      blockers.push("AI prompts have not loaded yet.");
+    }
+
+    if (generationContextStatus.client === "loading") {
+      blockers.push("Client details are still loading.");
+    } else if (generationContextStatus.client === "error") {
+      blockers.push(
+        generationContextStatus.clientError || "Client details failed to load.",
+      );
+    } else if (generationContextStatus.client !== "ready") {
+      blockers.push("Client details have not loaded yet.");
+    }
+
+    return blockers;
+  }, [generationContextStatus, hasGenerationContextLoaded]);
+
+  const shouldBlockWriteForGenerationContext =
+    generationContextBlockers.length > 0;
+
+  const writeGenerationContextLabel = useMemo(() => {
+    if (!shouldBlockWriteForGenerationContext) {
+      return "";
+    }
+
+    if (
+      generationContextStatus.prompts === "error" ||
+      generationContextStatus.client === "error"
+    ) {
+      return "AI unavailable";
+    }
+
+    if (generationContextStatus.prompts === "loading") {
+      return "Loading prompts...";
+    }
+
+    if (generationContextStatus.client === "loading") {
+      return "Loading client...";
+    }
+
+    return "Preparing AI...";
+  }, [generationContextStatus, shouldBlockWriteForGenerationContext]);
 
   const liveUsedByBreakdownKey = useMemo(
     () =>
@@ -2083,8 +2322,13 @@ ${plainContent || "N/A"}`.trim();
         return;
       }
 
-      if (isGenerationContextLoading) {
-        toast.info("AI templates are still loading.");
+      if (shouldBlockWriteForGenerationContext) {
+        logGenerationContextInfo("[web-content] Write content blocked", {
+          blockers: generationContextBlockers,
+          rowId: row.id,
+          status: generationContextStatus,
+        });
+        toast.info(generationContextBlockers.join(" "));
 
         return;
       }
@@ -2106,8 +2350,10 @@ ${plainContent || "N/A"}`.trim();
     [
       handleGenerateForRow,
       hasExistingGeneratedContent,
-      isGenerationContextLoading,
+      generationContextBlockers,
+      generationContextStatus,
       isClusterParentRow,
+      shouldBlockWriteForGenerationContext,
       toast,
       writingByRowId,
     ],
@@ -3325,7 +3571,8 @@ ${plainContent || "N/A"}`.trim();
           <div className="flex items-center justify-end gap-2">
             <Button
               isDisabled={
-                Boolean(writingByRowId[item.id]) || isGenerationContextLoading
+                Boolean(writingByRowId[item.id]) ||
+                shouldBlockWriteForGenerationContext
               }
               isLoading={Boolean(writingByRowId[item.id])}
               radius="md"
@@ -3335,8 +3582,8 @@ ${plainContent || "N/A"}`.trim();
                 handleWriteClick(item);
               }}
             >
-              {isGenerationContextLoading
-                ? "Loading AI..."
+              {shouldBlockWriteForGenerationContext
+                ? writeGenerationContextLabel
                 : writingByRowId[item.id]
                   ? "Generating..."
                   : getWriteButtonLabel(item)}
@@ -3610,13 +3857,15 @@ ${plainContent || "N/A"}`.trim();
                 setDragOverKeywordId(null);
               },
             })}
+            isLoading={isWebsiteContentLoading}
+            loadingLabel="Loading website content..."
             pageSize={10}
             rows={rows}
             title=""
             withShell={false}
           />
 
-          {rows.length === 0 ? (
+          {!isWebsiteContentLoading && rows.length === 0 ? (
             <div className="px-4 pb-10 pt-8 text-center">
               <h3 className="text-2xl leading-[1.2] text-[#111827]">
                 Lorem ipsum dolor sit amet consectetur.

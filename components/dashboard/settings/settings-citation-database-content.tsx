@@ -144,7 +144,9 @@ export const SettingsCitationDatabaseContent = () => {
 
     const loadInitialCitations = async () => {
       try {
-        await fetchCitations(session.accessToken);
+        const accessToken = await getValidAccessToken();
+
+        await fetchCitations(accessToken);
       } catch (error) {
         if (!isMounted) {
           return;
@@ -167,7 +169,12 @@ export const SettingsCitationDatabaseContent = () => {
     return () => {
       isMounted = false;
     };
-  }, [fetchCitations, isAuthLoading, session?.accessToken]);
+  }, [
+    fetchCitations,
+    getValidAccessToken,
+    isAuthLoading,
+    session?.accessToken,
+  ]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();

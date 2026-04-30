@@ -99,8 +99,39 @@ const ClientsPage = () => {
     try {
       const accessToken = await getValidAccessToken();
       const clients = await clientsApi.getClients(accessToken);
+      const mappedRows = mapClientRows(clients).map((row) => ({
+        ...row,
+        isDiscordStatusLoading: true,
+      }));
 
-      setRows(mapClientRows(clients));
+      setRows(mappedRows);
+
+      if (mappedRows.length === 0) {
+        return;
+      }
+
+      try {
+        const statuses = await clientsApi.getClientDiscordStatuses(accessToken);
+        const statusByClientId = new Map(
+          statuses.map((status) => [String(status.clientId), status]),
+        );
+
+        setRows((currentRows) =>
+          currentRows.map((row) => ({
+            ...row,
+            discordStatus: statusByClientId.get(row.id) ?? null,
+            isDiscordStatusLoading: false,
+          })),
+        );
+      } catch {
+        setRows((currentRows) =>
+          currentRows.map((row) => ({
+            ...row,
+            discordStatus: null,
+            isDiscordStatusLoading: false,
+          })),
+        );
+      }
     } catch {
       setRows([]);
     }

@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -34,6 +35,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = "ahm-auth-session";
+const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60_000;
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
@@ -54,7 +56,7 @@ const isValidSession = (value: unknown): value is AuthSession => {
 };
 
 const isSessionExpired = (session: AuthSession) =>
-  Date.now() >= session.accessTokenExpiresAt;
+  Date.now() + ACCESS_TOKEN_REFRESH_BUFFER_MS >= session.accessTokenExpiresAt;
 
 const isProfileHydrated = (session: AuthSession) =>
   !!(
@@ -114,6 +116,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshSessionPromiseRef = useRef<Promise<AuthSession> | null>(null);
 
   const clearSession = useCallback(() => {
     setSession(null);
@@ -121,33 +124,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const refreshSession = useCallback(async (currentSession: AuthSession) => {
-    if (!currentSession.refreshToken) {
-      throw new Error("Missing refresh token.");
+    if (refreshSessionPromiseRef.current) {
+      return refreshSessionPromiseRef.current;
     }
 
-    const refreshed = await authApi.refresh({
-      refreshToken: currentSession.refreshToken,
-    });
+    refreshSessionPromiseRef.current = (async () => {
+      if (!currentSession.refreshToken) {
+        throw new Error("Missing refresh token.");
+      }
 
-    if (
-      !isNonEmptyString(refreshed.accessToken) ||
-      typeof refreshed.accessTokenExpiresIn !== "number"
-    ) {
-      throw new Error("Invalid refresh response.");
+      const refreshed = await authApi.refresh({
+        refreshToken: currentSession.refreshToken,
+      });
+
+      if (
+        !isNonEmptyString(refreshed.accessToken) ||
+        typeof refreshed.accessTokenExpiresIn !== "number"
+      ) {
+        throw new Error("Invalid refresh response.");
+      }
+
+      const user = await authApi.me(refreshed.accessToken);
+      const nextSession: AuthSession = {
+        accessToken: refreshed.accessToken,
+        accessTokenExpiresAt: resolveExpiryAt(refreshed),
+        refreshToken: refreshed.refreshToken ?? currentSession.refreshToken,
+        user,
+      };
+
+      setSession(nextSession);
+      saveSession(nextSession);
+
+      return nextSession;
+    })();
+
+    try {
+      return await refreshSessionPromiseRef.current;
+    } finally {
+      refreshSessionPromiseRef.current = null;
     }
-
-    const user = await authApi.me(refreshed.accessToken);
-    const nextSession: AuthSession = {
-      accessToken: refreshed.accessToken,
-      accessTokenExpiresAt: resolveExpiryAt(refreshed),
-      refreshToken: refreshed.refreshToken ?? currentSession.refreshToken,
-      user,
-    };
-
-    setSession(nextSession);
-    saveSession(nextSession);
-
-    return nextSession;
   }, []);
 
   const bootstrapSession = useCallback(async () => {

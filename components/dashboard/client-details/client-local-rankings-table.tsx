@@ -347,7 +347,7 @@ export const ClientLocalRankingsTable = ({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [currentPage, setCurrentPage] = useState(1);
   const [reloadTick, setReloadTick] = useState(0);
@@ -480,8 +480,9 @@ export const ClientLocalRankingsTable = ({
 
     const loadSavedKeywords = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response = await scansApi.getSavedLocalRankingKeywords(
-          session.accessToken,
+          accessToken,
           clientId,
         );
 
@@ -504,7 +505,7 @@ export const ClientLocalRankingsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, reloadTick, session?.accessToken]);
+  }, [clientId, getValidAccessToken, reloadTick, session?.accessToken]);
 
   useEffect(() => {
     if (!session?.accessToken || !clientId) {
@@ -518,8 +519,9 @@ export const ClientLocalRankingsTable = ({
 
     const loadRankings = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response = await scansApi.getClientLocalRankings(
-          session.accessToken,
+          accessToken,
           clientId,
           {
             limit: PAGE_SIZE,
@@ -557,7 +559,13 @@ export const ClientLocalRankingsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, currentPage, reloadTick, session?.accessToken]);
+  }, [
+    clientId,
+    currentPage,
+    getValidAccessToken,
+    reloadTick,
+    session?.accessToken,
+  ]);
 
   useEffect(() => {
     if (!session?.accessToken || !clientId) {
@@ -570,12 +578,13 @@ export const ClientLocalRankingsTable = ({
 
     const loadCompetitors = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const collected: LocalRankingKeyword[] = [];
         let nextPage: number | null = 1;
 
         while (nextPage) {
           const response = await scansApi.getClientLocalRankings(
-            session.accessToken,
+            accessToken,
             clientId,
             {
               limit: 100,
@@ -598,7 +607,7 @@ export const ClientLocalRankingsTable = ({
           uniqueScanIds.map(async (scanId) => {
             try {
               return await scansApi.getClientScanComparison(
-                session.accessToken,
+                accessToken,
                 clientId,
                 scanId,
                 2,
@@ -627,7 +636,7 @@ export const ClientLocalRankingsTable = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, reloadTick, session?.accessToken]);
+  }, [clientId, getValidAccessToken, reloadTick, session?.accessToken]);
 
   useEffect(() => {
     if (!completedRun) {
@@ -656,7 +665,9 @@ export const ClientLocalRankingsTable = ({
 
       setDeletingScanId(scanId);
       try {
-        await scansApi.deleteScanKeyword(session.accessToken, scanId, keyword);
+        const accessToken = await getValidAccessToken();
+
+        await scansApi.deleteScanKeyword(accessToken, scanId, keyword);
         toast.success("Keyword deleted successfully.");
         setReloadTick((value) => value + 1);
       } catch (error) {
@@ -668,7 +679,7 @@ export const ClientLocalRankingsTable = ({
         setDeletingScanId(null);
       }
     },
-    [session?.accessToken, toast],
+    [getValidAccessToken, session?.accessToken, toast],
   );
 
   const handleRunScanAgain = useCallback(
@@ -683,7 +694,8 @@ export const ClientLocalRankingsTable = ({
 
       setRunningScanId(scanId);
       try {
-        const response = await scansApi.runScan(session.accessToken, scanId);
+        const accessToken = await getValidAccessToken();
+        const response = await scansApi.runScan(accessToken, scanId);
 
         if (response.run?.id && response.run.scanId) {
           setActiveRun({
@@ -708,7 +720,7 @@ export const ClientLocalRankingsTable = ({
         setRunningScanId(null);
       }
     },
-    [session?.accessToken, toast],
+    [getValidAccessToken, session?.accessToken, toast],
   );
 
   const columns = useMemo<DashboardDataTableColumn<LocalRankingRow>[]>(
@@ -1087,8 +1099,10 @@ export const ClientLocalRankingsTable = ({
           });
 
           if (session?.accessToken && clientId) {
-            void scansApi
-              .clearSavedLocalRankingKeywords(session.accessToken, clientId)
+            void getValidAccessToken()
+              .then((accessToken) =>
+                scansApi.clearSavedLocalRankingKeywords(accessToken, clientId),
+              )
               .then(() => {
                 setSavedScanLaterKeywords([]);
               })

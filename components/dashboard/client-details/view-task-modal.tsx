@@ -112,26 +112,6 @@ const toFriendlyDate = (value?: string) => {
   });
 };
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const getInitials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
 
@@ -291,7 +271,7 @@ export const ViewTaskModal = ({
   task,
   users,
 }: ViewTaskModalProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const commentEditorRef = useRef<HTMLDivElement | null>(null);
@@ -374,9 +354,7 @@ export const ViewTaskModal = ({
   ]);
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!isOpen || !task?.id || !accessToken) {
+    if (!isOpen || !task?.id || !session?.accessToken) {
       setComments([]);
 
       return;
@@ -388,6 +366,7 @@ export const ViewTaskModal = ({
 
     const loadComments = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const response = await clientsApi.getTaskComments(accessToken, task.id);
 
         if (!isMounted) {
@@ -413,7 +392,7 @@ export const ViewTaskModal = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, session?.accessToken, task?.id]);
+  }, [getValidAccessToken, isOpen, session?.accessToken, task?.id]);
 
   const selectedProjectLabel = useMemo(() => {
     if (!task?.projectId) {
@@ -784,9 +763,7 @@ export const ViewTaskModal = ({
       return;
     }
 
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken) {
+    if (!session?.accessToken) {
       toast.danger("Session expired", {
         description: "Please login again before updating this task.",
       });
@@ -797,6 +774,8 @@ export const ViewTaskModal = ({
     setIsSavingTask(true);
 
     try {
+      const accessToken = await getValidAccessToken();
+
       await clientsApi.updateProjectTask(accessToken, task.id, {
         assigneeId: localAssigneeId || undefined,
         dueDate: String(localDueDate),
@@ -820,7 +799,6 @@ export const ViewTaskModal = ({
   };
 
   const handleAddComment = async () => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
     const editorHtml = commentEditorRef.current?.innerHTML?.trim() ?? "";
     const message = buildCommentMessage({
       editorHtml,
@@ -828,7 +806,7 @@ export const ViewTaskModal = ({
       plainText: commentInput,
     });
 
-    if (!accessToken || !task?.id || !message || isSendingComment) {
+    if (!session?.accessToken || !task?.id || !message || isSendingComment) {
       return;
     }
 
@@ -847,6 +825,7 @@ export const ViewTaskModal = ({
     setIsSendingComment(true);
 
     try {
+      const accessToken = await getValidAccessToken();
       const createdComment = await clientsApi.createTaskComment(
         accessToken,
         task.id,
@@ -884,15 +863,15 @@ export const ViewTaskModal = ({
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !commentId || isDeletingCommentId) {
+    if (!session?.accessToken || !commentId || isDeletingCommentId) {
       return;
     }
 
     setIsDeletingCommentId(commentId);
 
     try {
+      const accessToken = await getValidAccessToken();
+
       await clientsApi.deleteTaskComment(accessToken, commentId);
       setComments((previous) =>
         previous.filter((comment) => String(comment.id) !== commentId),

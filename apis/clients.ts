@@ -425,6 +425,25 @@ export interface ClientApiItem {
   updatedAt?: string | null;
 }
 
+export interface ClientDiscordStatus {
+  channelId: string | null;
+  clientId: number | string;
+  error?: string | null;
+  lastMessage: {
+    authorName: string | null;
+    content: string;
+    createdAt: string | null;
+    id: string | null;
+  } | null;
+  status:
+    | "connected"
+    | "empty"
+    | "error"
+    | "invalid_channel"
+    | "not_configured";
+  upstreamStatus?: number | string | null;
+}
+
 export interface ClientDetails {
   assignedTo: number | string | null;
   addressLine1: string | null;
@@ -779,6 +798,66 @@ const parseClientsResponse = (value: unknown): ClientApiItem[] => {
   }
 
   return clients;
+};
+
+const parseClientDiscordStatusesResponse = (
+  value: unknown,
+): ClientDiscordStatus[] => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawStatuses =
+    asArray(payload.statuses).length > 0
+      ? asArray(payload.statuses)
+      : asArray(payload.items).length > 0
+        ? asArray(payload.items)
+        : asArray(root.statuses).length > 0
+          ? asArray(root.statuses)
+          : asArray(root.items);
+
+  return rawStatuses
+    .map((item) => {
+      const record = asObject(item);
+      const clientId = record.clientId;
+
+      if (typeof clientId !== "number" && typeof clientId !== "string") {
+        return null;
+      }
+
+      const lastMessageRecord = asObject(record.lastMessage);
+      const status = asString(record.status) ?? "error";
+      const normalizedStatus = [
+        "connected",
+        "empty",
+        "error",
+        "invalid_channel",
+        "not_configured",
+      ].includes(status)
+        ? (status as ClientDiscordStatus["status"])
+        : "error";
+
+      return {
+        channelId: asString(record.channelId),
+        clientId,
+        error: asString(record.error),
+        lastMessage:
+          Object.keys(lastMessageRecord).length > 0
+            ? {
+                authorName: asString(lastMessageRecord.authorName),
+                content: asString(lastMessageRecord.content) ?? "",
+                createdAt: asString(lastMessageRecord.createdAt),
+                id: asString(lastMessageRecord.id),
+              }
+            : null,
+        status: normalizedStatus,
+        upstreamStatus:
+          typeof record.upstreamStatus === "number" ||
+          typeof record.upstreamStatus === "string"
+            ? record.upstreamStatus
+            : null,
+      };
+    })
+    .filter((item): item is ClientDiscordStatus => item !== null);
 };
 
 const parseClientDetailsResponse = (value: unknown): ClientDetails => {
@@ -2790,6 +2869,22 @@ export const clientsApi = {
 
         return normalizedStatus === "active" || normalizedStatus === "inactive";
       });
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getClientDiscordStatuses: async (accessToken: string) => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        "/api/v1/clients/discord/statuses",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientDiscordStatusesResponse(response.data);
     } catch (error) {
       throw new Error(parseError(error));
     }

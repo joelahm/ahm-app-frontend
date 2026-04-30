@@ -441,7 +441,7 @@ export const SchemaGeneratorScreen = ({
   schemaId?: string;
 }) => {
   const router = useRouter();
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [businessHoursStatus, setBusinessHoursStatus] = useState<
     Record<string, "open" | "closed">
   >(createBusinessHoursStatus);
@@ -722,13 +722,12 @@ export const SchemaGeneratorScreen = ({
 
     const loadSchemaTypes = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const [typesResponse, specialtiesResponse, serviceTypesResponse] =
           await Promise.all([
-            schemaGeneratorSettingsApi.getSchemaTypes(session.accessToken),
-            schemaGeneratorSettingsApi.getMedicalSpecialties(
-              session.accessToken,
-            ),
-            schemaGeneratorSettingsApi.getServiceTypes(session.accessToken),
+            schemaGeneratorSettingsApi.getSchemaTypes(accessToken),
+            schemaGeneratorSettingsApi.getMedicalSpecialties(accessToken),
+            schemaGeneratorSettingsApi.getServiceTypes(accessToken),
           ]);
 
         if (!isMounted) {
@@ -754,7 +753,7 @@ export const SchemaGeneratorScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -767,7 +766,8 @@ export const SchemaGeneratorScreen = ({
 
     const loadClients = async () => {
       try {
-        const response = await clientsApi.getClients(session.accessToken);
+        const accessToken = await getValidAccessToken();
+        const response = await clientsApi.getClients(accessToken);
 
         if (!isMounted) {
           return;
@@ -802,7 +802,7 @@ export const SchemaGeneratorScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     if (mode === "edit" || !session?.accessToken || !selectedClientId) {
@@ -813,8 +813,9 @@ export const SchemaGeneratorScreen = ({
 
     const loadClientDetails = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const client = await clientsApi.getClientById(
-          session.accessToken,
+          accessToken,
           selectedClientId,
         );
 
@@ -946,7 +947,13 @@ export const SchemaGeneratorScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [mode, selectedClientId, session?.accessToken, setValue]);
+  }, [
+    getValidAccessToken,
+    mode,
+    selectedClientId,
+    session?.accessToken,
+    setValue,
+  ]);
 
   useEffect(() => {
     if (mode !== "edit" || !schemaId || !session?.accessToken) {
@@ -959,9 +966,10 @@ export const SchemaGeneratorScreen = ({
       try {
         setIsLoadingSchema(true);
         setSaveError("");
+        const accessToken = await getValidAccessToken();
 
         const response = await generatedSchemasApi.getGeneratedSchema(
-          session.accessToken,
+          accessToken,
           schemaId,
         );
 
@@ -1075,7 +1083,7 @@ export const SchemaGeneratorScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [mode, schemaId, session?.accessToken, setValue]);
+  }, [getValidAccessToken, mode, schemaId, session?.accessToken, setValue]);
 
   const previewJson = useMemo(() => {
     const pageTypeMap: Record<SchemaPageType, string> = {
@@ -1436,18 +1444,16 @@ export const SchemaGeneratorScreen = ({
 
     try {
       setIsSaving(true);
+      const accessToken = await getValidAccessToken();
 
       if (mode === "edit" && schemaId) {
         await generatedSchemasApi.updateGeneratedSchema(
-          session.accessToken,
+          accessToken,
           schemaId,
           payload,
         );
       } else {
-        await generatedSchemasApi.createGeneratedSchema(
-          session.accessToken,
-          payload,
-        );
+        await generatedSchemasApi.createGeneratedSchema(accessToken, payload);
       }
 
       router.push("/dashboard/schema-generator");

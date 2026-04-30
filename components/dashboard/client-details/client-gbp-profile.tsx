@@ -102,7 +102,7 @@ export const ClientGbpProfile = ({
   rating = "",
   reviewCount = "",
 }: ClientGbpProfileProps) => {
-  const { isLoading, session } = useAuth();
+  const { getValidAccessToken, isLoading, session } = useAuth();
   const [gbpDetails, setGbpDetails] = useState<Awaited<
     ReturnType<typeof clientsApi.getClientGbpDetails>
   > | null>(null);
@@ -188,8 +188,9 @@ export const ClientGbpProfile = ({
       setIsFetchingDetails(true);
 
       try {
+        const accessToken = await getValidAccessToken();
         const response = await clientsApi.getClientGbpDetails(
-          session.accessToken,
+          accessToken,
           clientId,
         );
 
@@ -216,7 +217,7 @@ export const ClientGbpProfile = ({
     return () => {
       isMounted = false;
     };
-  }, [clientId, session?.accessToken]);
+  }, [clientId, getValidAccessToken, session?.accessToken]);
 
   const handleAddLocation = async () => {
     if (!selectedPlace?.placeId || !clientId || !session?.accessToken) {
@@ -232,14 +233,16 @@ export const ClientGbpProfile = ({
     setIsSubmittingLocation(true);
 
     try {
-      await clientsApi.syncGbpDetails(session.accessToken, {
+      const accessToken = await getValidAccessToken();
+
+      await clientsApi.syncGbpDetails(accessToken, {
         clientId: normalizedClientId,
         gl: "uk",
         hl: "en",
         placeId: selectedPlace.placeId,
       });
       const response = await clientsApi.getClientGbpDetails(
-        session.accessToken,
+        accessToken,
         normalizedClientId,
       );
 

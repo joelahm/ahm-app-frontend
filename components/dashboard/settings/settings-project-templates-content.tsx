@@ -64,7 +64,7 @@ const toProjectTemplateRow = (item: ProjectTemplate): ProjectTemplateRow => ({
 });
 
 export const SettingsProjectTemplatesContent = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const [editingTemplate, setEditingTemplate] =
     useState<ProjectTemplate | null>(null);
@@ -82,9 +82,9 @@ export const SettingsProjectTemplatesContent = () => {
 
     try {
       setLoadError("");
-      const response = await projectTemplatesApi.listProjectTemplates(
-        session.accessToken,
-      );
+      const accessToken = await getValidAccessToken();
+      const response =
+        await projectTemplatesApi.listProjectTemplates(accessToken);
 
       setTemplates(response.projectTemplates);
     } catch (error) {
@@ -95,7 +95,7 @@ export const SettingsProjectTemplatesContent = () => {
       );
       setTemplates([]);
     }
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     void loadProjectTemplates();
@@ -132,8 +132,10 @@ export const SettingsProjectTemplatesContent = () => {
       }
 
       try {
+        const accessToken = await getValidAccessToken();
+
         await projectTemplatesApi.deleteProjectTemplate(
-          session.accessToken,
+          accessToken,
           templateId,
         );
         setTemplates((current) =>
@@ -147,7 +149,7 @@ export const SettingsProjectTemplatesContent = () => {
         });
       }
     },
-    [session?.accessToken, toast],
+    [getValidAccessToken, session?.accessToken, toast],
   );
 
   const columns = useMemo<DashboardDataTableColumn<ProjectTemplateRow>[]>(

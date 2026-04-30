@@ -123,30 +123,10 @@ interface SettingsUserEditContentProps {
   userId: string;
 }
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 export const SettingsUserEditContent = ({
   userId,
 }: SettingsUserEditContentProps) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const router = useRouter();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarError, setAvatarError] = useState("");
@@ -241,9 +221,7 @@ export const SettingsUserEditContent = ({
   };
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !userId) {
+    if (!session?.accessToken || !userId) {
       return;
     }
 
@@ -253,6 +231,7 @@ export const SettingsUserEditContent = ({
       setProfileError("");
 
       try {
+        const accessToken = await getValidAccessToken();
         const profile = await loadUserFromList(accessToken);
 
         if (!isMounted) {
@@ -318,7 +297,13 @@ export const SettingsUserEditContent = ({
     return () => {
       isMounted = false;
     };
-  }, [countryOptions, reset, session?.accessToken, userId]);
+  }, [
+    countryOptions,
+    getValidAccessToken,
+    reset,
+    session?.accessToken,
+    userId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -367,11 +352,12 @@ export const SettingsUserEditContent = ({
       const validatedValues = await settingsProfileSchema.validate(values, {
         abortEarly: false,
       });
-      const accessToken = session?.accessToken || getStoredAccessToken();
 
-      if (!accessToken) {
+      if (!session?.accessToken) {
         throw new Error("Your session has expired. Please login again.");
       }
+
+      const accessToken = await getValidAccessToken();
 
       const basicInformationPayload = {
         country: validatedValues.country,

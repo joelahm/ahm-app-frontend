@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@heroui/table";
+import { Spinner } from "@heroui/spinner";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
@@ -39,6 +40,9 @@ interface DashboardDataTableProps<TItem> {
   enableSelection?: boolean;
   selectedKeys?: Selection;
   onSelectionChange?: (keys: Selection) => void;
+  isLoading?: boolean;
+  loadingLabel?: string;
+  emptyContent?: ReactNode;
   showPagination?: boolean;
   serverPagination?: boolean;
   totalPages?: number;
@@ -102,6 +106,9 @@ export const DashboardDataTable = <TItem,>({
   enableSelection = false,
   selectedKeys,
   onSelectionChange,
+  isLoading = false,
+  loadingLabel = "Loading data...",
+  emptyContent = "No records found.",
   showPagination = false,
   serverPagination = false,
   totalPages: totalPagesFromProps,
@@ -144,6 +151,13 @@ export const DashboardDataTable = <TItem,>({
   const pageItems = useMemo(
     () => getPageItems(safePage, totalPages),
     [safePage, totalPages],
+  );
+
+  const tableLoadingContent = (
+    <div className="flex min-h-40 flex-col items-center justify-center gap-3 py-10 text-sm text-default-500">
+      <Spinner color="primary" size="sm" />
+      <span>{loadingLabel}</span>
+    </div>
   );
 
   const updatePage = (nextPage: number) => {
@@ -191,7 +205,12 @@ export const DashboardDataTable = <TItem,>({
               </TableColumn>
             ))}
           </TableHeader>
-          <TableBody items={paginatedRows}>
+          <TableBody
+            emptyContent={isLoading ? tableLoadingContent : emptyContent}
+            isLoading={isLoading}
+            items={paginatedRows}
+            loadingContent={tableLoadingContent}
+          >
             {(item) => (
               <TableRow
                 key={getRowKey(item)}

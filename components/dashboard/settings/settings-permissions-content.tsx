@@ -100,7 +100,7 @@ const renderSectionTable = (
 };
 
 export const SettingsPermissionsContent = () => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const [sections, setSections] = useState<PermissionSectionSetting[]>([]);
   const [permissionsState, setPermissionsState] = useState<PermissionState>({});
   const [isLoading, setIsLoading] = useState(true);
@@ -132,9 +132,8 @@ export const SettingsPermissionsContent = () => {
       setIsLoading(true);
       setError(null);
       setSuccessMessage(null);
-      const response = await usersApi.getPermissionsSettings(
-        session.accessToken,
-      );
+      const accessToken = await getValidAccessToken();
+      const response = await usersApi.getPermissionsSettings(accessToken);
       const nextSections = response.sections ?? [];
 
       setSections(nextSections);
@@ -148,7 +147,7 @@ export const SettingsPermissionsContent = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.accessToken]);
+  }, [getValidAccessToken, session?.accessToken]);
 
   useEffect(() => {
     void loadPermissions();
@@ -186,8 +185,9 @@ export const SettingsPermissionsContent = () => {
       setIsSaving(true);
       setError(null);
       setSuccessMessage(null);
+      const accessToken = await getValidAccessToken();
       const response = await usersApi.updatePermissionsSettings(
-        session.accessToken,
+        accessToken,
         payload,
       );
       const nextSections = response.settings?.sections ?? payload.sections;

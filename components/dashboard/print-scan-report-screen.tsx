@@ -33,26 +33,6 @@ const toolbarChipClass =
   "h-8 rounded-md border border-default-200 bg-white px-2 text-[11px] text-default-600 shadow-none";
 const panelClass = "border border-default-200 bg-white shadow-none";
 
-const getStoredAccessToken = () => {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem("ahm-auth-session");
-
-    if (!rawSession) {
-      return "";
-    }
-
-    const parsed = JSON.parse(rawSession) as { accessToken?: unknown };
-
-    return typeof parsed.accessToken === "string" ? parsed.accessToken : "";
-  } catch {
-    return "";
-  }
-};
-
 const toRadians = (value: number) => (value * Math.PI) / 180;
 
 const calculateDistanceKm = (
@@ -416,7 +396,7 @@ type ReportRun = LocalRankingKeyword & {
 };
 
 export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
-  const { session } = useAuth();
+  const { getValidAccessToken, session } = useAuth();
   const searchParams = useSearchParams();
   const numericScanId = useMemo(() => {
     const parsed = Number(scanId);
@@ -448,9 +428,7 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
   );
 
   useEffect(() => {
-    const accessToken = session?.accessToken || getStoredAccessToken();
-
-    if (!accessToken || !numericScanId) {
+    if (!session?.accessToken || !numericScanId) {
       setIsLoading(false);
       setErrorMessage("Invalid scan ID or missing session.");
 
@@ -461,6 +439,7 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
 
     const loadData = async () => {
       try {
+        const accessToken = await getValidAccessToken();
         const scan = await scansApi.getScanById(accessToken, numericScanId);
 
         if (!isMounted) {
@@ -644,7 +623,7 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [numericScanId, session?.accessToken]);
+  }, [getValidAccessToken, numericScanId, session?.accessToken]);
 
   const mapPanels = useMemo(() => {
     const runsById = new Map(
