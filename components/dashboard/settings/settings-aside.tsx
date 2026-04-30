@@ -13,6 +13,7 @@ import {
   MapPin,
   TableCellsSplit,
   Wrench,
+  Bell,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -26,6 +27,7 @@ type SettingsNavKey =
   | "ai-hub"
   | "citation-database"
   | "credit-usage"
+  | "notifications"
   | "tools";
 
 interface SettingsAsideProps {
@@ -82,6 +84,12 @@ const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         icon: TableCellsSplit,
         key: "credit-usage",
         label: "User Logs",
+      },
+      {
+        href: "/dashboard/settings/notifications",
+        icon: Bell,
+        key: "notifications",
+        label: "Notifications",
       },
       {
         href: "/dashboard/settings/tools",

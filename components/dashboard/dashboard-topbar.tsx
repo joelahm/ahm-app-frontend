@@ -11,11 +11,13 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Popover, PopoverContent, PopoverTrigger } from "@heroui/popover";
 import { ChevronRight, Search, Bell } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/auth/auth-context";
+import { useNotifications } from "@/components/dashboard/notifications-provider";
 
 interface DashboardTopbarProps {
   title: string;
@@ -26,7 +28,14 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
   const pathname = usePathname();
   const router = useRouter();
   const { logout, session } = useAuth();
+  const {
+    markAllRead,
+    markNotificationRead,
+    notifications,
+    unreadCount,
+  } = useNotifications();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const displayName =
     [session?.user?.firstName, session?.user?.lastName]
       .filter((value) => typeof value === "string" && value.trim().length > 0)
@@ -96,6 +105,7 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
     await logout();
     router.replace("/login");
   };
+  const notificationPreview = notifications.slice(0, 5);
 
   return (
     <header className="sticky top-0 z-20 h-[81px] border-b border-default-200 bg-white px-4 py-3.5">
@@ -132,11 +142,104 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
             <Search size={20} />
           </Button>
           <Divider className="h-7" orientation="vertical" />
-          <Badge color="danger" content="" placement="top-right" shape="circle">
-            <Button isIconOnly radius="full" size="sm" variant="light">
-              <Bell size={20} />
-            </Button>
-          </Badge>
+          <Popover
+            isOpen={isNotificationsOpen}
+            placement="bottom-end"
+            onOpenChange={setIsNotificationsOpen}
+          >
+            <Badge
+              color="danger"
+              content={unreadCount > 99 ? "99+" : unreadCount || ""}
+              isInvisible={unreadCount === 0}
+              placement="top-right"
+              shape="circle"
+            >
+              <PopoverTrigger>
+                <Button isIconOnly radius="full" size="sm" variant="light">
+                  <Bell
+                    className={`transition-transform duration-200 ${isNotificationsOpen ? "rotate-12" : ""}`}
+                    size={20}
+                  />
+                </Button>
+              </PopoverTrigger>
+            </Badge>
+            <PopoverContent className="w-80 p-0">
+              <div className="w-full">
+                <div className="border-b border-default-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-[#111827]">
+                      Notifications
+                    </p>
+                    <p className="text-xs text-default-500">
+                      {unreadCount} unread
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      void markAllRead();
+                    }}
+                  >
+                    Mark all read
+                  </Button>
+                </div>
+                </div>
+                {notificationPreview.length ? (
+                  <div className="max-h-80 overflow-y-auto py-1">
+                    {notificationPreview.map((notification) => (
+                      <button
+                        key={notification.id}
+                        className="w-full px-3 py-2 text-left transition-colors hover:bg-default-100"
+                        type="button"
+                        onClick={() => {
+                          void markNotificationRead(notification.id);
+                          setIsNotificationsOpen(false);
+                          const url =
+                            typeof notification.data?.url === "string"
+                              ? notification.data.url
+                              : "";
+
+                          if (url) {
+                            router.push(url);
+                          }
+                        }}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-sm font-semibold text-[#111827]">
+                              {notification.title}
+                            </p>
+                            {!notification.isRead ? (
+                              <span className="mt-1 size-2 shrink-0 rounded-full bg-danger" />
+                            ) : null}
+                          </div>
+                          <p className="line-clamp-2 text-xs text-default-500">
+                            {notification.body}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-3 py-6 text-center text-sm text-default-500">
+                    No notifications
+                  </p>
+                )}
+                <button
+                  className="w-full border-t border-default-200 px-3 py-3 text-left text-sm font-semibold text-[#022279] transition-colors hover:bg-default-100"
+                  type="button"
+                  onClick={() => {
+                    setIsNotificationsOpen(false);
+                    router.push("/dashboard/notifications");
+                  }}
+                >
+                  View all notifications
+                </button>
+              </div>
+            </PopoverContent>
+          </Popover>
           <Divider className="h-7" orientation="vertical" />
           <div className="flex items-center gap-3 rounded-xl px-1 py-1">
             <Avatar

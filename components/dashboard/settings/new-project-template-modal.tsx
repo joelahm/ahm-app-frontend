@@ -6,6 +6,12 @@ import * as yup from "yup";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Checkbox } from "@heroui/checkbox";
+import {
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@heroui/dropdown";
 import { Input, Textarea } from "@heroui/input";
 import {
   Modal,
@@ -23,7 +29,15 @@ import {
   TableHeader,
   TableRow,
 } from "@heroui/table";
-import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  EllipsisVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   type ProjectTemplate,
@@ -36,6 +50,7 @@ import {
   type AddProjectTemplateTaskFormValues,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const createProjectTemplateSchema = yup.object({
   description: yup.string().default(""),
@@ -151,6 +166,51 @@ const hasChildRows = (
   return false;
 };
 
+const getTaskSubtreeEndIndex = (
+  rows: ProjectTemplateTaskRow[],
+  startIndex: number,
+) => {
+  const sourceRow = rows[startIndex];
+
+  if (!sourceRow) {
+    return startIndex;
+  }
+
+  let endIndex = startIndex + 1;
+
+  while (
+    endIndex < rows.length &&
+    rows[endIndex].level > sourceRow.level
+  ) {
+    endIndex += 1;
+  }
+
+  return endIndex;
+};
+
+const getDescendantTaskIds = (
+  rows: ProjectTemplateTaskRow[],
+  taskId: string,
+) => {
+  const sourceIndex = rows.findIndex((row) => row.id === taskId);
+
+  if (sourceIndex < 0) {
+    return new Set<string>();
+  }
+
+  const endIndex = getTaskSubtreeEndIndex(rows, sourceIndex);
+
+  return new Set(
+    rows.slice(sourceIndex + 1, endIndex).map((row) => row.id),
+  );
+};
+
+const parseDueDateTriggerDays = (value?: string) => {
+  const match = value?.match(/^(\d+)/);
+
+  return match?.[1] ?? "0";
+};
+
 const buildTaskRowName = (
   task: ProjectTemplateTaskRow,
   hasChildren: boolean,
@@ -232,6 +292,7 @@ export const NewProjectTemplateModal = ({
 }: NewProjectTemplateModalProps) => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [taskRows, setTaskRows] =
@@ -393,6 +454,7 @@ export const NewProjectTemplateModal = ({
 
   const resetModal = () => {
     setCurrentStep(1);
+    setEditingTaskId(null);
     setIsAddTaskModalOpen(false);
     setTaskRows(initialTaskRows);
     setSubmitError("");
@@ -505,7 +567,129 @@ export const NewProjectTemplateModal = ({
       return;
     }
 
-    setTaskRows((current) => current.filter((row) => row.id !== taskId));
+    setTaskRows((current) => {
+      const sourceIndex = current.findIndex((row) => row.id === taskId);
+
+      if (sourceIndex < 0) {
+        return current;
+      }
+
+      const endIndex = getTaskSubtreeEndIndex(current, sourceIndex);
+      const deletedIds = new Set(
+        current.slice(sourceIndex, endIndex).map((row) => row.id),
+      );
+
+      return current
+        .filter((row) => !deletedIds.has(row.id))
+        .map((row) =>
+          row.blockedTaskId && deletedIds.has(row.blockedTaskId)
+            ? {
+                ...row,
+                blockedTaskId: undefined,
+                dependency: "-",
+                dependencyType: undefined,
+                dueDateTrigger: "On trigger date",
+                enableDependency: false,
+              }
+            : row,
+        );
+    });
+  };
+
+  const updateTask = (
+    taskId: string,
+    payload: AddProjectTemplateTaskFormValues,
+  ) => {
+    setTaskRows((current) => {
+      const sourceIndex = current.findIndex((row) => row.id === taskId);
+
+      if (sourceIndex < 0) {
+        return current;
+      }
+
+      const assignee = taskUsers.find((user) => user.id === payload.assigneeId);
+      const parentIndex = current.findIndex(
+        (row) => row.id === payload.parentTaskId,
+      );
+      const parentRow = parentIndex >= 0 ? current[parentIndex] : null;
+      const nextLevel = parentRow ? Math.min(parentRow.level + 1, 2) : 0;
+      const sourceRow = current[sourceIndex];
+      const updatedTaskRow = {
+        ...sourceRow,
+        assigneeId: payload.assigneeId,
+        assigneeName: assignee?.name ?? "",
+        blockedTaskId: payload.blockedTaskId,
+        dependency:
+          payload.enableDependency && payload.blockedTaskId
+            ? (current.find((item) => item.id === payload.blockedTaskId)
+                ?.taskName ?? "-")
+            : "-",
+        dependencyType: payload.dependencyType,
+        dueDateTrigger: payload.enableDependency
+          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
+          : "On trigger date",
+        enableDependency: payload.enableDependency,
+        labels: payload.labels,
+        level: nextLevel,
+        parentTaskId: payload.parentTaskId,
+        status: payload.status,
+        taskDescription: payload.description?.trim() || "-",
+        taskName: payload.taskTitle,
+        title: payload.taskTitle,
+      };
+
+      if ((payload.parentTaskId ?? "") === (sourceRow.parentTaskId ?? "")) {
+        return current.map((row) =>
+          row.id === taskId ? updatedTaskRow : row,
+        );
+      }
+
+      const endIndex = getTaskSubtreeEndIndex(current, sourceIndex);
+      const subtree = current.slice(sourceIndex, endIndex);
+      const levelDelta = nextLevel - sourceRow.level;
+      const updatedSubtree = subtree.map((row, index) => {
+        const nextRow = index === 0 ? updatedTaskRow : row;
+
+        return {
+          ...nextRow,
+          level: Math.min(Math.max(nextRow.level + levelDelta, 0), 2),
+        };
+      });
+      const rowsWithoutSubtree = [
+        ...current.slice(0, sourceIndex),
+        ...current.slice(endIndex),
+      ];
+      const normalizedRows = rowsWithoutSubtree.map((row) =>
+        row.id === parentRow?.id ? { ...row, isExpanded: true } : row,
+      );
+
+      if (!parentRow) {
+        return [...normalizedRows, ...updatedSubtree];
+      }
+
+      let insertIndex = normalizedRows.findIndex(
+        (row) => row.id === parentRow.id,
+      );
+
+      if (insertIndex < 0) {
+        return [...normalizedRows, ...updatedSubtree];
+      }
+
+      insertIndex += 1;
+
+      while (
+        insertIndex < normalizedRows.length &&
+        normalizedRows[insertIndex].level > parentRow.level
+      ) {
+        insertIndex += 1;
+      }
+
+      return [
+        ...normalizedRows.slice(0, insertIndex),
+        ...updatedSubtree,
+        ...normalizedRows.slice(insertIndex),
+      ];
+    });
   };
 
   const toggleTaskSelection = (taskId: string, isSelected: boolean) => {
@@ -552,7 +736,59 @@ export const NewProjectTemplateModal = ({
       })),
     [taskRows],
   );
+  const editingTask = useMemo(
+    () => taskRows.find((row) => row.id === editingTaskId) ?? null,
+    [editingTaskId, taskRows],
+  );
+  const editableParentTaskOptions = useMemo(() => {
+    if (!editingTaskId) {
+      return parentTaskOptions;
+    }
 
+    const excludedIds = getDescendantTaskIds(taskRows, editingTaskId);
+
+    excludedIds.add(editingTaskId);
+
+    return parentTaskOptions.filter((option) => !excludedIds.has(option.id));
+  }, [editingTaskId, parentTaskOptions, taskRows]);
+  const editableBlockedTaskOptions = useMemo(() => {
+    if (!editingTaskId) {
+      return blockedTaskOptions;
+    }
+
+    const excludedIds = getDescendantTaskIds(taskRows, editingTaskId);
+
+    excludedIds.add(editingTaskId);
+
+    return blockedTaskOptions.filter((option) => !excludedIds.has(option.id));
+  }, [blockedTaskOptions, editingTaskId, taskRows]);
+  const editingTaskInitialValues = useMemo<
+    Partial<AddProjectTemplateTaskFormValues> | null
+  >(() => {
+    if (!editingTask) {
+      return null;
+    }
+
+    const taskStatus = TASK_STATUS_OPTIONS.includes(
+      editingTask.status as AddProjectTemplateTaskFormValues["status"],
+    )
+      ? (editingTask.status as AddProjectTemplateTaskFormValues["status"])
+      : TASK_STATUS_OPTIONS[0];
+
+    return {
+      assigneeId: editingTask.assigneeId ?? "",
+      blockedTaskId: editingTask.blockedTaskId ?? "",
+      dependencyType: editingTask.dependencyType ?? "",
+      description:
+        editingTask.taskDescription === "-" ? "" : editingTask.taskDescription,
+      enableDependency: Boolean(editingTask.enableDependency),
+      labels: editingTask.labels,
+      parentTaskId: editingTask.parentTaskId ?? "",
+      remapDays: parseDueDateTriggerDays(editingTask.dueDateTrigger),
+      status: taskStatus,
+      taskTitle: editingTask.taskName,
+    };
+  }, [editingTask]);
   const renderTaskTable = ({ isFullHeight = false } = {}) => (
     <div
       className={
@@ -577,7 +813,10 @@ export const NewProjectTemplateModal = ({
             className="bg-[#022279] text-white"
             radius="md"
             startContent={<Plus size={16} />}
-            onPress={() => setIsAddTaskModalOpen(true)}
+            onPress={() => {
+              setEditingTaskId(null);
+              setIsAddTaskModalOpen(true);
+            }}
           >
             New Task
           </Button>
@@ -700,15 +939,40 @@ export const NewProjectTemplateModal = ({
                     </TableCell>,
                     <TableCell key="action">
                       <div className="flex justify-end">
-                        <Button
-                          isIconOnly
-                          className="border-danger-200 text-danger"
-                          radius="md"
-                          variant="bordered"
-                          onPress={() => removeTask(item.id)}
-                        >
-                          <Trash2 size={18} />
-                        </Button>
+                        <Dropdown placement="bottom-end">
+                          <DropdownTrigger>
+                            <Button isIconOnly radius="md" variant="bordered">
+                              <EllipsisVertical size={18} />
+                            </Button>
+                          </DropdownTrigger>
+                          <DropdownMenu
+                            aria-label={`Task ${item.taskName} actions`}
+                          >
+                            <DropdownItem
+                              key="edit"
+                              startContent={
+                                <Pencil className="text-[#4F46E5]" size={18} />
+                              }
+                              onPress={() => {
+                                setEditingTaskId(item.id);
+                                setIsAddTaskModalOpen(true);
+                              }}
+                            >
+                              Edit
+                            </DropdownItem>
+                            <DropdownItem
+                              key="delete"
+                              className="text-danger"
+                              color="danger"
+                              startContent={
+                                <Trash2 className="text-danger" size={18} />
+                              }
+                              onPress={() => removeTask(item.id)}
+                            >
+                              Delete
+                            </DropdownItem>
+                          </DropdownMenu>
+                        </Dropdown>
                       </div>
                     </TableCell>,
                   ]}
@@ -952,12 +1216,26 @@ export const NewProjectTemplateModal = ({
         </ModalFooter>
       </ModalContent>
       <AddProjectTemplateTaskModal
-        blockedTaskOptions={blockedTaskOptions}
+        blockedTaskOptions={editableBlockedTaskOptions}
+        initialValues={editingTaskInitialValues}
         isOpen={isAddTaskModalOpen}
-        parentTaskOptions={parentTaskOptions}
+        mode={editingTaskId ? "edit" : "add"}
+        parentTaskOptions={editableParentTaskOptions}
         users={taskUsers}
-        onOpenChange={setIsAddTaskModalOpen}
+        onOpenChange={(open) => {
+          setIsAddTaskModalOpen(open);
+
+          if (!open) {
+            setEditingTaskId(null);
+          }
+        }}
         onSubmit={async (payload) => {
+          if (editingTaskId) {
+            updateTask(editingTaskId, payload);
+
+            return;
+          }
+
           addTask(payload);
         }}
       />

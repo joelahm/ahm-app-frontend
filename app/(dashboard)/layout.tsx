@@ -1,6 +1,7 @@
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { DashboardTopbar } from "@/components/dashboard/dashboard-topbar";
+import { NotificationsProvider } from "@/components/dashboard/notifications-provider";
 
 export default function DashboardLayout({
   children,
@@ -9,13 +10,15 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedRoute>
-      <section className="flex min-h-screen bg-default-50">
-        <DashboardSidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <DashboardTopbar subtitle="Clients" title="Welcome back, Sahara!" />
-          <main className="min-w-0 flex-1 overflow-auto p-6">{children}</main>
-        </div>
-      </section>
+      <NotificationsProvider>
+        <section className="flex min-h-screen bg-default-50">
+          <DashboardSidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <DashboardTopbar subtitle="Clients" title="Welcome back, Sahara!" />
+            <main className="min-w-0 flex-1 overflow-auto p-6">{children}</main>
+          </div>
+        </section>
+      </NotificationsProvider>
     </ProtectedRoute>
   );
 }

@@ -60,7 +60,9 @@ export type AddProjectTemplateTaskFormValues = yup.InferType<
 
 interface AddProjectTemplateTaskModalProps {
   blockedTaskOptions: Array<{ id: string; label: string }>;
+  initialValues?: Partial<AddProjectTemplateTaskFormValues> | null;
   isOpen: boolean;
+  mode?: "add" | "edit";
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: AddProjectTemplateTaskFormValues) => void | Promise<void>;
   parentTaskOptions: Array<{ id: string; label: string }>;
@@ -71,7 +73,9 @@ const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
 
 export const AddProjectTemplateTaskModal = ({
   blockedTaskOptions,
+  initialValues,
   isOpen,
+  mode = "add",
   onOpenChange,
   onSubmit,
   parentTaskOptions,
@@ -104,6 +108,7 @@ export const AddProjectTemplateTaskModal = ({
   });
   const assigneeId = watch("assigneeId");
   const enableDependency = watch("enableDependency");
+  const isEditing = mode === "edit";
 
   const filteredUsers = useMemo(() => {
     const normalized = assigneeSearch.trim().toLowerCase();
@@ -114,6 +119,25 @@ export const AddProjectTemplateTaskModal = ({
 
     return users.filter((user) => user.name.toLowerCase().includes(normalized));
   }, [assigneeSearch, users]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    reset({
+      assigneeId: initialValues?.assigneeId ?? "",
+      blockedTaskId: initialValues?.blockedTaskId ?? "",
+      description: initialValues?.description ?? "",
+      dependencyType: initialValues?.dependencyType ?? "",
+      enableDependency: initialValues?.enableDependency ?? false,
+      labels: initialValues?.labels ?? [],
+      parentTaskId: initialValues?.parentTaskId ?? "",
+      remapDays: initialValues?.remapDays ?? "0",
+      status: initialValues?.status ?? TASK_STATUS_OPTIONS[0],
+      taskTitle: initialValues?.taskTitle ?? "",
+    });
+  }, [initialValues, isOpen, reset]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -188,7 +212,9 @@ export const AddProjectTemplateTaskModal = ({
     >
       <ModalContent>
         <ModalHeader className="flex items-center justify-between border-b border-default-200">
-          <h2 className="text-lg font-semibold text-[#111827]">Add Task</h2>
+          <h2 className="text-lg font-semibold text-[#111827]">
+            {isEditing ? "Edit Task" : "Add Task"}
+          </h2>
           <Button
             isIconOnly
             radius="full"
@@ -454,7 +480,7 @@ export const AddProjectTemplateTaskModal = ({
             radius="md"
             onPress={() => void handleSubmit(submitTask)()}
           >
-            Save Task
+            {isEditing ? "Update Task" : "Save Task"}
           </Button>
         </ModalFooter>
       </ModalContent>
