@@ -1421,6 +1421,22 @@ export const ClientWebsiteContentScreen = ({
         hasGenerationContextLoadedRef.current = true;
         generationContextLoadedClientIdRef.current = clientId;
         setHasGenerationContextLoaded(true);
+        logGenerationContextInfo(
+          "[web-content] Generation context marked ready",
+          {
+            clientId,
+            loadId,
+            promptTypes:
+              promptsResult.status === "fulfilled"
+                ? promptsResult.value.aiPrompts
+                    .map((prompt) =>
+                      normalizePageTypeForPrompt(prompt.typeOfPost),
+                    )
+                    .filter(Boolean)
+                    .sort()
+                : [],
+          },
+        );
       }
     } catch (error) {
       const message =
@@ -1472,8 +1488,12 @@ export const ClientWebsiteContentScreen = ({
     };
   }, [loadGenerationContext]);
 
+  const isGenerationContextReady =
+    generationContextStatus.prompts === "ready" &&
+    generationContextStatus.client === "ready";
+
   const generationContextBlockers = useMemo(() => {
-    if (hasGenerationContextLoaded) {
+    if (hasGenerationContextLoaded || isGenerationContextReady) {
       return [];
     }
 
@@ -1500,7 +1520,11 @@ export const ClientWebsiteContentScreen = ({
     }
 
     return blockers;
-  }, [generationContextStatus, hasGenerationContextLoaded]);
+  }, [
+    generationContextStatus,
+    hasGenerationContextLoaded,
+    isGenerationContextReady,
+  ]);
 
   const shouldBlockWriteForGenerationContext =
     generationContextBlockers.length > 0;
@@ -1527,6 +1551,34 @@ export const ClientWebsiteContentScreen = ({
 
     return "Preparing AI...";
   }, [generationContextStatus, shouldBlockWriteForGenerationContext]);
+
+  useEffect(() => {
+    logGenerationContextInfo("[web-content] Write gate state", {
+      blockers: generationContextBlockers,
+      clientId,
+      generationContextStatus,
+      hasGenerationContextLoaded,
+      isGenerationContextReady,
+      promptTypes: Object.keys(promptTemplateByType).sort(),
+      rowCount: rows.length,
+      shouldBlockWriteForGenerationContext,
+      writeGenerationContextLabel,
+      writingRowIds: Object.keys(writingByRowId).filter(
+        (rowId) => writingByRowId[rowId],
+      ),
+    });
+  }, [
+    clientId,
+    generationContextBlockers,
+    generationContextStatus,
+    hasGenerationContextLoaded,
+    isGenerationContextReady,
+    promptTemplateByType,
+    rows.length,
+    shouldBlockWriteForGenerationContext,
+    writeGenerationContextLabel,
+    writingByRowId,
+  ]);
 
   const liveUsedByBreakdownKey = useMemo(
     () =>
