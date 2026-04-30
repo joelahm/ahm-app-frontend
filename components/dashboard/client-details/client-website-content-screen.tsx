@@ -1580,6 +1580,15 @@ export const ClientWebsiteContentScreen = ({
     writingByRowId,
   ]);
 
+  const websiteContentTableRenderKey = [
+    clientId || "no-client",
+    generationContextStatus.prompts,
+    generationContextStatus.client,
+    hasGenerationContextLoaded ? "loaded" : "not-loaded",
+    shouldBlockWriteForGenerationContext ? "blocked" : "ready",
+    writeGenerationContextLabel || "write-ready",
+  ].join(":");
+
   const liveUsedByBreakdownKey = useMemo(
     () =>
       rows.reduce<Record<string, number>>((counts, row) => {
@@ -3586,6 +3595,14 @@ ${plainContent || "N/A"}`.trim();
       label: "Action",
       className: "bg-[#F9FAFB] text-[#111827]",
       renderCell: (item) => {
+        const isWriting = Boolean(writingByRowId[item.id]);
+        const isWriteDisabled =
+          isWriting || shouldBlockWriteForGenerationContext;
+        const writeButtonLabel = shouldBlockWriteForGenerationContext
+          ? writeGenerationContextLabel
+          : isWriting
+            ? "Generating..."
+            : getWriteButtonLabel(item);
         const hasClusterChildren = rows.some(
           (row) => row.parentKeywordId === item.keywordId,
         );
@@ -3619,14 +3636,21 @@ ${plainContent || "N/A"}`.trim();
           },
         ];
 
+        logGenerationContextInfo("[web-content] Write button render", {
+          disabled: isWriteDisabled,
+          gateBlocked: shouldBlockWriteForGenerationContext,
+          isWriting,
+          keyword: item.keyword,
+          label: writeButtonLabel,
+          rowId: item.id,
+          tableRenderKey: websiteContentTableRenderKey,
+        });
+
         return (
           <div className="flex items-center justify-end gap-2">
             <Button
-              isDisabled={
-                Boolean(writingByRowId[item.id]) ||
-                shouldBlockWriteForGenerationContext
-              }
-              isLoading={Boolean(writingByRowId[item.id])}
+              isDisabled={isWriteDisabled}
+              isLoading={isWriting}
               radius="md"
               size="sm"
               variant="bordered"
@@ -3634,11 +3658,7 @@ ${plainContent || "N/A"}`.trim();
                 handleWriteClick(item);
               }}
             >
-              {shouldBlockWriteForGenerationContext
-                ? writeGenerationContextLabel
-                : writingByRowId[item.id]
-                  ? "Generating..."
-                  : getWriteButtonLabel(item)}
+              {writeButtonLabel}
             </Button>
             <Dropdown placement="bottom-end">
               <DropdownTrigger>
@@ -3865,6 +3885,7 @@ ${plainContent || "N/A"}`.trim();
             Drag a keyword here to make it top-level (no parent)
           </div>
           <DashboardDataTable
+            key={websiteContentTableRenderKey}
             showPagination
             ariaLabel="Website content table"
             columns={tableColumns}
