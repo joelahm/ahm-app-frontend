@@ -56,7 +56,6 @@ type MyProjectRow = {
     dueDate: string;
     id: string;
     name: string;
-    startDate?: string | null;
     status: string;
   }>;
 };
@@ -403,7 +402,6 @@ export const MyProjectsTable = () => {
                     dueDate: task.dueDate ?? "-",
                     id: String(task.id),
                     name: task.taskName ?? task.task ?? "-",
-                    startDate: task.startDate,
                     status: task.status ?? "Todo",
                   })),
               };
@@ -485,7 +483,6 @@ export const MyProjectsTable = () => {
             dueDate: task.dueDate ?? "-",
             id: String(task.id),
             name: task.taskName ?? task.task ?? "-",
-            startDate: task.startDate,
             status: task.status ?? "Todo",
           }));
 

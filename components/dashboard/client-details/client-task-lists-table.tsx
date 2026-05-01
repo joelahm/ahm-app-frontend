@@ -54,7 +54,6 @@ type TaskListRow = {
   parentTaskId?: string;
   projectId?: string;
   projectType: string;
-  startDate: string;
   status: string;
   taskName: string;
 };
@@ -176,16 +175,6 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <span className="text-sm text-[#111827]">{item.comment}</span>
-    ),
-  },
-  {
-    key: "startDate",
-    label: "Start date",
-    className: thClassName,
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">
-        {formatDateForDisplay(item.startDate)}
-      </span>
     ),
   },
   {
@@ -314,7 +303,6 @@ const toTaskListRow = (task: ProjectTask): TaskListRow => {
         ? String(task.projectId)
         : undefined,
     projectType: task.projectType ?? "-",
-    startDate: task.startDate ?? "",
     status: normalizeTaskStatus(task.status),
     taskName: task.taskName ?? task.task ?? "-",
   };
@@ -787,7 +775,6 @@ export const ClientTaskListsTable = ({
       projectId:
         projectOptions.find((project) => project.id === resolvedProjectId)
           ?.id ?? resolvedProjectId,
-      startDate: todayIso,
       status: taskStatus,
       taskName: payload.taskTitle,
     });
@@ -949,7 +936,6 @@ export const ClientTaskListsTable = ({
                 dueDate: selectedTask.dueDate,
                 id: selectedTask.id,
                 projectId: selectedTask.projectId ?? "",
-                startDate: selectedTask.startDate,
                 status: selectedTask.status,
                 taskName: selectedTask.taskName,
               }

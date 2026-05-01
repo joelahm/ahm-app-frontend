@@ -52,7 +52,6 @@ type ClientProjectsRow = {
     id: string;
     name: string;
     parentTaskId?: string | null;
-    startDate?: string | null;
     status: string;
   }>;
   csmId: string;
@@ -549,7 +548,6 @@ export const ClientProjectsTable = ({
                 parentTaskId: task.parentTaskId
                   ? String(task.parentTaskId)
                   : null,
-                startDate: task.startDate,
                 status: task.status ?? "Todo",
               })),
             progress: project.progress ?? "-",
@@ -671,7 +669,6 @@ export const ClientProjectsTable = ({
             ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
             : undefined,
           projectId: createdProject.id,
-          startDate: payload.startDate,
           status: normalizeProjectTaskStatus(task.status),
           task: task.taskName,
           taskName: task.taskName,
@@ -700,7 +697,6 @@ export const ClientProjectsTable = ({
             ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
             : undefined,
           projectId: createdProject.id,
-          startDate: payload.startDate,
           status: normalizeProjectTaskStatus(task.status),
           task: task.taskName,
           taskName: task.taskName,
