@@ -320,7 +320,6 @@ export const ProjectsListScreen = () => {
             ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
             : undefined,
           projectId: createdProject.id,
-          startDate: payload.startDate,
           status: normalizeProjectTaskStatus(task.status),
           task: task.taskName,
           taskName: task.taskName,
@@ -348,7 +347,6 @@ export const ProjectsListScreen = () => {
             ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
             : undefined,
           projectId: createdProject.id,
-          startDate: payload.startDate,
           status: normalizeProjectTaskStatus(task.status),
           task: task.taskName,
           taskName: task.taskName,

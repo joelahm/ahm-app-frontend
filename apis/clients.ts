@@ -60,7 +60,7 @@ export interface AddProjectTaskRequestBody {
   dueDate: string;
   parentTaskId?: number | string;
   projectId: number | string;
-  startDate: string;
+  startDate?: string;
   status?: string;
   task?: string;
   taskName: string;

@@ -67,7 +67,6 @@ interface ViewTaskListsPanelContentProps {
     id: string;
     name: string;
     parentTaskId?: string | null;
-    startDate?: string | null;
     status: string;
   }>;
   users?: Array<{ avatar?: string | null; id: string; name: string }>;
@@ -1114,16 +1113,6 @@ export const ViewTaskListsPanelContent = ({
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-[#6B7280]">
-                <Calendar className="text-[#022279]" size={16} />
-                <span>Start Date</span>
-                <DatePicker
-                  aria-label="Task start date"
-                  className="ml-auto max-w-[160px]"
-                  size="sm"
-                  value={toCalendarDate(selectedTask.startDate)}
-                />
-              </div>
               <div className="flex items-center gap-2 text-[#6B7280]">
                 <Calendar className="text-[#022279]" size={16} />
                 <span>Due Date</span>

@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
+  GripVertical,
   Pencil,
   Plus,
   Trash2,
@@ -50,6 +51,7 @@ import {
   type AddProjectTemplateTaskFormValues,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const createProjectTemplateSchema = yup.object({
@@ -123,12 +125,12 @@ const getVisibleTaskRows = (rows: ProjectTemplateTaskRow[]) => {
   return rows.filter((row) => {
     if (row.level === 0) {
       expansionByLevel.clear();
-      expansionByLevel.set(0, true);
+      expansionByLevel.set(0, Boolean(row.isExpanded));
 
       return true;
     }
 
-    for (let level = 1; level <= row.level - 1; level += 1) {
+    for (let level = 0; level <= row.level - 1; level += 1) {
       if (!expansionByLevel.get(level)) {
         return false;
       }
@@ -178,10 +180,7 @@ const getTaskSubtreeEndIndex = (
 
   let endIndex = startIndex + 1;
 
-  while (
-    endIndex < rows.length &&
-    rows[endIndex].level > sourceRow.level
-  ) {
+  while (endIndex < rows.length && rows[endIndex].level > sourceRow.level) {
     endIndex += 1;
   }
 
@@ -200,15 +199,89 @@ const getDescendantTaskIds = (
 
   const endIndex = getTaskSubtreeEndIndex(rows, sourceIndex);
 
-  return new Set(
-    rows.slice(sourceIndex + 1, endIndex).map((row) => row.id),
-  );
+  return new Set(rows.slice(sourceIndex + 1, endIndex).map((row) => row.id));
 };
 
 const parseDueDateTriggerDays = (value?: string) => {
   const match = value?.match(/^(\d+)/);
 
   return match?.[1] ?? "0";
+};
+
+const moveTaskRows = ({
+  nextParentTaskId,
+  rows,
+  taskId,
+}: {
+  nextParentTaskId?: string;
+  rows: ProjectTemplateTaskRow[];
+  taskId: string;
+}) => {
+  const sourceIndex = rows.findIndex((row) => row.id === taskId);
+
+  if (sourceIndex < 0) {
+    return rows;
+  }
+
+  const sourceRow = rows[sourceIndex];
+  const endIndex = getTaskSubtreeEndIndex(rows, sourceIndex);
+  const subtree = rows.slice(sourceIndex, endIndex);
+  const subtreeIds = new Set(subtree.map((row) => row.id));
+  const normalizedParentTaskId =
+    nextParentTaskId && !subtreeIds.has(nextParentTaskId)
+      ? nextParentTaskId
+      : undefined;
+  const rowsWithoutSubtree = [
+    ...rows.slice(0, sourceIndex),
+    ...rows.slice(endIndex),
+  ];
+  const parentRow = normalizedParentTaskId
+    ? rowsWithoutSubtree.find((row) => row.id === normalizedParentTaskId)
+    : null;
+  const nextLevel = parentRow ? Math.min(parentRow.level + 1, 2) : 0;
+  const maxRelativeDepth = subtree.reduce(
+    (maxDepth, row) => Math.max(maxDepth, row.level - sourceRow.level),
+    0,
+  );
+
+  if (nextLevel + maxRelativeDepth > 2) {
+    return rows;
+  }
+
+  const levelDelta = nextLevel - sourceRow.level;
+  const updatedSubtree = subtree.map((row, index) => ({
+    ...row,
+    level: Math.min(Math.max(row.level + levelDelta, 0), 2),
+    parentTaskId: index === 0 ? normalizedParentTaskId : row.parentTaskId,
+  }));
+  const normalizedRows = rowsWithoutSubtree.map((row) =>
+    row.id === normalizedParentTaskId ? { ...row, isExpanded: true } : row,
+  );
+
+  if (!parentRow) {
+    return [...normalizedRows, ...updatedSubtree];
+  }
+
+  let insertIndex = normalizedRows.findIndex((row) => row.id === parentRow.id);
+
+  if (insertIndex < 0) {
+    return [...normalizedRows, ...updatedSubtree];
+  }
+
+  insertIndex += 1;
+
+  while (
+    insertIndex < normalizedRows.length &&
+    normalizedRows[insertIndex].level > parentRow.level
+  ) {
+    insertIndex += 1;
+  }
+
+  return [
+    ...normalizedRows.slice(0, insertIndex),
+    ...updatedSubtree,
+    ...normalizedRows.slice(insertIndex),
+  ];
 };
 
 const buildTaskRowName = (
@@ -218,11 +291,24 @@ const buildTaskRowName = (
 ) => {
   if (task.level === 0) {
     return (
-      <div className="flex items-center gap-2">
+      <button
+        className="flex items-center gap-2 text-left"
+        type="button"
+        onClick={() => (hasChildren ? onToggleExpand(task.id) : undefined)}
+      >
+        {hasChildren ? (
+          task.isExpanded ? (
+            <ChevronDown className="flex-none" size={14} />
+          ) : (
+            <ChevronRight className="flex-none" size={14} />
+          )
+        ) : (
+          <span className="inline-block w-[14px]" />
+        )}
         <span className="text-sm font-medium text-[#1F2937]">
           {task.taskName}
         </span>
-      </div>
+      </button>
     );
   }
 
@@ -235,9 +321,9 @@ const buildTaskRowName = (
       >
         {hasChildren ? (
           task.isExpanded ? (
-            <ChevronDown size={14} />
+            <ChevronDown className="flex-none" size={14} />
           ) : (
-            <ChevronRight size={14} />
+            <ChevronRight className="flex-none" size={14} />
           )
         ) : (
           <span className="inline-block w-[14px]" />
@@ -292,6 +378,8 @@ export const NewProjectTemplateModal = ({
 }: NewProjectTemplateModalProps) => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
@@ -454,6 +542,8 @@ export const NewProjectTemplateModal = ({
 
   const resetModal = () => {
     setCurrentStep(1);
+    setDragOverTaskId(null);
+    setDraggingTaskId(null);
     setEditingTaskId(null);
     setIsAddTaskModalOpen(false);
     setTaskRows(initialTaskRows);
@@ -639,57 +729,67 @@ export const NewProjectTemplateModal = ({
       };
 
       if ((payload.parentTaskId ?? "") === (sourceRow.parentTaskId ?? "")) {
-        return current.map((row) =>
-          row.id === taskId ? updatedTaskRow : row,
-        );
+        return current.map((row) => (row.id === taskId ? updatedTaskRow : row));
       }
 
-      const endIndex = getTaskSubtreeEndIndex(current, sourceIndex);
-      const subtree = current.slice(sourceIndex, endIndex);
-      const levelDelta = nextLevel - sourceRow.level;
-      const updatedSubtree = subtree.map((row, index) => {
-        const nextRow = index === 0 ? updatedTaskRow : row;
-
-        return {
-          ...nextRow,
-          level: Math.min(Math.max(nextRow.level + levelDelta, 0), 2),
-        };
+      const movedRows = moveTaskRows({
+        nextParentTaskId: payload.parentTaskId || undefined,
+        rows: current,
+        taskId,
       });
-      const rowsWithoutSubtree = [
-        ...current.slice(0, sourceIndex),
-        ...current.slice(endIndex),
-      ];
-      const normalizedRows = rowsWithoutSubtree.map((row) =>
-        row.id === parentRow?.id ? { ...row, isExpanded: true } : row,
+
+      return movedRows.map((row) =>
+        row.id === taskId
+          ? {
+              ...updatedTaskRow,
+              level: row.level,
+              parentTaskId: row.parentTaskId,
+            }
+          : row,
       );
-
-      if (!parentRow) {
-        return [...normalizedRows, ...updatedSubtree];
-      }
-
-      let insertIndex = normalizedRows.findIndex(
-        (row) => row.id === parentRow.id,
-      );
-
-      if (insertIndex < 0) {
-        return [...normalizedRows, ...updatedSubtree];
-      }
-
-      insertIndex += 1;
-
-      while (
-        insertIndex < normalizedRows.length &&
-        normalizedRows[insertIndex].level > parentRow.level
-      ) {
-        insertIndex += 1;
-      }
-
-      return [
-        ...normalizedRows.slice(0, insertIndex),
-        ...updatedSubtree,
-        ...normalizedRows.slice(insertIndex),
-      ];
     });
+  };
+
+  const moveTask = (taskId: string, nextParentTaskId?: string) => {
+    setTaskRows((current) =>
+      moveTaskRows({
+        nextParentTaskId,
+        rows: current,
+        taskId,
+      }),
+    );
+  };
+
+  const handleMakeTaskTopLevel = (draggedId?: string) => {
+    const taskId = draggedId || draggingTaskId;
+
+    if (!taskId) {
+      return;
+    }
+
+    moveTask(taskId);
+  };
+
+  const handleDropOnTask = (
+    targetRow: ProjectTemplateTaskRow,
+    draggedId?: string,
+  ) => {
+    const taskId = draggedId || draggingTaskId;
+
+    if (!taskId || taskId === targetRow.id) {
+      return;
+    }
+
+    const descendants = getDescendantTaskIds(taskRows, taskId);
+
+    if (descendants.has(targetRow.id)) {
+      return;
+    }
+
+    const parentTaskId =
+      targetRow.level >= 2 ? targetRow.parentTaskId : targetRow.id;
+
+    moveTask(taskId, parentTaskId);
   };
 
   const toggleTaskSelection = (taskId: string, isSelected: boolean) => {
@@ -762,33 +862,35 @@ export const NewProjectTemplateModal = ({
 
     return blockedTaskOptions.filter((option) => !excludedIds.has(option.id));
   }, [blockedTaskOptions, editingTaskId, taskRows]);
-  const editingTaskInitialValues = useMemo<
-    Partial<AddProjectTemplateTaskFormValues> | null
-  >(() => {
-    if (!editingTask) {
-      return null;
-    }
+  const editingTaskInitialValues =
+    useMemo<Partial<AddProjectTemplateTaskFormValues> | null>(() => {
+      if (!editingTask) {
+        return null;
+      }
 
-    const taskStatus = TASK_STATUS_OPTIONS.includes(
-      editingTask.status as AddProjectTemplateTaskFormValues["status"],
-    )
-      ? (editingTask.status as AddProjectTemplateTaskFormValues["status"])
-      : TASK_STATUS_OPTIONS[0];
+      const taskStatus = TASK_STATUS_OPTIONS.includes(
+        editingTask.status as AddProjectTemplateTaskFormValues["status"],
+      )
+        ? (editingTask.status as AddProjectTemplateTaskFormValues["status"])
+        : TASK_STATUS_OPTIONS[0];
 
-    return {
-      assigneeId: editingTask.assigneeId ?? "",
-      blockedTaskId: editingTask.blockedTaskId ?? "",
-      dependencyType: editingTask.dependencyType ?? "",
-      description:
-        editingTask.taskDescription === "-" ? "" : editingTask.taskDescription,
-      enableDependency: Boolean(editingTask.enableDependency),
-      labels: editingTask.labels,
-      parentTaskId: editingTask.parentTaskId ?? "",
-      remapDays: parseDueDateTriggerDays(editingTask.dueDateTrigger),
-      status: taskStatus,
-      taskTitle: editingTask.taskName,
-    };
-  }, [editingTask]);
+      return {
+        assigneeId: editingTask.assigneeId ?? "",
+        blockedTaskId: editingTask.blockedTaskId ?? "",
+        dependencyType: editingTask.dependencyType ?? "",
+        description:
+          editingTask.taskDescription === "-"
+            ? ""
+            : editingTask.taskDescription,
+        enableDependency: Boolean(editingTask.enableDependency),
+        labels: editingTask.labels,
+        parentTaskId: editingTask.parentTaskId ?? "",
+        remapDays: parseDueDateTriggerDays(editingTask.dueDateTrigger),
+        status: taskStatus,
+        taskTitle: editingTask.taskName,
+      };
+    }, [editingTask]);
+
   const renderTaskTable = ({ isFullHeight = false } = {}) => (
     <div
       className={
@@ -821,6 +923,24 @@ export const NewProjectTemplateModal = ({
             New Task
           </Button>
         </div>
+      </div>
+      <div
+        className="border-b border-default-200 bg-[#F8FAFC] px-4 py-3 text-sm text-[#6B7280]"
+        onDragOver={(event) => {
+          event.preventDefault();
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const draggedId =
+            event.dataTransfer?.getData("text/plain") ||
+            event.dataTransfer?.getData("application/project-template-task");
+
+          handleMakeTaskTopLevel(draggedId || undefined);
+          setDraggingTaskId(null);
+          setDragOverTaskId(null);
+        }}
+      >
+        Drag a task here to make it a parent task
       </div>
       <div
         className={
@@ -889,7 +1009,51 @@ export const NewProjectTemplateModal = ({
                   : false;
 
               return (
-                <TableRow key={item.id}>
+                <TableRow
+                  key={item.id}
+                  draggable
+                  className={dragOverTaskId === item.id ? "bg-[#EEF2FF]" : ""}
+                  onDragEnd={() => {
+                    setDraggingTaskId(null);
+                    setDragOverTaskId(null);
+                  }}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    if (draggingTaskId && draggingTaskId !== item.id) {
+                      setDragOverTaskId(item.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverTaskId === item.id) {
+                      setDragOverTaskId(null);
+                    }
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDragStart={(event) => {
+                    event.dataTransfer?.setData("text/plain", item.id);
+                    event.dataTransfer?.setData(
+                      "application/project-template-task",
+                      item.id,
+                    );
+                    event.dataTransfer!.effectAllowed = "move";
+                    setDraggingTaskId(item.id);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const draggedId =
+                      event.dataTransfer?.getData("text/plain") ||
+                      draggingTaskId;
+
+                    if (draggedId) {
+                      handleDropOnTask(item, draggedId);
+                    }
+
+                    setDraggingTaskId(null);
+                    setDragOverTaskId(null);
+                  }}
+                >
                   {[
                     <TableCell key="select">
                       <Checkbox
@@ -900,7 +1064,17 @@ export const NewProjectTemplateModal = ({
                       />
                     </TableCell>,
                     <TableCell key="task-name">
-                      {buildTaskRowName(item, hasChildren, toggleTaskExpansion)}
+                      <div className="flex items-center gap-2">
+                        <GripVertical
+                          className="shrink-0 cursor-grab text-default-400"
+                          size={16}
+                        />
+                        {buildTaskRowName(
+                          item,
+                          hasChildren,
+                          toggleTaskExpansion,
+                        )}
+                      </div>
                     </TableCell>,
                     <TableCell
                       key="task-description"

@@ -35,7 +35,16 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const AUTH_STORAGE_KEY = "ahm-auth-session";
+const AUTH_REFRESH_LOCK_STORAGE_KEY = "ahm-auth-refresh-lock";
 const ACCESS_TOKEN_REFRESH_BUFFER_MS = 60_000;
+const REFRESH_LOCK_POLL_MS = 100;
+const REFRESH_LOCK_TTL_MS = 10_000;
+const REFRESH_LOCK_WAIT_TIMEOUT_MS = 12_000;
+
+interface AuthRefreshLock {
+  expiresAt: number;
+  ownerId: string;
+}
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
@@ -73,6 +82,19 @@ const resolveExpiryAt = (value: {
   value.accessTokenExpiresAt
     ? value.accessTokenExpiresAt * 1000
     : Date.now() + value.accessTokenExpiresIn * 1000;
+
+const createTabId = () => {
+  if (typeof window !== "undefined" && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
+const sleep = (durationMs: number) =>
+  new Promise((resolve) => {
+    window.setTimeout(resolve, durationMs);
+  });
 
 const saveSession = (session: AuthSession | null) => {
   if (typeof window === "undefined") {
@@ -112,10 +134,113 @@ const readSession = (): AuthSession | null => {
   }
 };
 
+const readRefreshLock = (): AuthRefreshLock | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const rawValue = window.localStorage.getItem(AUTH_REFRESH_LOCK_STORAGE_KEY);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<AuthRefreshLock>;
+
+    if (
+      !isNonEmptyString(parsed.ownerId) ||
+      typeof parsed.expiresAt !== "number"
+    ) {
+      return null;
+    }
+
+    return {
+      expiresAt: parsed.expiresAt,
+      ownerId: parsed.ownerId,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const acquireRefreshLock = (ownerId: string) => {
+  if (typeof window === "undefined") {
+    return true;
+  }
+
+  const currentLock = readRefreshLock();
+
+  if (
+    currentLock &&
+    currentLock.ownerId !== ownerId &&
+    currentLock.expiresAt > Date.now()
+  ) {
+    return false;
+  }
+
+  const nextLock: AuthRefreshLock = {
+    expiresAt: Date.now() + REFRESH_LOCK_TTL_MS,
+    ownerId,
+  };
+
+  window.localStorage.setItem(
+    AUTH_REFRESH_LOCK_STORAGE_KEY,
+    JSON.stringify(nextLock),
+  );
+
+  return readRefreshLock()?.ownerId === ownerId;
+};
+
+const releaseRefreshLock = (ownerId: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (readRefreshLock()?.ownerId === ownerId) {
+    window.localStorage.removeItem(AUTH_REFRESH_LOCK_STORAGE_KEY);
+  }
+};
+
+const isNewerUsableSession = (
+  candidate: AuthSession | null,
+  currentSession: AuthSession,
+): candidate is AuthSession =>
+  !!candidate &&
+  candidate.refreshToken !== currentSession.refreshToken &&
+  !isSessionExpired(candidate);
+
+const waitForCrossTabRefresh = async (currentSession: AuthSession) => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < REFRESH_LOCK_WAIT_TIMEOUT_MS) {
+    const storedSession = readSession();
+
+    if (isNewerUsableSession(storedSession, currentSession)) {
+      return storedSession;
+    }
+
+    const currentLock = readRefreshLock();
+
+    if (!currentLock || currentLock.expiresAt <= Date.now()) {
+      return null;
+    }
+
+    await sleep(REFRESH_LOCK_POLL_MS);
+  }
+
+  return null;
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const tabIdRef = useRef(createTabId());
   const refreshSessionPromiseRef = useRef<Promise<AuthSession> | null>(null);
 
   const clearSession = useCallback(() => {
@@ -129,33 +254,64 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     refreshSessionPromiseRef.current = (async () => {
+      const storedSession = readSession();
+
+      if (isNewerUsableSession(storedSession, currentSession)) {
+        setSession(storedSession);
+
+        return storedSession;
+      }
+
       if (!currentSession.refreshToken) {
         throw new Error("Missing refresh token.");
       }
 
-      const refreshed = await authApi.refresh({
-        refreshToken: currentSession.refreshToken,
-      });
+      const ownerId = tabIdRef.current;
+      let hasRefreshLock = acquireRefreshLock(ownerId);
 
-      if (
-        !isNonEmptyString(refreshed.accessToken) ||
-        typeof refreshed.accessTokenExpiresIn !== "number"
-      ) {
-        throw new Error("Invalid refresh response.");
+      if (!hasRefreshLock) {
+        const refreshedSession = await waitForCrossTabRefresh(currentSession);
+
+        if (refreshedSession) {
+          setSession(refreshedSession);
+
+          return refreshedSession;
+        }
+
+        hasRefreshLock = acquireRefreshLock(ownerId);
       }
 
-      const user = await authApi.me(refreshed.accessToken);
-      const nextSession: AuthSession = {
-        accessToken: refreshed.accessToken,
-        accessTokenExpiresAt: resolveExpiryAt(refreshed),
-        refreshToken: refreshed.refreshToken ?? currentSession.refreshToken,
-        user,
-      };
+      if (!hasRefreshLock) {
+        throw new Error("Could not acquire refresh lock.");
+      }
 
-      setSession(nextSession);
-      saveSession(nextSession);
+      try {
+        const refreshed = await authApi.refresh({
+          refreshToken: currentSession.refreshToken,
+        });
 
-      return nextSession;
+        if (
+          !isNonEmptyString(refreshed.accessToken) ||
+          typeof refreshed.accessTokenExpiresIn !== "number"
+        ) {
+          throw new Error("Invalid refresh response.");
+        }
+
+        const user = await authApi.me(refreshed.accessToken);
+        const nextSession: AuthSession = {
+          accessToken: refreshed.accessToken,
+          accessTokenExpiresAt: resolveExpiryAt(refreshed),
+          refreshToken: refreshed.refreshToken ?? currentSession.refreshToken,
+          user,
+        };
+
+        setSession(nextSession);
+        saveSession(nextSession);
+
+        return nextSession;
+      } finally {
+        releaseRefreshLock(ownerId);
+      }
     })();
 
     try {
@@ -224,6 +380,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     void bootstrapSession();
   }, [bootstrapSession]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_STORAGE_KEY) {
+        return;
+      }
+
+      const storedSession = readSession();
+
+      setSession(storedSession);
+    };
+
+    window.addEventListener("storage", handleStorage);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
 
   const login = useCallback(async (payload: LoginRequest) => {
     setError(null);

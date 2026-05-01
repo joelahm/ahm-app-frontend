@@ -15,6 +15,8 @@ import {
 import { Input } from "@heroui/input";
 import {
   Columns3,
+  ChevronDown,
+  ChevronRight,
   EllipsisVertical,
   List,
   ListChecks,
@@ -28,9 +30,9 @@ import { clientsApi, ProjectTask } from "@/apis/clients";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import {
-  AddTaskFormValues,
-  AddTaskModal,
-} from "@/components/dashboard/client-details/add-task-modal";
+  AddProjectTemplateTaskModal,
+  type AddProjectTemplateTaskFormValues,
+} from "@/components/dashboard/settings/add-project-template-task-modal";
 import { ViewTaskModal } from "@/components/dashboard/client-details/view-task-modal";
 import {
   DashboardDataTable,
@@ -52,9 +54,13 @@ type TaskListRow = {
   parentTaskId?: string;
   projectId?: string;
   projectType: string;
-  startDate: string;
   status: string;
   taskName: string;
+};
+
+type VisibleTaskListRow = TaskListRow & {
+  depth: number;
+  hasChildren: boolean;
 };
 
 type TaskListGroup = {
@@ -92,18 +98,44 @@ const getStatusChipClassName = (status: string) => {
 };
 
 const buildColumns = ({
+  expandedTaskIds,
   onDeleteTask,
+  onToggleTaskExpanded,
   onViewTask,
 }: {
+  expandedTaskIds: Set<string>;
   onDeleteTask: (taskId: string) => void;
+  onToggleTaskExpanded: (taskId: string) => void;
   onViewTask: (taskId: string) => void;
-}): DashboardDataTableColumn<TaskListRow>[] => [
+}): DashboardDataTableColumn<VisibleTaskListRow>[] => [
   {
     key: "taskName",
     label: "Task Name",
     className: thClassName,
     renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.taskName}</span>
+      <div
+        className="flex items-center gap-2"
+        style={{ paddingLeft: `${Math.min(item.depth, 2) * 20}px` }}
+      >
+        {item.hasChildren ? (
+          <button
+            className="flex flex-none items-center text-[#6B7280]"
+            type="button"
+            onClick={() => onToggleTaskExpanded(item.id)}
+          >
+            {expandedTaskIds.has(item.id) ? (
+              <ChevronDown className="flex-none" size={14} />
+            ) : (
+              <ChevronRight className="flex-none" size={14} />
+            )}
+          </button>
+        ) : (
+          <span className="inline-block w-[14px] flex-none" />
+        )}
+        <span className="line-clamp-2 text-sm text-[#111827]">
+          {item.taskName}
+        </span>
+      </div>
     ),
   },
   {
@@ -143,16 +175,6 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <span className="text-sm text-[#111827]">{item.comment}</span>
-    ),
-  },
-  {
-    key: "startDate",
-    label: "Start date",
-    className: thClassName,
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">
-        {formatDateForDisplay(item.startDate)}
-      </span>
     ),
   },
   {
@@ -281,7 +303,6 @@ const toTaskListRow = (task: ProjectTask): TaskListRow => {
         ? String(task.projectId)
         : undefined,
     projectType: task.projectType ?? "-",
-    startDate: task.startDate ?? "",
     status: normalizeTaskStatus(task.status),
     taskName: task.taskName ?? task.task ?? "-",
   };
@@ -305,6 +326,54 @@ const groupRowsByProjectType = (rows: TaskListRow[]): TaskListGroup[] => {
     label: groupedRows[0]?.projectType ?? key,
     rows: groupedRows,
   }));
+};
+
+const flattenTaskRowsByHierarchy = (
+  rows: TaskListRow[],
+  expandedTaskIds: Set<string>,
+): VisibleTaskListRow[] => {
+  const taskById = new Map(rows.map((row) => [row.id, row]));
+  const childrenByParentId = new Map<string, TaskListRow[]>();
+
+  rows.forEach((row) => {
+    if (!row.parentTaskId || !taskById.has(row.parentTaskId)) {
+      return;
+    }
+
+    const current = childrenByParentId.get(row.parentTaskId) ?? [];
+
+    current.push(row);
+    childrenByParentId.set(row.parentTaskId, current);
+  });
+
+  const visibleRows: VisibleTaskListRow[] = [];
+  const appendRow = (row: TaskListRow, depth: number, visited: Set<string>) => {
+    if (visited.has(row.id)) {
+      return;
+    }
+
+    const nextVisited = new Set(visited);
+    const children = childrenByParentId.get(row.id) ?? [];
+
+    nextVisited.add(row.id);
+    visibleRows.push({
+      ...row,
+      depth,
+      hasChildren: children.length > 0,
+    });
+
+    if (!children.length || !expandedTaskIds.has(row.id)) {
+      return;
+    }
+
+    children.forEach((child) => appendRow(child, depth + 1, nextVisited));
+  };
+
+  rows
+    .filter((row) => !row.parentTaskId || !taskById.has(row.parentTaskId))
+    .forEach((row) => appendRow(row, 0, new Set<string>()));
+
+  return visibleRows;
 };
 
 const getGroupKeyForRow = (row: TaskListRow) =>
@@ -332,6 +401,9 @@ export const ClientTaskListsTable = ({
   const [rows, setRows] = useState<TaskListRow[]>([]);
   const [selectedTask, setSelectedTask] = useState<TaskListRow | null>(null);
   const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [users, setUsers] = useState<
     Array<{ avatar?: string | null; id: string; name: string }>
   >([]);
@@ -340,6 +412,18 @@ export const ClientTaskListsTable = ({
   const [statusOptions] = useState<string[]>([...TASK_STATUS_OPTIONS]);
   const [hasProcessedInitialTask, setHasProcessedInitialTask] = useState(false);
   const groups = useMemo(() => groupRowsByProjectType(rows), [rows]);
+  const parentTaskIds = useMemo(() => {
+    const taskIds = new Set(rows.map((row) => row.id));
+    const nextParentTaskIds = new Set<string>();
+
+    rows.forEach((row) => {
+      if (row.parentTaskId && taskIds.has(row.parentTaskId)) {
+        nextParentTaskIds.add(row.parentTaskId);
+      }
+    });
+
+    return nextParentTaskIds;
+  }, [rows]);
   const selectedTaskSubtasks = useMemo(() => {
     if (!selectedTask) {
       return [];
@@ -347,6 +431,36 @@ export const ClientTaskListsTable = ({
 
     return rows.filter((row) => row.parentTaskId === selectedTask.id);
   }, [rows, selectedTask]);
+  const currentProjectTaskOptions = useMemo(
+    () =>
+      rows
+        .filter(
+          (row) => !resolvedProjectId || row.projectId === resolvedProjectId,
+        )
+        .map((row) => ({
+          id: row.id,
+          label: row.taskName,
+        })),
+    [resolvedProjectId, rows],
+  );
+  const currentProjectParentTaskOptions = useMemo(
+    () =>
+      rows
+        .filter(
+          (row) =>
+            (!resolvedProjectId || row.projectId === resolvedProjectId) &&
+            !row.parentTaskId,
+        )
+        .map((row) => ({
+          id: row.id,
+          label: row.taskName,
+        })),
+    [resolvedProjectId, rows],
+  );
+
+  useEffect(() => {
+    setExpandedTaskIds(new Set(parentTaskIds));
+  }, [parentTaskIds]);
 
   useEffect(() => {
     if (!groups.length) {
@@ -636,7 +750,7 @@ export const ClientTaskListsTable = ({
     };
   }, [clientId, getValidAccessToken, session?.accessToken]);
 
-  const handleAddTask = async (payload: AddTaskFormValues) => {
+  const handleAddTask = async (payload: AddProjectTemplateTaskFormValues) => {
     if (!session?.accessToken) {
       throw new Error("Your session has expired. Please login again.");
     }
@@ -646,20 +760,23 @@ export const ClientTaskListsTable = ({
     }
 
     const todayIso = new Date().toISOString().slice(0, 10);
-    const defaultAssigneeId = users[0]?.id ?? "";
-    const defaultStatus = statusOptions[0] ?? TASK_STATUS_OPTIONS[0];
+    const assigneeId = payload.assigneeId || users[0]?.id || "";
+    const taskStatus =
+      normalizeTaskStatus(payload.status) ||
+      statusOptions[0] ||
+      TASK_STATUS_OPTIONS[0];
     const accessToken = await getValidAccessToken();
 
     await clientsApi.createProjectTask(accessToken, resolvedProjectId, {
-      assigneeId: defaultAssigneeId,
+      assigneeId,
       description: payload.description,
       dueDate: todayIso,
+      parentTaskId: payload.parentTaskId || undefined,
       projectId:
         projectOptions.find((project) => project.id === resolvedProjectId)
           ?.id ?? resolvedProjectId,
-      startDate: todayIso,
-      status: defaultStatus,
-      taskName: payload.taskName,
+      status: taskStatus,
+      taskName: payload.taskTitle,
     });
 
     await loadTasks();
@@ -683,8 +800,22 @@ export const ClientTaskListsTable = ({
   };
 
   const columns = buildColumns({
+    expandedTaskIds,
     onDeleteTask: (taskId) => {
       void handleDeleteTask(taskId);
+    },
+    onToggleTaskExpanded: (taskId) => {
+      setExpandedTaskIds((current) => {
+        const next = new Set(current);
+
+        if (next.has(taskId)) {
+          next.delete(taskId);
+        } else {
+          next.add(taskId);
+        }
+
+        return next;
+      });
     },
     onViewTask: (taskId) => {
       const task = rows.find((row) => row.id === taskId) ?? null;
@@ -752,28 +883,37 @@ export const ClientTaskListsTable = ({
               setOpenGroupKey(nextKey);
             }}
           >
-            {groups.map((group) => (
-              <AccordionItem
-                key={group.key}
-                aria-label={group.label}
-                title={group.label}
-              >
-                <DashboardDataTable
-                  ariaLabel={`${group.label} task list`}
-                  columns={columns}
-                  getRowKey={(item) => item.id}
-                  rows={group.rows}
-                  title=""
-                  withShell={false}
-                />
-              </AccordionItem>
-            ))}
+            {groups.map((group) => {
+              const visibleRows = flattenTaskRowsByHierarchy(
+                group.rows,
+                expandedTaskIds,
+              );
+
+              return (
+                <AccordionItem
+                  key={group.key}
+                  aria-label={group.label}
+                  title={group.label}
+                >
+                  <DashboardDataTable
+                    ariaLabel={`${group.label} task list`}
+                    columns={columns}
+                    getRowKey={(item) => item.id}
+                    rows={visibleRows}
+                    title=""
+                    withShell={false}
+                  />
+                </AccordionItem>
+              );
+            })}
           </Accordion>
         </CardBody>
       </Card>
 
-      <AddTaskModal
+      <AddProjectTemplateTaskModal
+        blockedTaskOptions={currentProjectTaskOptions}
         isOpen={isAddTaskOpen}
+        parentTaskOptions={currentProjectParentTaskOptions}
         users={users}
         onOpenChange={setIsAddTaskOpen}
         onSubmit={handleAddTask}
@@ -796,7 +936,6 @@ export const ClientTaskListsTable = ({
                 dueDate: selectedTask.dueDate,
                 id: selectedTask.id,
                 projectId: selectedTask.projectId ?? "",
-                startDate: selectedTask.startDate,
                 status: selectedTask.status,
                 taskName: selectedTask.taskName,
               }

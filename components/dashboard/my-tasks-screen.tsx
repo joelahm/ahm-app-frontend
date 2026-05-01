@@ -47,7 +47,6 @@ type TaskRow = {
   latestComment: string;
   parentTaskName?: string;
   projectType: string;
-  startDate: string;
   status: string;
   taskName: string;
 };
@@ -229,7 +228,6 @@ const getTaskRow = ({
       isOrphanChild: false,
       latestComment: formatCommentPreview(task.latestComment),
       projectType: task.projectType?.trim() || "Website",
-      startDate: formatDateForDisplay(task.startDate),
       status: normalizeStatus(task.status),
       taskName: task.taskName?.trim() || "Untitled task",
     };
@@ -273,7 +271,6 @@ const getTaskRow = ({
     latestComment: formatCommentPreview(task.latestComment),
     parentTaskName,
     projectType: task.projectType?.trim() || "Website",
-    startDate: formatDateForDisplay(task.startDate),
     status: normalizeStatus(task.status),
     taskName: task.taskName?.trim() || "Untitled task",
   };
@@ -670,14 +667,13 @@ export const MyTasksScreen = () => {
               <TableColumn>Client Name</TableColumn>
               <TableColumn>Project Type</TableColumn>
               <TableColumn>Latest comment</TableColumn>
-              <TableColumn>Start date</TableColumn>
               <TableColumn>Due Date</TableColumn>
               <TableColumn>Action</TableColumn>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={8}>
                     <div className="px-3 py-4 text-sm text-[#6B7280]">
                       Loading tasks...
                     </div>
@@ -788,7 +784,6 @@ export const MyTasksScreen = () => {
                       <TableCell className="max-w-[180px] truncate text-[#6B7280]">
                         {row.item.latestComment}
                       </TableCell>
-                      <TableCell>{row.item.startDate}</TableCell>
                       <TableCell>{row.item.dueDate}</TableCell>
                       <TableCell>
                         <Button

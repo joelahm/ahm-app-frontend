@@ -396,7 +396,7 @@ type ReportRun = LocalRankingKeyword & {
 };
 
 export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
-  const { getValidAccessToken, session } = useAuth();
+  const { getValidAccessToken, isLoading: isAuthLoading, session } = useAuth();
   const searchParams = useSearchParams();
   const numericScanId = useMemo(() => {
     const parsed = Number(scanId);
@@ -428,6 +428,10 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
   );
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
     if (!session?.accessToken || !numericScanId) {
       setIsLoading(false);
       setErrorMessage("Invalid scan ID or missing session.");
@@ -623,7 +627,7 @@ export const PrintScanReportScreen = ({ scanId }: { scanId: string }) => {
     return () => {
       isMounted = false;
     };
-  }, [getValidAccessToken, numericScanId, session?.accessToken]);
+  }, [getValidAccessToken, isAuthLoading, numericScanId, session?.accessToken]);
 
   const mapPanels = useMemo(() => {
     const runsById = new Map(

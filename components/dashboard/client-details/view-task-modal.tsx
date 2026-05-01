@@ -73,7 +73,6 @@ interface ViewTaskModalProps {
     dueDate: string;
     id: string;
     projectId: string;
-    startDate: string;
     status: string;
     taskName: string;
   } | null;
@@ -307,7 +306,6 @@ export const ViewTaskModal = ({
   const [localStatus, setLocalStatus] = useState("To Do");
   const [localAssigneeId, setLocalAssigneeId] = useState("");
   const todayDate = today(getLocalTimeZone());
-  const [localStartDate, setLocalStartDate] = useState(todayDate);
   const [localDueDate, setLocalDueDate] = useState(todayDate);
   const lastInitializedTaskKeyRef = useRef<string>("");
 
@@ -321,7 +319,6 @@ export const ViewTaskModal = ({
     const taskSnapshotKey = [
       task.id,
       task.assigneeId ?? "",
-      task.startDate ?? "",
       task.dueDate ?? "",
       task.status ?? "",
     ].join("|");
@@ -332,26 +329,17 @@ export const ViewTaskModal = ({
 
     lastInitializedTaskKeyRef.current = taskSnapshotKey;
 
-    const nextStartDate = toCalendarDate(task.startDate) ?? todayDate;
-    const nextDueDate = toCalendarDate(task.dueDate) ?? nextStartDate;
+    const nextDueDate = toCalendarDate(task.dueDate) ?? todayDate;
 
     setCommentInput("");
     setLocalStatus(normalizeTaskStatus(task.status));
     setLocalAssigneeId(task.assigneeId || "");
-    setLocalStartDate(nextStartDate);
     setLocalDueDate(nextDueDate);
     if (commentEditorRef.current) {
       commentEditorRef.current.innerHTML = "";
     }
     setPendingAttachments([]);
-  }, [
-    isOpen,
-    task?.id,
-    task?.assigneeId,
-    task?.dueDate,
-    task?.startDate,
-    task?.status,
-  ]);
+  }, [isOpen, task?.id, task?.assigneeId, task?.dueDate, task?.status]);
 
   useEffect(() => {
     if (!isOpen || !task?.id || !session?.accessToken) {
@@ -779,7 +767,6 @@ export const ViewTaskModal = ({
       await clientsApi.updateProjectTask(accessToken, task.id, {
         assigneeId: localAssigneeId || undefined,
         dueDate: String(localDueDate),
-        startDate: String(localStartDate),
         status: localStatus,
       });
 
@@ -953,29 +940,6 @@ export const ViewTaskModal = ({
                 </Select>
               </div>
               <div className="flex items-center gap-2 text-[#6B7280]">
-                <Calendar className="text-[#022279]" size={16} />
-                <span>Start Date</span>
-                <DatePicker
-                  aria-label="Select start date"
-                  className="ml-auto max-w-[160px]"
-                  minValue={todayDate}
-                  size="sm"
-                  value={localStartDate}
-                  onChange={(value) => {
-                    if (!value) {
-                      return;
-                    }
-
-                    setLocalStartDate(value);
-
-                    if (localDueDate.compare(value) < 0) {
-                      setLocalDueDate(value);
-                    }
-                  }}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 text-[#6B7280]">
                 <CircleUserRound className="text-[#022279]" size={16} />
                 <span>Status</span>
                 <Select
@@ -1000,7 +964,7 @@ export const ViewTaskModal = ({
                 <DatePicker
                   aria-label="Select due date"
                   className="ml-auto max-w-[160px]"
-                  minValue={localStartDate}
+                  minValue={todayDate}
                   size="sm"
                   value={localDueDate}
                   onChange={(value) => {
