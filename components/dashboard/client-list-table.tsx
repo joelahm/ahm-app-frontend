@@ -5,6 +5,7 @@ import type { ClientDiscordStatus } from "@/apis/clients";
 import { useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
+import { Checkbox } from "@heroui/checkbox";
 import { Chip } from "@heroui/chip";
 import {
   Dropdown,
@@ -12,6 +13,7 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Input } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -28,6 +30,7 @@ import {
   Eye,
   List,
   Plus,
+  Search,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
@@ -89,6 +92,7 @@ const defaultHeaderActions: DashboardTableAction[] = [
 ];
 
 const defaultRows: ClientRecord[] = [];
+const pageSizeOptions = [5, 10, 15, 20, 25, 50];
 
 const formatDiscordMessageDate = (value?: string | null) => {
   if (!value) {
@@ -123,6 +127,20 @@ export const ClientListTable = ({
     id: string;
     name: string;
   } | null>(null);
+  const [discordFilter, setDiscordFilter] = useState("all");
+  const [managerFilter, setManagerFilter] = useState("all");
+  const [nicheFilter, setNicheFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(10);
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const resetFilters = () => {
+    setDiscordFilter("all");
+    setManagerFilter("all");
+    setNicheFilter("all");
+    setProjectFilter("all");
+    setStatusFilter("all");
+  };
 
   const defaultColumns = useMemo<DashboardDataTableColumn<ClientRecord>[]>(
     () => [
@@ -363,6 +381,292 @@ export const ClientListTable = ({
     ],
     [onRemove, onSetStatus],
   );
+  const baseColumns = columns ?? defaultColumns;
+  const toggleableColumns = useMemo(
+    () => baseColumns.filter((column) => column.key !== "action"),
+    [baseColumns],
+  );
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(toggleableColumns.map((column) => column.key)),
+  );
+  const addClientAction = useMemo(
+    () => headerActions.find((action) => action.key === "add-client"),
+    [headerActions],
+  );
+  const managerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .map((row) => row.manager.trim())
+            .filter((value) => value && value !== "-"),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [rows],
+  );
+  const nicheOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          rows
+            .map((row) => row.niche.trim())
+            .filter((value) => value && value !== "-"),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [rows],
+  );
+  const visibleColumns = useMemo(
+    () =>
+      baseColumns.filter(
+        (column) =>
+          column.key === "action" || visibleColumnKeys.has(column.key),
+      ),
+    [baseColumns, visibleColumnKeys],
+  );
+  const filteredRows = useMemo(() => {
+    const normalizedSearch = searchValue.trim().toLowerCase();
+
+    return rows.filter((row) => {
+      const normalizedStatus = row.status.trim().toLowerCase();
+      const normalizedDiscordStatus = row.discordStatus?.status ?? "unknown";
+
+      if (statusFilter !== "all" && normalizedStatus !== statusFilter) {
+        return false;
+      }
+
+      if (managerFilter !== "all" && row.manager !== managerFilter) {
+        return false;
+      }
+
+      if (nicheFilter !== "all" && row.niche !== nicheFilter) {
+        return false;
+      }
+
+      if (projectFilter === "has-projects" && row.projects.length === 0) {
+        return false;
+      }
+
+      if (projectFilter === "no-projects" && row.projects.length > 0) {
+        return false;
+      }
+
+      if (
+        discordFilter !== "all" &&
+        normalizedDiscordStatus !== discordFilter
+      ) {
+        return false;
+      }
+
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return [
+        row.clientName,
+        row.address,
+        row.niche,
+        row.manager,
+        row.status,
+        row.projects.join(" "),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    });
+  }, [
+    discordFilter,
+    managerFilter,
+    nicheFilter,
+    projectFilter,
+    rows,
+    searchValue,
+    statusFilter,
+  ]);
+  const headerRight = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Dropdown>
+        <DropdownTrigger>
+          <Button
+            startContent={<SlidersHorizontal size={14} />}
+            variant="bordered"
+          >
+            Filter
+          </Button>
+        </DropdownTrigger>
+        <DropdownMenu
+          aria-label="Client filters"
+          className="min-w-64"
+          closeOnSelect={false}
+        >
+          <DropdownItem key="status-filter" textValue="Status filter">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#4B5563]">Status</p>
+              <select
+                className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </DropdownItem>
+          <DropdownItem key="manager-filter" textValue="Manager filter">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#4B5563]">
+                Client Success Manager
+              </p>
+              <select
+                className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                value={managerFilter}
+                onChange={(event) => setManagerFilter(event.target.value)}
+              >
+                <option value="all">All managers</option>
+                {managerOptions.map((manager) => (
+                  <option key={manager} value={manager}>
+                    {manager}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </DropdownItem>
+          <DropdownItem key="niche-filter" textValue="Niche filter">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#4B5563]">Niche</p>
+              <select
+                className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                value={nicheFilter}
+                onChange={(event) => setNicheFilter(event.target.value)}
+              >
+                <option value="all">All niches</option>
+                {nicheOptions.map((niche) => (
+                  <option key={niche} value={niche}>
+                    {niche}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </DropdownItem>
+          <DropdownItem key="discord-filter" textValue="Discord filter">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#4B5563]">Discord</p>
+              <select
+                className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                value={discordFilter}
+                onChange={(event) => setDiscordFilter(event.target.value)}
+              >
+                <option value="all">All Discord states</option>
+                <option value="ok">Connected</option>
+                <option value="not_configured">No channel</option>
+                <option value="invalid_channel">Invalid channel</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+          </DropdownItem>
+          <DropdownItem key="projects-filter" textValue="Projects filter">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-[#4B5563]">Projects</p>
+              <select
+                className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                value={projectFilter}
+                onChange={(event) => setProjectFilter(event.target.value)}
+              >
+                <option value="all">All clients</option>
+                <option value="has-projects">Has projects</option>
+                <option value="no-projects">No projects</option>
+              </select>
+            </div>
+          </DropdownItem>
+          <DropdownItem key="reset-filters" textValue="Reset filters">
+            <Button
+              fullWidth
+              radius="sm"
+              variant="bordered"
+              onPress={resetFilters}
+            >
+              Reset
+            </Button>
+          </DropdownItem>
+        </DropdownMenu>
+      </Dropdown>
+      <Dropdown>
+        <DropdownTrigger>
+          <Button startContent={<List size={14} />} variant="bordered">
+            Show {pageSize}
+          </Button>
+        </DropdownTrigger>
+        <DropdownMenu
+          aria-label="Rows per page"
+          selectedKeys={new Set([String(pageSize)])}
+          selectionMode="single"
+          onSelectionChange={(keys) => {
+            const selected = Array.from(keys as Set<string>)[0];
+
+            if (selected) {
+              setPageSize(Number(selected));
+            }
+          }}
+        >
+          {pageSizeOptions.map((option) => (
+            <DropdownItem key={String(option)}>{option}</DropdownItem>
+          ))}
+        </DropdownMenu>
+      </Dropdown>
+      <Dropdown closeOnSelect={false}>
+        <DropdownTrigger>
+          <Button startContent={<Columns3 size={14} />} variant="bordered">
+            Columns
+          </Button>
+        </DropdownTrigger>
+        <DropdownMenu aria-label="Visible client columns" closeOnSelect={false}>
+          {toggleableColumns.map((column) => (
+            <DropdownItem
+              key={column.key}
+              textValue={column.label}
+              onPress={() => {
+                setVisibleColumnKeys((current) => {
+                  const next = new Set(current);
+
+                  if (next.has(column.key)) {
+                    next.delete(column.key);
+                  } else {
+                    next.add(column.key);
+                  }
+
+                  return next;
+                });
+              }}
+            >
+              <Checkbox
+                className="pointer-events-none"
+                isSelected={visibleColumnKeys.has(column.key)}
+              >
+                {column.label}
+              </Checkbox>
+            </DropdownItem>
+          ))}
+        </DropdownMenu>
+      </Dropdown>
+      <Input
+        className="w-64"
+        placeholder="Search clients"
+        startContent={<Search className="text-default-400" size={16} />}
+        value={searchValue}
+        onValueChange={setSearchValue}
+      />
+      {addClientAction ? (
+        <Button
+          className="bg-[#022279] text-white"
+          startContent={addClientAction.startContent}
+          variant={addClientAction.variant ?? "solid"}
+          onPress={addClientAction.onPress}
+        >
+          {addClientAction.label}
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <>
@@ -370,11 +674,11 @@ export const ClientListTable = ({
         enableSelection
         showPagination
         ariaLabel="Client list"
-        columns={columns ?? defaultColumns}
+        columns={visibleColumns}
         getRowKey={(item) => item.id}
-        headerActions={headerActions}
-        pageSize={8}
-        rows={rows}
+        headerRight={headerRight}
+        pageSize={pageSize}
+        rows={filteredRows}
         title={title}
       />
 
