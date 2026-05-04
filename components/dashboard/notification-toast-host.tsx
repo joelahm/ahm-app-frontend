@@ -1,9 +1,9 @@
 "use client";
 
+import type { AppNotification } from "@/apis/notifications";
+
 import { useEffect } from "react";
 import { Bell, X } from "lucide-react";
-
-import type { AppNotification } from "@/apis/notifications";
 
 const TOAST_AUTO_DISMISS_MS = 6000;
 

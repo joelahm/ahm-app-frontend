@@ -62,7 +62,9 @@ const settingsProfileSchema = yup.object({
       "Discord user ID must be 15-25 digits",
       (value) => {
         const trimmed = (value ?? "").trim();
+
         if (!trimmed) return true;
+
         return /^\d{15,25}$/.test(trimmed);
       },
     ),

@@ -35,7 +35,9 @@ const registerSchema = yup.object({
       "Discord user ID must be 15-25 digits",
       (value) => {
         const trimmed = (value ?? "").trim();
+
         if (!trimmed) return true;
+
         return /^\d{15,25}$/.test(trimmed);
       },
     ),
@@ -173,8 +175,7 @@ export const RegisterForm = ({
         confirmPassword: validatedValues.confirmPassword,
         country: validatedValues.country,
         department: validatedValues.department,
-        discordUserId:
-          (validatedValues.discordUserId ?? "").trim() || null,
+        discordUserId: (validatedValues.discordUserId ?? "").trim() || null,
         email: validatedValues.email,
         firstName: validatedValues.firstName,
         lastName: validatedValues.lastName,

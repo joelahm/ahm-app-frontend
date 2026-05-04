@@ -52,8 +52,7 @@ export const NotificationsProvider = ({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [realtimeStatus, setRealtimeStatus] =
-    useState<RealtimeStatus>("idle");
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("idle");
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<NotificationToastItem[]>([]);
 
@@ -102,6 +101,7 @@ export const NotificationsProvider = ({
     if (!session?.accessToken) {
       setRealtimeStatus("idle");
       setRealtimeError(null);
+
       return;
     }
 
@@ -138,7 +138,9 @@ export const NotificationsProvider = ({
         socket.on("disconnect", (reason) => {
           setRealtimeStatus("disconnected");
           setRealtimeError(
-            reason === "io client disconnect" ? null : `Connection lost (${reason}).`,
+            reason === "io client disconnect"
+              ? null
+              : `Connection lost (${reason}).`,
           );
         });
         socket.on("connect_error", (error) => {
@@ -244,7 +246,7 @@ export const NotificationsProvider = ({
   return (
     <NotificationsContext.Provider value={contextValue}>
       {children}
-      <NotificationToastHost onDismiss={dismissToast} toasts={toasts} />
+      <NotificationToastHost toasts={toasts} onDismiss={dismissToast} />
     </NotificationsContext.Provider>
   );
 };
