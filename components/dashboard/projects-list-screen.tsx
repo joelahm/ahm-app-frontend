@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Checkbox } from "@heroui/checkbox";
 import { Chip } from "@heroui/chip";
 import {
   Dropdown,
@@ -23,10 +24,8 @@ import {
 import {
   Columns3,
   EllipsisVertical,
-  List,
   ListTodo,
   ListFilter,
-  Plus,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
@@ -34,15 +33,20 @@ import { useRouter } from "next/navigation";
 
 import { clientsApi } from "@/apis/clients";
 import { projectsApi, type ProjectsListGroupBy } from "@/apis/projects";
-import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
-import {
-  AddProjectFormValues,
-  AddProjectModal,
-} from "@/components/dashboard/client-details/add-project-modal";
-import { useAppToast } from "@/hooks/use-app-toast";
+import { normalizeProjectStatus } from "@/lib/project-statuses";
 
 type GroupByKey = ProjectsListGroupBy;
+type ProjectColumnKey =
+  | "action"
+  | "clientName"
+  | "csm"
+  | "dueDate"
+  | "overdue"
+  | "progressPercent"
+  | "project"
+  | "startDate"
+  | "status";
 
 type ProjectListRow = {
   clientAddress: string;
@@ -53,7 +57,6 @@ type ProjectListRow = {
   dueDateLabel: string;
   id: string;
   overdueCount: number;
-  phase: string;
   progress: string;
   progressPercent: number;
   project: string;
@@ -74,31 +77,33 @@ type ClientFilterOption = {
   label: string;
 };
 
-const normalizeProjectTaskStatus = (value?: string | null) => {
-  const normalized = (value ?? "").trim().toUpperCase();
-
-  if (normalized === "DONE" || normalized === "COMPLETED") {
-    return "Completed";
-  }
-
-  if (normalized === "INTERNAL REVIEW") {
-    return "Internal Review";
-  }
-
-  if (normalized === "CLIENT REVIEW") {
-    return "Client Review";
-  }
-
-  if (normalized === "IN PROGRESS") {
-    return "In Progress";
-  }
-
-  if (normalized === "ON HOLD") {
-    return "On Hold";
-  }
-
-  return "To Do";
+const projectColumnLabels: Record<ProjectColumnKey, string> = {
+  action: "Action",
+  clientName: "Client Name",
+  csm: "CSM",
+  dueDate: "Due Date",
+  overdue: "Overdue",
+  progressPercent: "Progress",
+  project: "Projects",
+  startDate: "Start Date",
+  status: "Status",
 };
+
+const defaultProjectColumnKeys: ProjectColumnKey[] = [
+  "clientName",
+  "project",
+  "progressPercent",
+  "startDate",
+  "dueDate",
+  "overdue",
+  "csm",
+  "status",
+  "action",
+];
+
+const toggleableProjectColumnKeys = defaultProjectColumnKeys.filter(
+  (key) => key !== "action",
+);
 
 const resolveServerAssetUrl = (value?: string | null) => {
   if (!value) {
@@ -118,22 +123,21 @@ const resolveServerAssetUrl = (value?: string | null) => {
 export const ProjectsListScreen = () => {
   const router = useRouter();
   const { getValidAccessToken, session } = useAuth();
-  const toast = useAppToast();
-  const [isAddProjectOpen, setIsAddProjectOpen] = useState(false);
   const [groups, setGroups] = useState<
     Array<{ label: string; items: ProjectListRow[] }>
   >([]);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [clients, setClients] = useState<
     Array<{ address?: string | null; id: string; name: string }>
-  >([]);
-  const [users, setUsers] = useState<
-    Array<{ avatar?: string | null; id: string; name: string }>
   >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [groupBy, setGroupBy] = useState<GroupByKey>("projects");
   const [clientFilter, setClientFilter] = useState("all");
+  const [progressFilter, setProgressFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(toggleableProjectColumnKeys),
+  );
 
   useEffect(() => {
     if (!session) {
@@ -171,12 +175,11 @@ export const ProjectsListScreen = () => {
             dueDateLabel: item.dueDateLabel || "-",
             id: String(item.id),
             overdueCount: item.overdueCount ?? 0,
-            phase: item.phase || "-",
-            progress: item.progress || "-",
+            progress: normalizeProjectStatus(item.progress),
             progressPercent: item.progressPercent ?? 0,
             project: item.project || "-",
             startDateLabel: item.startDateLabel || "-",
-            status: item.status || "Active",
+            status: normalizeProjectStatus(item.status || item.progress),
           })),
           label: group.label,
         }));
@@ -200,19 +203,11 @@ export const ProjectsListScreen = () => {
     return () => {
       isActive = false;
     };
-  }, [
-    clientFilter,
-    getValidAccessToken,
-    groupBy,
-    refreshKey,
-    searchValue,
-    session,
-  ]);
+  }, [clientFilter, getValidAccessToken, groupBy, searchValue, session]);
 
   useEffect(() => {
     if (!session) {
       setClients([]);
-      setUsers([]);
 
       return;
     }
@@ -221,160 +216,32 @@ export const ProjectsListScreen = () => {
 
     const hydrateOptions = async () => {
       const accessToken = await getValidAccessToken();
-      const [clientsResult, usersResult] = await Promise.allSettled([
-        clientsApi.getClients(accessToken),
-        usersApi.getUsers(accessToken, { limit: 500, page: 1 }),
-      ]);
+      const clientsResult = await clientsApi.getClients(accessToken);
 
       if (!isMounted) {
         return;
       }
 
-      if (clientsResult.status === "fulfilled") {
-        setClients(
-          clientsResult.value.map((client) => ({
-            address: client.address ?? null,
-            id: String(client.id),
-            name:
-              client.clientName || client.businessName || `Client ${client.id}`,
-          })),
-        );
-      } else {
-        setClients([]);
-      }
-
-      if (usersResult.status === "fulfilled") {
-        setUsers(
-          usersResult.value.users.map((user) => ({
-            avatar: user.avatarUrl ?? null,
-            id: String(user.id),
-            name:
-              [user.firstName, user.lastName]
-                .map((value) => value?.trim() ?? "")
-                .filter(Boolean)
-                .join(" ") || user.email,
-          })),
-        );
-      } else {
-        setUsers([]);
-      }
+      setClients(
+        clientsResult.map((client) => ({
+          address: client.address ?? null,
+          id: String(client.id),
+          name:
+            client.clientName || client.businessName || `Client ${client.id}`,
+        })),
+      );
     };
 
-    void hydrateOptions();
+    hydrateOptions().catch(() => {
+      if (isMounted) {
+        setClients([]);
+      }
+    });
 
     return () => {
       isMounted = false;
     };
   }, [getValidAccessToken, session]);
-
-  const handleAddProject = async (payload: AddProjectFormValues) => {
-    if (!session) {
-      throw new Error("Your session has expired. Please login again.");
-    }
-    if (!payload.clientId) {
-      throw new Error("Please select a client.");
-    }
-
-    const accessToken = await getValidAccessToken();
-    const createdProject = await clientsApi.createClientProject(
-      accessToken,
-      payload.clientId,
-      {
-        accountManagerId: payload.accountManagerId,
-        clientSuccessManagerId: payload.clientSuccessManagerId,
-        dueDate: payload.dueDate,
-        phase: payload.phase,
-        progress: payload.progress,
-        project: payload.project,
-        startDate: payload.startDate,
-      },
-    );
-
-    if (payload.tasks?.length) {
-      const failedTaskNames: string[] = [];
-      const createdTaskIdByLocalId = new Map<string, string>();
-      const pendingTasks = [...payload.tasks];
-      const deferredTasks: typeof pendingTasks = [];
-
-      while (pendingTasks.length > 0) {
-        const task = pendingTasks.shift();
-
-        if (!task) {
-          break;
-        }
-
-        if (
-          task.parentTaskId &&
-          !createdTaskIdByLocalId.has(task.parentTaskId) &&
-          payload.tasks.some((item) => item.id === task.parentTaskId)
-        ) {
-          deferredTasks.push(task);
-          continue;
-        }
-
-        const taskPayload = {
-          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
-          description: task.taskDescription,
-          dueDate: payload.dueDate,
-          parentTaskId: task.parentTaskId
-            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
-            : undefined,
-          projectId: createdProject.id,
-          status: normalizeProjectTaskStatus(task.status),
-          task: task.taskName,
-          taskName: task.taskName,
-        };
-
-        try {
-          const createdTask = await clientsApi.createProjectTask(
-            accessToken,
-            createdProject.id,
-            taskPayload,
-          );
-
-          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
-        } catch {
-          failedTaskNames.push(task.taskName);
-        }
-      }
-
-      for (const task of deferredTasks) {
-        const taskPayload = {
-          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
-          description: task.taskDescription,
-          dueDate: payload.dueDate,
-          parentTaskId: task.parentTaskId
-            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
-            : undefined,
-          projectId: createdProject.id,
-          status: normalizeProjectTaskStatus(task.status),
-          task: task.taskName,
-          taskName: task.taskName,
-        };
-
-        try {
-          const createdTask = await clientsApi.createProjectTask(
-            accessToken,
-            createdProject.id,
-            taskPayload,
-          );
-
-          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
-        } catch {
-          failedTaskNames.push(task.taskName);
-        }
-      }
-
-      if (failedTaskNames.length > 0) {
-        throw new Error(
-          `Project was created, but ${failedTaskNames.length} task(s) failed to save.`,
-        );
-      }
-    }
-
-    setRefreshKey((value) => value + 1);
-    toast.success("Project created successfully.");
-  };
 
   const clientOptions = useMemo(() => {
     const entries = [...clients]
@@ -387,18 +254,66 @@ export const ProjectsListScreen = () => {
     ] satisfies ClientFilterOption[];
   }, [clients]);
 
-  const selectedClientFilterLabel = useMemo(() => {
-    if (clientFilter === "all") {
-      return "Filter";
-    }
+  const progressOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          groups
+            .flatMap((group) => group.items.map((item) => item.progress))
+            .filter((value) => value && value !== "-"),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [groups],
+  );
 
-    return (
-      clientOptions.find((option) => option.key === clientFilter)?.label ??
-      "Filter"
-    );
-  }, [clientFilter, clientOptions]);
+  const statusOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          groups
+            .flatMap((group) => group.items.map((item) => item.status))
+            .filter((value) => value && value !== "-"),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [groups],
+  );
 
-  const groupedRows = groups;
+  const resetFilters = () => {
+    setClientFilter("all");
+    setProgressFilter("all");
+    setStatusFilter("all");
+  };
+
+  const groupedRows = useMemo(
+    () =>
+      groups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => {
+            if (statusFilter !== "all" && item.status !== statusFilter) {
+              return false;
+            }
+
+            if (progressFilter !== "all" && item.progress !== progressFilter) {
+              return false;
+            }
+
+            return true;
+          }),
+        }))
+        .filter((group) => group.items.length > 0),
+    [groups, progressFilter, statusFilter],
+  );
+
+  const visibleTableColumnKeys = useMemo(
+    () =>
+      defaultProjectColumnKeys.filter(
+        (key) => key === "action" || visibleColumnKeys.has(key),
+      ),
+    [visibleColumnKeys],
+  );
+
+  const visibleColumnCount = visibleTableColumnKeys.length;
   const flattenedRows = useMemo(
     () =>
       groupedRows.flatMap((group) => [
@@ -416,36 +331,201 @@ export const ProjectsListScreen = () => {
     [groupedRows],
   );
 
+  const renderProjectCell = (item: ProjectListRow, columnKey: string) => {
+    if (columnKey === "clientName") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <div className="flex flex-col">
+            <span className="text-[#111827]">{item.clientName}</span>
+            <span className="text-[#9CA3AF]">{item.clientAddress}</span>
+          </div>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "project") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>{item.project}</TableCell>
+      );
+    }
+
+    if (columnKey === "progressPercent") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <div className="min-w-20">
+            <p className="text-sm font-semibold text-[#111827]">
+              {item.progressPercent}%
+            </p>
+            <div className="mt-1 h-2 rounded-full bg-default-200">
+              <div
+                className="h-2 rounded-full bg-[#4F46E5]"
+                style={{
+                  width: `${item.progressPercent}%`,
+                }}
+              />
+            </div>
+          </div>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "startDate") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          {item.startDateLabel}
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "dueDate") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          {item.dueDateLabel}
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "overdue") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          {item.overdueCount}
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "csm") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <div className="flex items-center gap-2">
+            <Avatar
+              className="h-8 w-8"
+              name={item.csmName}
+              src={item.csmAvatar}
+            />
+            <span>{item.csmName}</span>
+          </div>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "status") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <Chip
+            className="bg-[#DCFCE7] text-[#059669]"
+            radius="full"
+            size="sm"
+            variant="flat"
+          >
+            {item.status}
+          </Chip>
+        </TableCell>
+      );
+    }
+
+    return (
+      <TableCell key={`${item.id}-${columnKey}`}>
+        <Dropdown placement="bottom-end">
+          <DropdownTrigger>
+            <Button isIconOnly radius="sm" size="sm" variant="bordered">
+              <EllipsisVertical size={14} />
+            </Button>
+          </DropdownTrigger>
+          <DropdownMenu aria-label={`Project actions ${item.id}`}>
+            <DropdownItem
+              key="view-task"
+              startContent={<ListTodo size={16} />}
+              onPress={() => {
+                router.push(
+                  `/dashboard/clients/${item.clientId}/projects?openProjectId=${item.id}`,
+                );
+              }}
+            >
+              View Task
+            </DropdownItem>
+          </DropdownMenu>
+        </Dropdown>
+      </TableCell>
+    );
+  };
+
   return (
     <Card className="border border-default-200 shadow-none">
       <CardHeader className="flex flex-col items-start gap-3 border-b border-default-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
         <h2 className="text-lg font-semibold text-[#111827]">Projects</h2>
         <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
-          <Dropdown placement="bottom-start">
+          <Dropdown closeOnSelect={false} placement="bottom-start">
             <DropdownTrigger>
               <Button
                 startContent={<ListFilter size={14} />}
                 variant="bordered"
               >
-                {selectedClientFilterLabel}
+                Filter
               </Button>
             </DropdownTrigger>
-            <DropdownMenu
-              aria-label="Client filter"
-              items={clientOptions}
-              selectedKeys={new Set([clientFilter])}
-              selectionMode="single"
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0];
-
-                setClientFilter(
-                  typeof selected === "string" ? selected : "all",
-                );
-              }}
-            >
-              {(item) => (
-                <DropdownItem key={item.key}>{item.label}</DropdownItem>
-              )}
+            <DropdownMenu aria-label="Project filters" className="min-w-64">
+              <DropdownItem key="client-filter" textValue="Client filter">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#4B5563]">Client</p>
+                  <select
+                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                    value={clientFilter}
+                    onChange={(event) => setClientFilter(event.target.value)}
+                  >
+                    {clientOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </DropdownItem>
+              <DropdownItem key="status-filter" textValue="Status filter">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#4B5563]">Status</p>
+                  <select
+                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                    value={statusFilter}
+                    onChange={(event) => setStatusFilter(event.target.value)}
+                  >
+                    <option value="all">All statuses</option>
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </DropdownItem>
+              <DropdownItem key="progress-filter" textValue="Progress filter">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#4B5563]">
+                    Progress
+                  </p>
+                  <select
+                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                    value={progressFilter}
+                    onChange={(event) => setProgressFilter(event.target.value)}
+                  >
+                    <option value="all">All progress states</option>
+                    {progressOptions.map((progress) => (
+                      <option key={progress} value={progress}>
+                        {progress}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </DropdownItem>
+              <DropdownItem key="reset-filters" textValue="Reset filters">
+                <Button
+                  fullWidth
+                  radius="sm"
+                  variant="bordered"
+                  onPress={resetFilters}
+                >
+                  Reset
+                </Button>
+              </DropdownItem>
             </DropdownMenu>
           </Dropdown>
           <Dropdown placement="bottom-start">
@@ -482,12 +562,41 @@ export const ProjectsListScreen = () => {
               <DropdownItem key="progress">Progress</DropdownItem>
             </DropdownMenu>
           </Dropdown>
-          <Button startContent={<List size={14} />} variant="bordered">
-            Show 10
-          </Button>
-          <Button startContent={<Columns3 size={14} />} variant="bordered">
-            Columns
-          </Button>
+          <Dropdown closeOnSelect={false} placement="bottom-end">
+            <DropdownTrigger>
+              <Button startContent={<Columns3 size={14} />} variant="bordered">
+                Columns
+              </Button>
+            </DropdownTrigger>
+            <DropdownMenu aria-label="Visible project columns">
+              {toggleableProjectColumnKeys.map((columnKey) => (
+                <DropdownItem
+                  key={columnKey}
+                  textValue={projectColumnLabels[columnKey]}
+                  onPress={() => {
+                    setVisibleColumnKeys((current) => {
+                      const next = new Set(current);
+
+                      if (next.has(columnKey)) {
+                        next.delete(columnKey);
+                      } else {
+                        next.add(columnKey);
+                      }
+
+                      return next;
+                    });
+                  }}
+                >
+                  <Checkbox
+                    className="pointer-events-none"
+                    isSelected={visibleColumnKeys.has(columnKey)}
+                  >
+                    {projectColumnLabels[columnKey]}
+                  </Checkbox>
+                </DropdownItem>
+              ))}
+            </DropdownMenu>
+          </Dropdown>
           <Input
             className="w-full md:w-[220px]"
             placeholder="Search here"
@@ -496,15 +605,6 @@ export const ProjectsListScreen = () => {
             value={searchValue}
             onValueChange={setSearchValue}
           />
-          <Button
-            className="bg-[#022279] text-white"
-            startContent={<Plus size={14} />}
-            onPress={() => {
-              setIsAddProjectOpen(true);
-            }}
-          >
-            Add Project
-          </Button>
         </div>
       </CardHeader>
       <CardBody className="p-0">
@@ -520,22 +620,16 @@ export const ProjectsListScreen = () => {
           }}
         >
           <TableHeader>
-            <TableColumn>Client Name</TableColumn>
-            <TableColumn>Projects</TableColumn>
-            <TableColumn>Progress</TableColumn>
-            <TableColumn>Start Date</TableColumn>
-            <TableColumn>Due Date</TableColumn>
-            <TableColumn>Overdue</TableColumn>
-            <TableColumn>CSM</TableColumn>
-            <TableColumn>Status</TableColumn>
-            <TableColumn>Phase</TableColumn>
-            <TableColumn>Progress</TableColumn>
-            <TableColumn>Action</TableColumn>
+            {visibleTableColumnKeys.map((columnKey) => (
+              <TableColumn key={columnKey}>
+                {projectColumnLabels[columnKey]}
+              </TableColumn>
+            ))}
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={11}>
+                <TableCell colSpan={visibleColumnCount}>
                   <div className="py-3 text-sm text-[#6B7280]">
                     Loading projects...
                   </div>
@@ -543,7 +637,7 @@ export const ProjectsListScreen = () => {
               </TableRow>
             ) : groupedRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11}>
+                <TableCell colSpan={visibleColumnCount}>
                   <div className="py-3 text-sm text-[#6B7280]">
                     No projects found.
                   </div>
@@ -553,7 +647,10 @@ export const ProjectsListScreen = () => {
               flattenedRows.map((row) =>
                 row.type === "group" ? (
                   <TableRow key={row.key}>
-                    <TableCell className="bg-white px-3 py-2" colSpan={11}>
+                    <TableCell
+                      className="bg-white px-3 py-2"
+                      colSpan={visibleColumnCount}
+                    >
                       <Chip
                         className="bg-[#EEF2FF] text-[#4F46E5]"
                         radius="full"
@@ -565,86 +662,9 @@ export const ProjectsListScreen = () => {
                   </TableRow>
                 ) : (
                   <TableRow key={row.key}>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="text-[#111827]">
-                          {row.item.clientName}
-                        </span>
-                        <span className="text-[#9CA3AF]">
-                          {row.item.clientAddress}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{row.item.project}</TableCell>
-                    <TableCell>
-                      <div className="min-w-20">
-                        <p className="text-sm font-semibold text-[#111827]">
-                          {row.item.progressPercent}%
-                        </p>
-                        <div className="mt-1 h-2 rounded-full bg-default-200">
-                          <div
-                            className="h-2 rounded-full bg-[#4F46E5]"
-                            style={{
-                              width: `${row.item.progressPercent}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{row.item.startDateLabel}</TableCell>
-                    <TableCell>{row.item.dueDateLabel}</TableCell>
-                    <TableCell>{row.item.overdueCount}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Avatar
-                          className="h-8 w-8"
-                          name={row.item.csmName}
-                          src={row.item.csmAvatar}
-                        />
-                        <span>{row.item.csmName}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        className="bg-[#DCFCE7] text-[#059669]"
-                        radius="full"
-                        size="sm"
-                        variant="flat"
-                      >
-                        {row.item.status}
-                      </Chip>
-                    </TableCell>
-                    <TableCell>{row.item.phase}</TableCell>
-                    <TableCell>{row.item.progress}</TableCell>
-                    <TableCell>
-                      <Dropdown placement="bottom-end">
-                        <DropdownTrigger>
-                          <Button
-                            isIconOnly
-                            radius="sm"
-                            size="sm"
-                            variant="bordered"
-                          >
-                            <EllipsisVertical size={14} />
-                          </Button>
-                        </DropdownTrigger>
-                        <DropdownMenu
-                          aria-label={`Project actions ${row.item.id}`}
-                        >
-                          <DropdownItem
-                            key="view-task"
-                            startContent={<ListTodo size={16} />}
-                            onPress={() => {
-                              router.push(
-                                `/dashboard/clients/${row.item.clientId}/projects?openProjectId=${row.item.id}`,
-                              );
-                            }}
-                          >
-                            View Task
-                          </DropdownItem>
-                        </DropdownMenu>
-                      </Dropdown>
-                    </TableCell>
+                    {visibleTableColumnKeys.map((columnKey) =>
+                      renderProjectCell(row.item, columnKey),
+                    )}
                   </TableRow>
                 ),
               )
@@ -652,14 +672,6 @@ export const ProjectsListScreen = () => {
           </TableBody>
         </Table>
       </CardBody>
-      <AddProjectModal
-        clientName="Select client"
-        clientOptions={clients}
-        isOpen={isAddProjectOpen}
-        users={users}
-        onOpenChange={setIsAddProjectOpen}
-        onSubmit={handleAddProject}
-      />
     </Card>
   );
 };

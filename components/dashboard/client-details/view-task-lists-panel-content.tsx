@@ -31,6 +31,10 @@ import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
 import { useAppToast } from "@/hooks/use-app-toast";
 import {
+  normalizeProjectStatus,
+  PROJECT_STATUS_OPTIONS,
+} from "@/lib/project-statuses";
+import {
   buildCommentMessage,
   buildPendingAttachmentsFromFileList,
   MAX_COMMENT_ATTACHMENT_BYTES,
@@ -42,6 +46,7 @@ import {
   ParsedCommentAttachment,
   validateCommentPayloadSize,
 } from "@/lib/comment-attachments";
+import { normalizeTaskStatus, TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 interface ViewTaskListsPanelContentProps {
   accountManagerAvatar?: string;
@@ -53,6 +58,7 @@ interface ViewTaskListsPanelContentProps {
   csmId?: string;
   csmName: string;
   description?: string;
+  initialSelectedTaskId?: string | null;
   projectName: string;
   projectId: string;
   projectDueDate?: string | null;
@@ -61,9 +67,13 @@ interface ViewTaskListsPanelContentProps {
   onClose?: () => void;
   tasks?: Array<{
     assigneeAvatar?: string;
+    assigneeId?: string | null;
     assigneeName: string;
+    blockedTaskId?: string | null;
     description?: string | null;
     dueDate: string;
+    dueDateOffsetDays?: number;
+    dueDateRuleType?: string | null;
     id: string;
     name: string;
     parentTaskId?: string | null;
@@ -77,6 +87,18 @@ interface ViewTaskListsPanelContentProps {
     startDate?: string | null;
     status?: string;
   }) => Promise<void> | void;
+  onTaskDueDateChange?: (
+    taskId: string,
+    dueDate: string,
+  ) => Promise<void> | void;
+  onTaskChange?: (
+    taskId: string,
+    payload: {
+      assigneeId?: string;
+      dueDate?: string;
+      status?: string;
+    },
+  ) => Promise<void> | void;
 }
 
 const toFriendlyDate = (value?: string) => {
@@ -97,14 +119,60 @@ const toFriendlyDate = (value?: string) => {
   });
 };
 
-const defaultProjectStatusOptions = [
-  "Onboarding",
-  "Planning",
-  "Implementation",
-  "On hold",
-  "Closed",
-  "Cancelled",
-];
+const getTaskDueDateTime = (value?: string) => {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime())
+    ? Number.POSITIVE_INFINITY
+    : parsed.getTime();
+};
+
+const getStatusChipClassName = (status?: string) => {
+  const normalizedStatus = normalizeTaskStatus(status ?? "");
+
+  if (normalizedStatus === "Completed") {
+    return "bg-[#DCFCE7] text-[#059669]";
+  }
+
+  if (normalizedStatus === "On Hold") {
+    return "bg-[#FEF3C7] text-[#B45309]";
+  }
+
+  if (normalizedStatus === "In Progress") {
+    return "bg-[#DBEAFE] text-[#1D4ED8]";
+  }
+
+  if (normalizedStatus === "Internal Review") {
+    return "bg-[#E9D5FF] text-[#7E22CE]";
+  }
+
+  if (normalizedStatus === "Client Review") {
+    return "bg-[#FCE7F3] text-[#BE185D]";
+  }
+
+  return "bg-[#E5E7EB] text-[#374151]";
+};
+
+const TaskStatusChip = ({ status }: { status?: string }) => {
+  const normalizedStatus = normalizeTaskStatus(status ?? "");
+
+  return (
+    <Chip
+      className={getStatusChipClassName(normalizedStatus)}
+      radius="full"
+      size="sm"
+      variant="flat"
+    >
+      {normalizedStatus}
+    </Chip>
+  );
+};
+
+const defaultProjectStatusOptions = [...PROJECT_STATUS_OPTIONS];
 
 const toCalendarDate = (value?: string | null) => {
   if (!value || value === "-") {
@@ -262,8 +330,11 @@ export const ViewTaskListsPanelContent = ({
   csmId,
   csmName,
   description,
+  initialSelectedTaskId,
   onClose,
   onProjectMetaChange,
+  onTaskChange,
+  onTaskDueDateChange,
   projectName,
   projectId,
   projectDueDate,
@@ -310,7 +381,9 @@ export const ViewTaskListsPanelContent = ({
     strikeThrough: false,
     underline: false,
   });
-  const [activeStatus, setActiveStatus] = useState(status || "Draft");
+  const [activeStatus, setActiveStatus] = useState(
+    normalizeProjectStatus(status),
+  );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
     () => new Set(),
@@ -319,6 +392,25 @@ export const ViewTaskListsPanelContent = ({
     defaultProjectStatusOptions,
   );
   const [isSavingProjectMeta, setIsSavingProjectMeta] = useState(false);
+  const [isSavingTaskDueDate, setIsSavingTaskDueDate] = useState(false);
+  const [taskAssigneeId, setTaskAssigneeId] = useState("");
+  const [taskDueDate, setTaskDueDate] = useState(todayDate);
+  const [taskStatus, setTaskStatus] = useState<string>(TASK_STATUS_OPTIONS[0]);
+  const [taskOverridesById, setTaskOverridesById] = useState<
+    Record<
+      string,
+      Partial<
+        Pick<
+          (typeof tasks)[number],
+          | "assigneeAvatar"
+          | "assigneeId"
+          | "assigneeName"
+          | "dueDate"
+          | "status"
+        >
+      >
+    >
+  >({});
 
   useEffect(() => {
     setActiveAccountManagerId(accountManagerId);
@@ -329,13 +421,14 @@ export const ViewTaskListsPanelContent = ({
   }, [csmId]);
 
   useEffect(() => {
-    setActiveStatus(status || "Draft");
+    setActiveStatus(normalizeProjectStatus(status));
   }, [status]);
 
   useEffect(() => {
-    setSelectedTaskId(null);
+    setSelectedTaskId(initialSelectedTaskId ?? null);
     setExpandedTaskIds(new Set());
-  }, [projectId]);
+    setTaskOverridesById({});
+  }, [initialSelectedTaskId, projectId]);
 
   useEffect(() => {
     const nextStartDate = toCalendarDate(projectStartDate) ?? todayDate;
@@ -363,7 +456,7 @@ export const ViewTaskListsPanelContent = ({
   const hasMetaChanges =
     (activeAccountManagerId ?? "") !== (accountManagerId ?? "") ||
     (activeCsmId ?? "") !== (csmId ?? "") ||
-    (activeStatus ?? "Draft") !== (status ?? "Draft") ||
+    (activeStatus ?? "On Going") !== normalizeProjectStatus(status) ||
     calendarDateToIso(startDate) !== originalStartDate ||
     calendarDateToIso(dueDate) !== originalDueDate;
 
@@ -383,9 +476,13 @@ export const ViewTaskListsPanelContent = ({
           await projectTemplatesApi.listProjectTemplateStatusOptions(
             accessToken,
           );
-        const options = response.statusOptions
-          .map((item) => item.trim())
-          .filter(Boolean);
+        const options = Array.from(
+          new Set(
+            response.statusOptions
+              .map((item) => normalizeProjectStatus(item))
+              .filter(Boolean),
+          ),
+        );
 
         if (!isMounted) {
           return;
@@ -458,25 +555,118 @@ export const ViewTaskListsPanelContent = ({
     () => `${clientName || "-"} | ${address || "-"}`,
     [address, clientName],
   );
-  const selectedTask = useMemo(
-    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [selectedTaskId, tasks],
-  );
-  const orderedTasks = useMemo(
-    () => tasks.map((task, index) => ({ index, task })),
-    [tasks],
-  );
-  const taskById = useMemo(
+  const panelTasks = useMemo(
     () =>
-      tasks.reduce<Record<string, (typeof tasks)[number]>>((acc, task) => {
-        acc[task.id] = task;
+      tasks.map((task) => ({
+        ...task,
+        ...(taskOverridesById[task.id] ?? {}),
+      })),
+    [taskOverridesById, tasks],
+  );
+  const selectedTask = useMemo(
+    () => panelTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [panelTasks, selectedTaskId],
+  );
+  const selectedTaskBlockedTask = useMemo(
+    () =>
+      selectedTask?.dueDateRuleType === "BLOCKED_TASK" &&
+      selectedTask.blockedTaskId
+        ? (panelTasks.find((task) => task.id === selectedTask.blockedTaskId) ??
+          null)
+        : null,
+    [panelTasks, selectedTask],
+  );
+  const hasSelectedTaskDueDateChange = useMemo(
+    () =>
+      Boolean(selectedTask) &&
+      calendarDateToIso(taskDueDate) !==
+        calendarDateToIso(toCalendarDate(selectedTask?.dueDate) ?? todayDate),
+    [selectedTask, taskDueDate, todayDate],
+  );
+  const hasSelectedTaskStatusChange = useMemo(
+    () =>
+      Boolean(selectedTask) &&
+      taskStatus !== normalizeTaskStatus(selectedTask?.status ?? ""),
+    [selectedTask, taskStatus],
+  );
+  const hasSelectedTaskAssigneeChange = useMemo(
+    () =>
+      Boolean(selectedTask) &&
+      Boolean(taskAssigneeId) &&
+      taskAssigneeId !== (selectedTask?.assigneeId ?? ""),
+    [selectedTask, taskAssigneeId],
+  );
+  const canSaveSelectedTaskChanges = useMemo(
+    () =>
+      Boolean(selectedTask) &&
+      ((hasSelectedTaskDueDateChange &&
+        (Boolean(onTaskChange) || Boolean(onTaskDueDateChange))) ||
+        ((hasSelectedTaskAssigneeChange || hasSelectedTaskStatusChange) &&
+          Boolean(onTaskChange))),
+    [
+      hasSelectedTaskAssigneeChange,
+      hasSelectedTaskDueDateChange,
+      hasSelectedTaskStatusChange,
+      onTaskChange,
+      onTaskDueDateChange,
+      selectedTask,
+    ],
+  );
+
+  useEffect(() => {
+    setTaskAssigneeId(selectedTask?.assigneeId ?? "");
+    setTaskDueDate(toCalendarDate(selectedTask?.dueDate) ?? todayDate);
+    setTaskStatus(
+      normalizeTaskStatus(selectedTask?.status ?? TASK_STATUS_OPTIONS[0]),
+    );
+  }, [
+    selectedTask?.assigneeId,
+    selectedTask?.dueDate,
+    selectedTask?.status,
+    todayDate,
+  ]);
+
+  const orderedTasks = useMemo(
+    () => panelTasks.map((task, index) => ({ index, task })),
+    [panelTasks],
+  );
+  const taskOrderById = useMemo(
+    () =>
+      orderedTasks.reduce<Record<string, number>>((acc, { index, task }) => {
+        acc[task.id] = index;
 
         return acc;
       }, {}),
-    [tasks],
+    [orderedTasks],
+  );
+  const sortTasksByDueDate = useMemo(
+    () => (items: typeof panelTasks) =>
+      [...items].sort((left, right) => {
+        const dueDateDifference =
+          getTaskDueDateTime(left.dueDate) - getTaskDueDateTime(right.dueDate);
+
+        if (dueDateDifference !== 0) {
+          return dueDateDifference;
+        }
+
+        return (taskOrderById[left.id] ?? 0) - (taskOrderById[right.id] ?? 0);
+      }),
+    [taskOrderById],
+  );
+  const taskById = useMemo(
+    () =>
+      panelTasks.reduce<Record<string, (typeof panelTasks)[number]>>(
+        (acc, task) => {
+          acc[task.id] = task;
+
+          return acc;
+        },
+        {},
+      ),
+    [panelTasks],
   );
   const childrenByParentId = useMemo(() => {
-    const groups = new Map<string, typeof tasks>();
+    const groups = new Map<string, typeof panelTasks>();
 
     orderedTasks.forEach(({ task }) => {
       if (!task.parentTaskId || !taskById[task.parentTaskId]) {
@@ -489,17 +679,24 @@ export const ViewTaskListsPanelContent = ({
       groups.set(task.parentTaskId, current);
     });
 
-    return groups;
-  }, [orderedTasks, taskById]);
+    return new Map(
+      Array.from(groups.entries()).map(([taskId, children]) => [
+        taskId,
+        sortTasksByDueDate(children),
+      ]),
+    );
+  }, [orderedTasks, sortTasksByDueDate, taskById]);
   const rootTasks = useMemo(
     () =>
-      orderedTasks
-        .filter(
-          ({ task }) =>
-            !task.parentTaskId || !taskById[String(task.parentTaskId)],
-        )
-        .map(({ task }) => task),
-    [orderedTasks, taskById],
+      sortTasksByDueDate(
+        orderedTasks
+          .filter(
+            ({ task }) =>
+              !task.parentTaskId || !taskById[String(task.parentTaskId)],
+          )
+          .map(({ task }) => task),
+      ),
+    [orderedTasks, sortTasksByDueDate, taskById],
   );
   const parentTaskIds = useMemo(
     () =>
@@ -518,7 +715,8 @@ export const ViewTaskListsPanelContent = ({
   const flattenedTaskRows = useMemo(() => {
     const rows: Array<{
       depth: number;
-      task: (typeof tasks)[number];
+      isSubtask: boolean;
+      task: (typeof panelTasks)[number];
     }> = [];
 
     const appendChildren = (
@@ -536,7 +734,7 @@ export const ViewTaskListsPanelContent = ({
         const nextVisited = new Set(visited);
 
         nextVisited.add(child.id);
-        rows.push({ depth, task: child });
+        rows.push({ depth, isSubtask: true, task: child });
 
         if (expandedTaskIds.has(child.id)) {
           appendChildren(child.id, depth + 1, nextVisited);
@@ -545,13 +743,13 @@ export const ViewTaskListsPanelContent = ({
     };
 
     if (selectedTask) {
-      appendChildren(selectedTask.id, 1, new Set([selectedTask.id]));
+      appendChildren(selectedTask.id, 0, new Set([selectedTask.id]));
 
       return rows;
     }
 
     rootTasks.forEach((rootTask) => {
-      rows.push({ depth: 0, task: rootTask });
+      rows.push({ depth: 0, isSubtask: false, task: rootTask });
 
       if (expandedTaskIds.has(rootTask.id)) {
         appendChildren(rootTask.id, 1, new Set([rootTask.id]));
@@ -559,7 +757,13 @@ export const ViewTaskListsPanelContent = ({
     });
 
     return rows;
-  }, [childrenByParentId, expandedTaskIds, rootTasks, selectedTask, tasks]);
+  }, [
+    childrenByParentId,
+    expandedTaskIds,
+    panelTasks,
+    rootTasks,
+    selectedTask,
+  ]);
   const displayedTasks = useMemo(() => flattenedTaskRows, [flattenedTaskRows]);
   const hasTaskHierarchy = useMemo(
     () => tasks.some((task) => Boolean(task.parentTaskId)),
@@ -1087,28 +1291,61 @@ export const ViewTaskListsPanelContent = ({
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-[#6B7280]">
                 <CircleUserRound className="text-[#022279]" size={16} />
-                <span>Asignee</span>
-                <div className="ml-auto flex items-center gap-1 font-semibold text-[#111827]">
-                  <Avatar
-                    className="h-5 w-5"
-                    name={selectedTask.assigneeName || "-"}
+                <span>Assignee</span>
+                {users.length > 0 ? (
+                  <Select
+                    aria-label="Task assignee"
+                    className="ml-auto max-w-[220px]"
+                    isDisabled={isSavingTaskDueDate}
+                    selectedKeys={taskAssigneeId ? [taskAssigneeId] : []}
                     size="sm"
-                    src={selectedTask.assigneeAvatar}
-                  />
-                  <span>{selectedTask.assigneeName || "-"}</span>
-                </div>
+                    onSelectionChange={(keys) => {
+                      const nextValue = Array.from(keys as Set<string>)[0];
+
+                      if (!nextValue) {
+                        return;
+                      }
+
+                      setTaskAssigneeId(nextValue);
+                    }}
+                  >
+                    {users.map((user) => (
+                      <SelectItem key={user.id}>{user.name}</SelectItem>
+                    ))}
+                  </Select>
+                ) : (
+                  <div className="ml-auto flex items-center gap-1 font-semibold text-[#111827]">
+                    <Avatar
+                      className="h-5 w-5"
+                      name={selectedTask.assigneeName || "-"}
+                      size="sm"
+                      src={selectedTask.assigneeAvatar}
+                    />
+                    <span>{selectedTask.assigneeName || "-"}</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 text-[#6B7280]">
                 <LocateIcon className="text-[#022279]" size={16} />
                 <span>Status</span>
-                <Chip
-                  className="ml-auto min-w-[72px] justify-center bg-[#6B7280] text-white"
-                  radius="full"
+                <Select
+                  aria-label="Task status"
+                  className="ml-auto max-w-[160px]"
+                  isDisabled={isSavingTaskDueDate}
+                  selectedKeys={taskStatus ? [taskStatus] : []}
                   size="sm"
-                  variant="flat"
+                  onSelectionChange={(keys) => {
+                    const first =
+                      Array.from(keys as Set<string>)[0] ??
+                      TASK_STATUS_OPTIONS[0];
+
+                    setTaskStatus(first);
+                  }}
                 >
-                  {selectedTask.status || "Draft"}
-                </Chip>
+                  {TASK_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option}>{option}</SelectItem>
+                  ))}
+                </Select>
               </div>
             </div>
 
@@ -1118,11 +1355,104 @@ export const ViewTaskListsPanelContent = ({
                 <span>Due Date</span>
                 <DatePicker
                   aria-label="Task due date"
-                  className="ml-auto max-w-[160px]"
+                  className="ml-auto max-w-[150px]"
+                  isDisabled={isSavingTaskDueDate}
                   size="sm"
-                  value={toCalendarDate(selectedTask.dueDate)}
+                  value={taskDueDate}
+                  onChange={(value) => {
+                    if (value) {
+                      setTaskDueDate(value);
+                    }
+                  }}
                 />
               </div>
+              {selectedTaskBlockedTask ? (
+                <div className="flex items-center gap-2 text-[#6B7280]">
+                  <List className="text-[#022279]" size={16} />
+                  <span>Blocked Task</span>
+                  <span className="ml-auto max-w-[260px] truncate font-semibold text-[#111827]">
+                    {selectedTaskBlockedTask.name}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            <div className="col-span-2 flex justify-end">
+              <Button
+                className="bg-[#022279] text-white"
+                isDisabled={!canSaveSelectedTaskChanges}
+                isLoading={isSavingTaskDueDate}
+                size="sm"
+                onPress={async () => {
+                  if (!selectedTask || !canSaveSelectedTaskChanges) {
+                    return;
+                  }
+
+                  setIsSavingTaskDueDate(true);
+
+                  try {
+                    const taskPatch = {
+                      ...(hasSelectedTaskAssigneeChange
+                        ? { assigneeId: taskAssigneeId }
+                        : {}),
+                      ...(hasSelectedTaskDueDateChange
+                        ? { dueDate: calendarDateToIso(taskDueDate) }
+                        : {}),
+                      ...(hasSelectedTaskStatusChange
+                        ? { status: taskStatus }
+                        : {}),
+                    };
+
+                    if (onTaskChange) {
+                      await onTaskChange(selectedTask.id, taskPatch);
+                    } else if (hasSelectedTaskDueDateChange) {
+                      await onTaskDueDateChange?.(
+                        selectedTask.id,
+                        calendarDateToIso(taskDueDate),
+                      );
+                    }
+
+                    setTaskOverridesById((current) => ({
+                      ...current,
+                      [selectedTask.id]: {
+                        ...(current[selectedTask.id] ?? {}),
+                        ...taskPatch,
+                        ...(hasSelectedTaskAssigneeChange
+                          ? {
+                              assigneeAvatar:
+                                users.find((user) => user.id === taskAssigneeId)
+                                  ?.avatar ?? undefined,
+                              assigneeName:
+                                users.find((user) => user.id === taskAssigneeId)
+                                  ?.name ?? selectedTask.assigneeName,
+                            }
+                          : {}),
+                      },
+                    }));
+
+                    toast.success("Task updated.");
+                  } catch (error) {
+                    setTaskDueDate(
+                      toCalendarDate(selectedTask.dueDate) ?? todayDate,
+                    );
+                    setTaskAssigneeId(selectedTask.assigneeId ?? "");
+                    setTaskStatus(
+                      normalizeTaskStatus(
+                        selectedTask.status ?? TASK_STATUS_OPTIONS[0],
+                      ),
+                    );
+                    toast.danger("Failed to update task", {
+                      description:
+                        error instanceof Error
+                          ? error.message
+                          : "Please try again.",
+                    });
+                  } finally {
+                    setIsSavingTaskDueDate(false);
+                  }
+                }}
+              >
+                Save
+              </Button>
             </div>
           </div>
         ) : (
@@ -1214,7 +1544,7 @@ export const ViewTaskListsPanelContent = ({
                       projectStatusOptions[0] ??
                       defaultProjectStatusOptions[0];
 
-                    setActiveStatus(first);
+                    setActiveStatus(normalizeProjectStatus(first));
                   }}
                 >
                   {projectStatusOptions.map((option) => (
@@ -1229,40 +1559,24 @@ export const ViewTaskListsPanelContent = ({
                 <Calendar className="text-[#022279]" size={16} />
                 <span>Start Date</span>
                 <DatePicker
+                  isReadOnly
                   aria-label="Select start date"
                   className="ml-auto max-w-[160px]"
                   minValue={todayDate}
                   size="sm"
                   value={startDate}
-                  onChange={(value) => {
-                    if (!value) {
-                      return;
-                    }
-
-                    setStartDate(value);
-
-                    if (dueDate.compare(value) < 0) {
-                      setDueDate(value);
-                    }
-                  }}
                 />
               </div>
               <div className="flex items-center gap-2 text-[#6B7280]">
                 <Calendar className="text-[#022279]" size={16} />
                 <span>Due Date</span>
                 <DatePicker
+                  isReadOnly
                   aria-label="Select due date"
                   className="ml-auto max-w-[160px]"
                   minValue={startDate}
                   size="sm"
                   value={dueDate}
-                  onChange={(value) => {
-                    if (!value) {
-                      return;
-                    }
-
-                    setDueDate(value);
-                  }}
                 />
               </div>
             </div>
@@ -1342,82 +1656,89 @@ export const ViewTaskListsPanelContent = ({
           aria-label={selectedTask ? "Subtasks" : "Task"}
           title={selectedTask ? "Subtasks" : "Task"}
         >
-          <div className="space-y-3">
-            {displayedTasks.map(({ depth, task }) => (
-              <div key={task.id} className="flex items-center justify-between">
-                <div
-                  className="flex items-center gap-3"
-                  style={{ paddingLeft: `${depth * 18}px` }}
-                >
-                  {parentTaskIds.has(task.id) ? (
-                    <button
-                      className="rounded p-0.5 text-[#6B7280] hover:bg-default-100"
-                      type="button"
-                      onClick={() => {
-                        setExpandedTaskIds((current) => {
-                          const next = new Set(current);
-
-                          if (next.has(task.id)) {
-                            next.delete(task.id);
-                          } else {
-                            next.add(task.id);
-                          }
-
-                          return next;
-                        });
-                      }}
-                    >
-                      {expandedTaskIds.has(task.id) ? (
-                        <ChevronDown size={14} />
-                      ) : (
-                        <ChevronRight size={14} />
-                      )}
-                    </button>
-                  ) : (
-                    <span className="inline-block w-5" />
-                  )}
-                  {depth > 0 ? (
-                    <span className="text-xs text-[#9CA3AF]">↳</span>
-                  ) : null}
-                  <Chip
-                    className="bg-[#E5E7EB] text-[#1F2937]"
-                    radius="full"
-                    size="sm"
-                    variant="flat"
+          <div className="overflow-hidden rounded-lg border border-default-200 bg-white">
+            {displayedTasks.map(({ depth, isSubtask, task }) => (
+              <div
+                key={task.id}
+                className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
+              >
+                <div className="flex min-w-0 items-center gap-3 px-3 py-2">
+                  <div
+                    className="flex min-w-0 items-center gap-2"
+                    style={{ paddingLeft: `${depth * 18}px` }}
                   >
-                    {task.status}
-                  </Chip>
-                  <button
-                    className="text-base text-[#111827]"
-                    type="button"
-                    onClick={() => {
-                      setSelectedTaskId(task.id);
-                    }}
-                  >
-                    {task.name}
-                  </button>
+                    {parentTaskIds.has(task.id) ? (
+                      <button
+                        className="rounded p-0.5 text-[#6B7280] hover:bg-default-100"
+                        type="button"
+                        onClick={() => {
+                          setExpandedTaskIds((current) => {
+                            const next = new Set(current);
+
+                            if (next.has(task.id)) {
+                              next.delete(task.id);
+                            } else {
+                              next.add(task.id);
+                            }
+
+                            return next;
+                          });
+                        }}
+                      >
+                        {expandedTaskIds.has(task.id) ? (
+                          <ChevronDown size={14} />
+                        ) : (
+                          <ChevronRight size={14} />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="inline-block w-[18px] flex-none" />
+                    )}
+                    <span
+                      className={`h-8 w-1 flex-none rounded-full ${
+                        isSubtask ? "bg-[#10B981]" : "bg-[#60A5FA]"
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        className="block max-w-full truncate text-left text-sm font-semibold text-[#111827]"
+                        type="button"
+                        onClick={() => {
+                          setSelectedTaskId(task.id);
+                        }}
+                      >
+                        {task.name}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-[#6B7280]">
-                  <CircleUserRound size={14} />
+                <div className="border-l border-default-100 px-2 py-2">
+                  <TaskStatusChip status={task.status} />
+                </div>
+                <div className="flex min-w-0 items-center gap-2 border-l border-default-100 px-2 py-2 text-xs text-[#6B7280]">
                   <Avatar
-                    className="h-5 w-5"
+                    className="h-5 w-5 flex-none"
                     name={task.assigneeName || "-"}
                     size="sm"
                     src={task.assigneeAvatar}
                   />
-                  <span>{task.assigneeName || "-"}</span>
-                  <Calendar size={14} />
-                  <span>{toFriendlyDate(task.dueDate)}</span>
+                  <span className="truncate">{task.assigneeName || "-"}</span>
+                </div>
+                <div className="border-l border-default-100 px-2 py-2 text-xs font-semibold text-[#DC2626]">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar size={13} />
+                    {toFriendlyDate(task.dueDate)}
+                  </span>
                 </div>
               </div>
             ))}
             {!selectedTask && !hasTaskHierarchy && displayedTasks.length > 0 ? (
-              <p className="text-xs text-[#9CA3AF]">
+              <p className="text-xs text-[#9CA3AF] m-3">
                 No saved subtask hierarchy found for this project yet.
               </p>
             ) : null}
             {displayedTasks.length === 0 ? (
-              <p className="text-sm text-[#6B7280]">
+              <p className="text-sm text-[#6B7280] m-3">
                 {selectedTask
                   ? "No subtasks for this task yet."
                   : "No tasks for this project yet."}

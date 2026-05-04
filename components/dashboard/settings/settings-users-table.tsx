@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert } from "@heroui/alert";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
@@ -33,6 +32,7 @@ import { InviteUserModal } from "@/components/dashboard/settings/invite-user-mod
 import { usersApi } from "@/apis/users";
 import { type InviteMember } from "@/components/dashboard/settings/invite-member-row";
 import { clientsApi } from "@/apis/clients";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 export interface SettingsUserRecord {
   id: string;
@@ -75,21 +75,26 @@ export const SettingsUsersTable = ({
   const PAGE_SIZE = 10;
   const router = useRouter();
   const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
   const [fetchedRows, setFetchedRows] = useState<SettingsUserRecord[]>(
     rows ?? [],
   );
   const [searchQuery, setSearchQuery] = useState("");
-  const [actionError, setActionError] = useState("");
-  const [deleteError, setDeleteError] = useState("");
-  const [inviteSuccessMessage, setInviteSuccessMessage] = useState("");
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState("");
   const [isLoading, setIsLoading] = useState(!rows);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(
+    null,
+  );
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   useEffect(() => {
     if (rows) {
@@ -102,7 +107,6 @@ export const SettingsUsersTable = ({
     if (!session?.accessToken) {
       setFetchedRows([]);
       setIsLoading(false);
-      setFetchError("");
 
       return;
     }
@@ -111,9 +115,6 @@ export const SettingsUsersTable = ({
 
     const loadUsers = async () => {
       setIsLoading(true);
-      setFetchError("");
-      setActionError("");
-      setDeleteError("");
 
       try {
         const accessToken = await getValidAccessToken();
@@ -252,9 +253,10 @@ export const SettingsUsersTable = ({
           return;
         }
 
-        setFetchError(
-          error instanceof Error ? error.message : "Failed to load users.",
-        );
+        toastRef.current.danger("Failed to load users", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
         setFetchedRows([]);
       } finally {
         if (isMounted) {
@@ -276,19 +278,35 @@ export const SettingsUsersTable = ({
         return;
       }
 
-      setActionError("");
-      setDeleteError("");
+      if (userId.startsWith("pending-")) {
+        toastRef.current.warning("Please refresh and try again.", {
+          description:
+            "This invite is not fully synced yet, so it cannot be cancelled from the local row.",
+        });
+        setReloadTick((value) => value + 1);
+
+        return;
+      }
+
       setDeletingUserId(userId);
 
       try {
         const accessToken = await getValidAccessToken();
 
-        await usersApi.deleteUser(accessToken, userId);
+        if (userId.startsWith("invite-")) {
+          await usersApi.cancelPendingInvitation(
+            accessToken,
+            userId.replace(/^invite-/, ""),
+          );
+        } else {
+          await usersApi.deleteUser(accessToken, userId);
+        }
         setReloadTick((value) => value + 1);
       } catch (error) {
-        setDeleteError(
-          error instanceof Error ? error.message : "Failed to remove user.",
-        );
+        toastRef.current.danger("Remove failed", {
+          description:
+            error instanceof Error ? error.message : "Failed to remove user.",
+        });
       } finally {
         setDeletingUserId(null);
       }
@@ -301,13 +319,66 @@ export const SettingsUsersTable = ({
     ],
   );
 
+  const handleResendInvite = useCallback(
+    async (userId: string) => {
+      if (
+        !session?.accessToken ||
+        deletingUserId ||
+        updatingRoleUserId ||
+        resendingInviteId
+      ) {
+        return;
+      }
+
+      if (!userId.startsWith("invite-")) {
+        toastRef.current.warning("Please refresh and try again.", {
+          description:
+            "This invite is not fully synced yet, so it cannot be resent from the local row.",
+        });
+        setReloadTick((value) => value + 1);
+
+        return;
+      }
+
+      setResendingInviteId(userId);
+
+      try {
+        const accessToken = await getValidAccessToken();
+        const response = await usersApi.resendPendingInvitation(
+          accessToken,
+          userId.replace(/^invite-/, ""),
+        );
+
+        toastRef.current.success("Invite resent", {
+          description: response.email
+            ? `Invite sent to ${response.email}.`
+            : "Invite email sent successfully.",
+        });
+        setReloadTick((value) => value + 1);
+      } catch (error) {
+        toastRef.current.danger("Resend failed", {
+          description:
+            error instanceof Error ? error.message : "Failed to resend invite.",
+        });
+      } finally {
+        setResendingInviteId(null);
+      }
+    },
+    [
+      deletingUserId,
+      getValidAccessToken,
+      resendingInviteId,
+      session?.accessToken,
+      updatingRoleUserId,
+    ],
+  );
+
   const handleChangeRole = useCallback(
     async (userId: string, role: "ADMIN" | "TEAM_MEMBER" | "GUEST") => {
       if (!session?.accessToken || deletingUserId || updatingRoleUserId) {
         return;
       }
 
-      setActionError("");
       setUpdatingRoleUserId(userId);
 
       try {
@@ -316,9 +387,10 @@ export const SettingsUsersTable = ({
         await usersApi.updateUserRole(accessToken, userId, role);
         setReloadTick((value) => value + 1);
       } catch (error) {
-        setActionError(
-          error instanceof Error ? error.message : "Failed to update role.",
-        );
+        toastRef.current.danger("Action failed", {
+          description:
+            error instanceof Error ? error.message : "Failed to update role.",
+        });
       } finally {
         setUpdatingRoleUserId(null);
       }
@@ -388,11 +460,13 @@ export const SettingsUsersTable = ({
         return nextRows;
       });
 
-      setInviteSuccessMessage(
-        invitedMembers.length === 1
-          ? "Invite sent successfully."
-          : `${invitedMembers.length} invites sent successfully.`,
-      );
+      toastRef.current.success("Invite sent", {
+        description:
+          invitedMembers.length === 1
+            ? "Invite sent successfully."
+            : `${invitedMembers.length} invites sent successfully.`,
+      });
+      setReloadTick((value) => value + 1);
     },
     [
       session?.user.email,
@@ -564,6 +638,10 @@ export const SettingsUsersTable = ({
             String(session?.user.id ?? "") !== "" &&
             String(session?.user.id) === item.id;
 
+          if (isCurrentUser) {
+            return null;
+          }
+
           return (
             <Dropdown placement="bottom-end">
               <DropdownTrigger>
@@ -584,9 +662,17 @@ export const SettingsUsersTable = ({
                 {item.status === "Pending Invite" ? (
                   <DropdownItem
                     key={`${item.id}-resend`}
+                    isDisabled={
+                      deletingUserId === item.id ||
+                      updatingRoleUserId === item.id ||
+                      resendingInviteId === item.id
+                    }
                     startContent={
                       <RefreshCcw className="text-[#0568C9]" size={18} />
                     }
+                    onPress={() => {
+                      void handleResendInvite(item.id);
+                    }}
                   >
                     Resend
                   </DropdownItem>
@@ -606,64 +692,77 @@ export const SettingsUsersTable = ({
                     Edit User
                   </DropdownItem>
                 ) : null}
-                <DropdownItem
-                  key={`${item.id}-set-member`}
-                  isDisabled={
-                    deletingUserId === item.id || updatingRoleUserId === item.id
-                  }
-                  startContent={
-                    <UserRoundCheck className="text-[#0568C9]" size={18} />
-                  }
-                  onPress={() => {
-                    void handleChangeRole(item.id, "TEAM_MEMBER");
-                  }}
-                >
-                  Set as Member
-                </DropdownItem>
-                <DropdownItem
-                  key={`${item.id}-set-guest`}
-                  isDisabled={
-                    deletingUserId === item.id || updatingRoleUserId === item.id
-                  }
-                  startContent={
-                    <UserRound className="text-[#0568C9]" size={18} />
-                  }
-                  onPress={() => {
-                    void handleChangeRole(item.id, "GUEST");
-                  }}
-                >
-                  Set as Guest
-                </DropdownItem>
-                <DropdownItem
-                  key={`${item.id}-set-admin`}
-                  isDisabled={
-                    deletingUserId === item.id || updatingRoleUserId === item.id
-                  }
-                  startContent={
-                    <UserRoundCog className="text-[#0568C9]" size={18} />
-                  }
-                  onPress={() => {
-                    void handleChangeRole(item.id, "ADMIN");
-                  }}
-                >
-                  Set as Admin
-                </DropdownItem>
-                <DropdownItem
-                  key={`${item.id}-remove`}
-                  className="text-danger"
-                  color="danger"
-                  isDisabled={
-                    deletingUserId === item.id || updatingRoleUserId === item.id
-                  }
-                  startContent={
-                    <UserRoundMinus className="text-danger" size={18} />
-                  }
-                  onPress={() => {
-                    void handleRemoveUser(item.id);
-                  }}
-                >
-                  Remove User
-                </DropdownItem>
+                {!isInviteOnlyUser ? (
+                  <DropdownItem
+                    key={`${item.id}-set-member`}
+                    isDisabled={
+                      deletingUserId === item.id ||
+                      updatingRoleUserId === item.id ||
+                      resendingInviteId === item.id
+                    }
+                    startContent={
+                      <UserRoundCheck className="text-[#0568C9]" size={18} />
+                    }
+                    onPress={() => {
+                      void handleChangeRole(item.id, "TEAM_MEMBER");
+                    }}
+                  >
+                    Set as Member
+                  </DropdownItem>
+                ) : null}
+                {!isInviteOnlyUser ? (
+                  <DropdownItem
+                    key={`${item.id}-set-guest`}
+                    isDisabled={
+                      deletingUserId === item.id ||
+                      updatingRoleUserId === item.id
+                    }
+                    startContent={
+                      <UserRound className="text-[#0568C9]" size={18} />
+                    }
+                    onPress={() => {
+                      void handleChangeRole(item.id, "GUEST");
+                    }}
+                  >
+                    Set as Guest
+                  </DropdownItem>
+                ) : null}
+                {!isInviteOnlyUser ? (
+                  <DropdownItem
+                    key={`${item.id}-set-admin`}
+                    isDisabled={
+                      deletingUserId === item.id ||
+                      updatingRoleUserId === item.id
+                    }
+                    startContent={
+                      <UserRoundCog className="text-[#0568C9]" size={18} />
+                    }
+                    onPress={() => {
+                      void handleChangeRole(item.id, "ADMIN");
+                    }}
+                  >
+                    Set as Admin
+                  </DropdownItem>
+                ) : null}
+                {!isCurrentUser ? (
+                  <DropdownItem
+                    key={`${item.id}-remove`}
+                    className="text-danger"
+                    color="danger"
+                    isDisabled={
+                      deletingUserId === item.id ||
+                      updatingRoleUserId === item.id
+                    }
+                    startContent={
+                      <UserRoundMinus className="text-danger" size={18} />
+                    }
+                    onPress={() => {
+                      void handleRemoveUser(item.id);
+                    }}
+                  >
+                    {isInviteOnlyUser ? "Cancel Invite" : "Remove User"}
+                  </DropdownItem>
+                ) : null}
               </DropdownMenu>
             </Dropdown>
           );
@@ -674,49 +773,16 @@ export const SettingsUsersTable = ({
       deletingUserId,
       handleChangeRole,
       handleRemoveUser,
+      handleResendInvite,
+      resendingInviteId,
       router,
+      session?.user.id,
       updatingRoleUserId,
     ],
   );
 
   return (
     <>
-      {fetchError ? (
-        <Alert
-          className="mb-2"
-          color="danger"
-          description={fetchError}
-          title="Failed to load users"
-          variant="flat"
-        />
-      ) : null}
-      {actionError ? (
-        <Alert
-          className="mb-2"
-          color="danger"
-          description={actionError}
-          title="Action failed"
-          variant="flat"
-        />
-      ) : null}
-      {inviteSuccessMessage ? (
-        <Alert
-          className="mb-2"
-          color="success"
-          description={inviteSuccessMessage}
-          title="Invite sent"
-          variant="flat"
-        />
-      ) : null}
-      {deleteError ? (
-        <Alert
-          className="mb-2"
-          color="danger"
-          description={deleteError}
-          title="Remove failed"
-          variant="flat"
-        />
-      ) : null}
       <DashboardDataTable
         showPagination
         ariaLabel="Settings users list"
@@ -736,7 +802,6 @@ export const SettingsUsersTable = ({
               className="bg-[#022279] text-white"
               radius="md"
               onPress={() => {
-                setInviteSuccessMessage("");
                 setIsInviteModalOpen(true);
               }}
             >

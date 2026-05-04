@@ -6,6 +6,7 @@ export interface AuthUser {
   email: string;
   firstName?: string | null;
   id: string | number;
+  isSuperadmin?: boolean;
   lastName?: string | null;
   name?: string;
   role: UserRole;
@@ -118,6 +119,7 @@ const parseUser = (value: unknown): AuthUser | undefined => {
     firstName:
       asString(source.firstName) ?? asString(source.first_name) ?? null,
     id,
+    isSuperadmin: Boolean(source.isSuperadmin ?? source.is_superadmin),
     lastName: asString(source.lastName) ?? asString(source.last_name) ?? null,
     name: asString(source.name),
     role,

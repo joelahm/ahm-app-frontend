@@ -5,6 +5,12 @@ import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
+import {
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
+} from "@heroui/dropdown";
 import { Input } from "@heroui/input";
 import {
   Table,
@@ -19,9 +25,8 @@ import {
   ChevronDown,
   ChevronRight,
   Columns3,
-  CornerDownRight,
-  Plus,
   Search,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { clientsApi, type ProjectTask } from "@/apis/clients";
@@ -73,7 +78,56 @@ const STATUS_LABELS = [
   "On Hold",
   "Completed",
 ] as const;
-const statusChipClass = "bg-[#D8F6EC] text-[#10A472]";
+const toggleableColumnKeys = [
+  "taskName",
+  "assignee",
+  "status",
+  "clientName",
+  "projectType",
+  "latestComment",
+  "dueDate",
+];
+const columnLabels: Record<string, string> = {
+  assignee: "Assignee",
+  clientName: "Client Name",
+  dueDate: "Due Date",
+  latestComment: "Latest comment",
+  projectType: "Project Type",
+  status: "Status",
+  taskName: "Task Name",
+};
+const dueGroupFilterOptions = [
+  { key: "all", label: "All groups" },
+  { key: "overdue", label: "Overdue" },
+  { key: "later", label: "Later / No Due Date" },
+  { key: "completed", label: "Completed" },
+];
+
+const getStatusChipClassName = (status: string) => {
+  const normalizedStatus = normalizeStatus(status);
+
+  if (normalizedStatus === "Completed") {
+    return "bg-[#DCFCE7] text-[#059669]";
+  }
+
+  if (normalizedStatus === "On Hold") {
+    return "bg-[#FEF3C7] text-[#B45309]";
+  }
+
+  if (normalizedStatus === "In Progress") {
+    return "bg-[#DBEAFE] text-[#1D4ED8]";
+  }
+
+  if (normalizedStatus === "Internal Review") {
+    return "bg-[#E9D5FF] text-[#7E22CE]";
+  }
+
+  if (normalizedStatus === "Client Review") {
+    return "bg-[#FCE7F3] text-[#BE185D]";
+  }
+
+  return "bg-[#E5E7EB] text-[#374151]";
+};
 
 const parseDate = (value?: string | null) => {
   if (!value) {
@@ -303,6 +357,14 @@ export const MyTasksScreen = () => {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedClientFilter, setSelectedClientFilter] = useState("all");
+  const [selectedDueGroupFilter, setSelectedDueGroupFilter] = useState("all");
+  const [selectedProjectTypeFilter, setSelectedProjectTypeFilter] =
+    useState("all");
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(toggleableColumnKeys),
+  );
 
   const currentUserId = String(session?.user.id ?? "");
 
@@ -438,27 +500,95 @@ export const MyTasksScreen = () => {
     }));
   }, [assignedTasks]);
 
+  const clientFilterOptions = useMemo(
+    () =>
+      Array.from(
+        assignedTasks.reduce<Map<string, string>>((acc, task) => {
+          acc.set(task.clientName, task.clientName);
+
+          return acc;
+        }, new Map()),
+      )
+        .map(([key, label]) => ({ key, label }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [assignedTasks],
+  );
+  const projectTypeFilterOptions = useMemo(
+    () =>
+      Array.from(
+        assignedTasks.reduce<Map<string, string>>((acc, task) => {
+          const projectType = task.projectType?.trim() || "Website";
+
+          acc.set(projectType, projectType);
+
+          return acc;
+        }, new Map()),
+      )
+        .map(([key, label]) => ({ key, label }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [assignedTasks],
+  );
+  const visibleTableColumnKeys = useMemo(
+    () => [
+      ...toggleableColumnKeys.filter((key) => visibleColumnKeys.has(key)),
+      "action",
+    ],
+    [visibleColumnKeys],
+  );
+  const visibleColumnCount = visibleTableColumnKeys.length;
+  const hasActiveFilters =
+    selectedClientFilter !== "all" ||
+    selectedDueGroupFilter !== "all" ||
+    selectedProjectTypeFilter !== "all" ||
+    selectedStatusFilter !== "all";
+
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    if (!query) {
-      return assignedTasks;
-    }
-
     return assignedTasks.filter((task) => {
+      const normalizedStatus = normalizeStatus(task.status);
+      const projectType = task.projectType?.trim() || "Website";
+      const matchesStatus =
+        selectedStatusFilter === "all" ||
+        normalizedStatus === selectedStatusFilter;
+      const matchesClient =
+        selectedClientFilter === "all" ||
+        task.clientName === selectedClientFilter;
+      const matchesProjectType =
+        selectedProjectTypeFilter === "all" ||
+        projectType === selectedProjectTypeFilter;
+      const matchesDueGroup =
+        selectedDueGroupFilter === "all" ||
+        getTaskGroupId(task) === selectedDueGroupFilter;
       const haystack = [
         task.taskName ?? "",
         task.clientName,
-        task.projectType ?? "",
-        normalizeStatus(task.status),
+        projectType,
+        normalizedStatus,
         task.description ?? "",
+        task.latestComment ?? "",
+        formatDateForDisplay(task.dueDate),
       ]
         .join(" ")
         .toLowerCase();
+      const matchesSearch = !query || haystack.includes(query);
 
-      return haystack.includes(query);
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesClient &&
+        matchesProjectType &&
+        matchesDueGroup
+      );
     });
-  }, [assignedTasks, searchQuery]);
+  }, [
+    assignedTasks,
+    searchQuery,
+    selectedClientFilter,
+    selectedDueGroupFilter,
+    selectedProjectTypeFilter,
+    selectedStatusFilter,
+  ]);
 
   const groupedTasks = useMemo<TaskGroup[]>(() => {
     const tasksByGroup = new Map<GroupId, TaskWithClient[]>([
@@ -607,6 +737,130 @@ export const MyTasksScreen = () => {
     );
   };
 
+  const renderTaskCell = (item: TaskRow, columnKey: string) => {
+    if (columnKey === "taskName") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <div
+            className="flex min-w-0 items-center gap-2"
+            style={{
+              paddingLeft: `${item.depth * 20}px`,
+            }}
+          >
+            {item.children.length > 0 ? (
+              <button
+                className="flex flex-none items-center text-[#6B7280]"
+                type="button"
+                onClick={() => toggleTaskExpansion(item.id)}
+              >
+                {expandedTaskIds.has(item.id) ? (
+                  <ChevronDown className="flex-none" size={14} />
+                ) : (
+                  <ChevronRight className="flex-none" size={14} />
+                )}
+              </button>
+            ) : (
+              <span className="inline-block w-[14px] flex-none" />
+            )}
+            <span
+              className={`h-8 w-1 flex-none rounded-full ${
+                item.depth > 0 || item.isOrphanChild
+                  ? "bg-[#10B981]"
+                  : "bg-[#60A5FA]"
+              }`}
+            />
+            <div className="min-w-0">
+              <span className="line-clamp-2 text-sm font-semibold text-[#111827]">
+                {item.taskName}
+              </span>
+              {item.isOrphanChild ? (
+                <span className="line-clamp-1 text-xs text-[#6B7280]">
+                  Subtask
+                  {item.parentTaskName ? ` of: ${item.parentTaskName}` : ""}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "assignee") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <div className="flex items-center gap-2">
+            <Avatar
+              className="h-8 w-8 flex-none"
+              name={item.assigneeName}
+              src={item.assigneeAvatar}
+            />
+            <span>{item.assigneeName}</span>
+          </div>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "status") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <Chip
+            className={getStatusChipClassName(item.status)}
+            radius="full"
+            size="sm"
+          >
+            {item.status}
+          </Chip>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "clientName") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>{item.clientName}</TableCell>
+      );
+    }
+
+    if (columnKey === "projectType") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>
+          <Chip className="bg-[#DCFCE7] text-[#059669]" radius="full" size="sm">
+            {item.projectType}
+          </Chip>
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "latestComment") {
+      return (
+        <TableCell
+          key={`${item.id}-${columnKey}`}
+          className="max-w-[180px] truncate text-[#6B7280]"
+        >
+          {item.latestComment}
+        </TableCell>
+      );
+    }
+
+    if (columnKey === "dueDate") {
+      return (
+        <TableCell key={`${item.id}-${columnKey}`}>{item.dueDate}</TableCell>
+      );
+    }
+
+    return (
+      <TableCell key={`${item.id}-${columnKey}`}>
+        <Button
+          radius="sm"
+          size="sm"
+          variant="bordered"
+          onPress={() => openTask(item)}
+        >
+          View
+        </Button>
+      </TableCell>
+    );
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -627,9 +881,167 @@ export const MyTasksScreen = () => {
         <CardHeader className="flex flex-col items-start justify-between gap-3 border-b border-default-200 px-4 py-3 md:flex-row md:items-center">
           <h2 className="text-lg font-semibold text-[#1F2937]">Task List</h2>
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-            <Button startContent={<Columns3 size={14} />} variant="bordered">
-              Columns
-            </Button>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  color={hasActiveFilters ? "primary" : "default"}
+                  startContent={<SlidersHorizontal size={14} />}
+                  variant={hasActiveFilters ? "flat" : "bordered"}
+                >
+                  Filter
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="My task filters"
+                className="min-w-64"
+                closeOnSelect={false}
+              >
+                <DropdownItem key="status-filter" textValue="Status filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Status
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={selectedStatusFilter}
+                      onChange={(event) =>
+                        setSelectedStatusFilter(event.target.value)
+                      }
+                    >
+                      <option value="all">All statuses</option>
+                      {STATUS_LABELS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="client-filter" textValue="Client filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Client
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={selectedClientFilter}
+                      onChange={(event) =>
+                        setSelectedClientFilter(event.target.value)
+                      }
+                    >
+                      <option value="all">All clients</option>
+                      {clientFilterOptions.map((client) => (
+                        <option key={client.key} value={client.key}>
+                          {client.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="project-type-filter"
+                  textValue="Project Type filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Project Type
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={selectedProjectTypeFilter}
+                      onChange={(event) =>
+                        setSelectedProjectTypeFilter(event.target.value)
+                      }
+                    >
+                      <option value="all">All project types</option>
+                      {projectTypeFilterOptions.map((projectType) => (
+                        <option key={projectType.key} value={projectType.key}>
+                          {projectType.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="due-date-group-filter"
+                  textValue="Due date group filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Due date group
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={selectedDueGroupFilter}
+                      onChange={(event) =>
+                        setSelectedDueGroupFilter(event.target.value)
+                      }
+                    >
+                      {dueGroupFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="reset-filters" textValue="Reset filters">
+                  <Button
+                    fullWidth
+                    radius="sm"
+                    variant="bordered"
+                    onPress={() => {
+                      setSelectedStatusFilter("all");
+                      setSelectedClientFilter("all");
+                      setSelectedProjectTypeFilter("all");
+                      setSelectedDueGroupFilter("all");
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown closeOnSelect={false} placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  startContent={<Columns3 size={14} />}
+                  variant="bordered"
+                >
+                  Columns
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Toggle my task columns"
+                items={toggleableColumnKeys.map((key) => ({
+                  key,
+                  label: columnLabels[key],
+                }))}
+                selectedKeys={visibleColumnKeys}
+                selectionMode="multiple"
+                onSelectionChange={(keys) => {
+                  if (keys === "all") {
+                    setVisibleColumnKeys(new Set(toggleableColumnKeys));
+
+                    return;
+                  }
+
+                  const nextKeys = new Set(
+                    Array.from(keys as Set<string>).map(String),
+                  );
+
+                  setVisibleColumnKeys(
+                    nextKeys.size > 0
+                      ? nextKeys
+                      : new Set(toggleableColumnKeys),
+                  );
+                }}
+              >
+                {(item) => (
+                  <DropdownItem key={item.key}>{item.label}</DropdownItem>
+                )}
+              </DropdownMenu>
+            </Dropdown>
             <Input
               className="w-full md:w-[260px]"
               placeholder="Search here"
@@ -638,13 +1050,6 @@ export const MyTasksScreen = () => {
               value={searchQuery}
               onValueChange={setSearchQuery}
             />
-            <Button
-              isDisabled
-              className="bg-[#022279] text-white"
-              startContent={<Plus size={14} />}
-            >
-              Add Task
-            </Button>
           </div>
         </CardHeader>
 
@@ -661,19 +1066,16 @@ export const MyTasksScreen = () => {
             }}
           >
             <TableHeader>
-              <TableColumn>Task Name</TableColumn>
-              <TableColumn>Assignee</TableColumn>
-              <TableColumn>Status</TableColumn>
-              <TableColumn>Client Name</TableColumn>
-              <TableColumn>Project Type</TableColumn>
-              <TableColumn>Latest comment</TableColumn>
-              <TableColumn>Due Date</TableColumn>
-              <TableColumn>Action</TableColumn>
+              {visibleTableColumnKeys.map((columnKey) => (
+                <TableColumn key={columnKey}>
+                  {columnKey === "action" ? "Action" : columnLabels[columnKey]}
+                </TableColumn>
+              ))}
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={visibleColumnCount}>
                     <div className="px-3 py-4 text-sm text-[#6B7280]">
                       Loading tasks...
                     </div>
@@ -681,7 +1083,7 @@ export const MyTasksScreen = () => {
                 </TableRow>
               ) : tableRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9}>
+                  <TableCell colSpan={visibleColumnCount}>
                     <div className="px-3 py-4 text-sm text-[#6B7280]">
                       No tasks found.
                     </div>
@@ -691,7 +1093,10 @@ export const MyTasksScreen = () => {
                 tableRows.map((row) =>
                   row.type === "group" ? (
                     <TableRow key={row.key}>
-                      <TableCell className="bg-white px-3 py-2" colSpan={9}>
+                      <TableCell
+                        className="bg-white px-3 py-2"
+                        colSpan={visibleColumnCount}
+                      >
                         <div
                           className={`text-base font-semibold ${
                             row.tone === "danger"
@@ -705,96 +1110,9 @@ export const MyTasksScreen = () => {
                     </TableRow>
                   ) : (
                     <TableRow key={`${row.groupId}-${row.key}`}>
-                      <TableCell>
-                        <div
-                          className="flex flex-col gap-1"
-                          style={{
-                            paddingLeft: `${row.item.depth * 20}px`,
-                          }}
-                        >
-                          <div className="flex items-center gap-1">
-                            {row.item.children.length > 0 ? (
-                              <Button
-                                isIconOnly
-                                className="h-5 min-h-5 w-5 min-w-5"
-                                radius="full"
-                                size="sm"
-                                variant="light"
-                                onPress={() => toggleTaskExpansion(row.item.id)}
-                              >
-                                {expandedTaskIds.has(row.item.id) ? (
-                                  <ChevronDown
-                                    className="text-[#6B7280]"
-                                    size={14}
-                                  />
-                                ) : (
-                                  <ChevronRight
-                                    className="text-[#6B7280]"
-                                    size={14}
-                                  />
-                                )}
-                              </Button>
-                            ) : row.item.depth > 0 ? (
-                              <CornerDownRight
-                                className="text-[#9CA3AF]"
-                                size={14}
-                              />
-                            ) : null}
-                            <span>{row.item.taskName}</span>
-                          </div>
-                          {row.item.isOrphanChild ? (
-                            <span className="text-xs text-[#6B7280]">
-                              Subtask
-                              {row.item.parentTaskName
-                                ? ` of: ${row.item.parentTaskName}`
-                                : ""}
-                            </span>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar
-                            className="flex-none h-8 w-8"
-                            name={row.item.assigneeName}
-                            src={row.item.assigneeAvatar}
-                          />
-                          <span>{row.item.assigneeName}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          className={statusChipClass}
-                          radius="full"
-                          size="sm"
-                        >
-                          {row.item.status}
-                        </Chip>
-                      </TableCell>
-                      <TableCell>{row.item.clientName}</TableCell>
-                      <TableCell>
-                        <Chip
-                          className={statusChipClass}
-                          radius="full"
-                          size="sm"
-                        >
-                          {row.item.projectType}
-                        </Chip>
-                      </TableCell>
-                      <TableCell className="max-w-[180px] truncate text-[#6B7280]">
-                        {row.item.latestComment}
-                      </TableCell>
-                      <TableCell>{row.item.dueDate}</TableCell>
-                      <TableCell>
-                        <Button
-                          radius="sm"
-                          size="sm"
-                          variant="bordered"
-                          onPress={() => openTask(row.item)}
-                        >
-                          View
-                        </Button>
-                      </TableCell>
+                      {visibleTableColumnKeys.map((columnKey) =>
+                        renderTaskCell(row.item, columnKey),
+                      )}
                     </TableRow>
                   ),
                 )

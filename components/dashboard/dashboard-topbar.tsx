@@ -28,12 +28,8 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
   const pathname = usePathname();
   const router = useRouter();
   const { logout, session } = useAuth();
-  const {
-    markAllRead,
-    markNotificationRead,
-    notifications,
-    unreadCount,
-  } = useNotifications();
+  const { markAllRead, markNotificationRead, notifications, unreadCount } =
+    useNotifications();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const displayName =
@@ -166,25 +162,25 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
             <PopoverContent className="w-80 p-0">
               <div className="w-full">
                 <div className="border-b border-default-200 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-[#111827]">
-                      Notifications
-                    </p>
-                    <p className="text-xs text-default-500">
-                      {unreadCount} unread
-                    </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-[#111827]">
+                        Notifications
+                      </p>
+                      <p className="text-xs text-default-500">
+                        {unreadCount} unread
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      onPress={() => {
+                        void markAllRead();
+                      }}
+                    >
+                      Mark all read
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="light"
-                    onPress={() => {
-                      void markAllRead();
-                    }}
-                  >
-                    Mark all read
-                  </Button>
-                </div>
                 </div>
                 {notificationPreview.length ? (
                   <div className="max-h-80 overflow-y-auto py-1">

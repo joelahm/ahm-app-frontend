@@ -56,8 +56,14 @@ export interface UpdateClientProjectRequestBody {
 
 export interface AddProjectTaskRequestBody {
   assigneeId: number | string;
+  blockedTaskId?: number | string;
   description: string;
+  dependencyType?: string;
   dueDate: string;
+  dueDateOffsetDays?: number;
+  dueDateRuleType?: "BLOCKED_TASK" | "TRIGGER";
+  dueDateTrigger?: string;
+  enableDependency?: boolean;
   parentTaskId?: number | string;
   projectId: number | string;
   startDate?: string;
@@ -272,6 +278,10 @@ export interface ProjectTask {
   createdBy: number | string | null;
   description: string | null;
   dueDate: string | null;
+  blockedTaskId?: number | string | null;
+  dueDateManualOverride?: boolean;
+  dueDateOffsetDays?: number;
+  dueDateRuleType?: string | null;
   id: number | string;
   parentTaskId?: number | string | null;
   priority: string | null;
@@ -1715,6 +1725,19 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
     createdBy: asId(source.createdBy),
     description: asString(source.description),
     dueDate: asString(source.dueDate),
+    blockedTaskId: asId(source.blockedTaskId) ?? asId(source.blocked_task_id),
+    dueDateManualOverride:
+      typeof source.dueDateManualOverride === "boolean"
+        ? source.dueDateManualOverride
+        : typeof source.due_date_manual_override === "boolean"
+          ? source.due_date_manual_override
+          : undefined,
+    dueDateOffsetDays:
+      asNumber(source.dueDateOffsetDays) ??
+      asNumber(source.due_date_offset_days) ??
+      undefined,
+    dueDateRuleType:
+      asString(source.dueDateRuleType) ?? asString(source.due_date_rule_type),
     id,
     parentTaskId:
       asId(source.parentTaskId) ??
@@ -2709,7 +2732,14 @@ export const clientsApi = {
   getClientProjects: async (
     accessToken: string,
     clientId: string | number,
-    options?: { limit?: number; page?: number },
+    options?: {
+      accountManagerId?: string;
+      clientSuccessManagerId?: string;
+      limit?: number;
+      page?: number;
+      search?: string;
+      status?: string;
+    },
   ) => {
     try {
       const response = await clientsApiClient.get<unknown>(
@@ -2719,8 +2749,12 @@ export const clientsApi = {
             Authorization: `Bearer ${accessToken}`,
           },
           params: {
+            accountManagerId: options?.accountManagerId,
+            clientSuccessManagerId: options?.clientSuccessManagerId,
             limit: options?.limit,
             page: options?.page,
+            search: options?.search,
+            status: options?.status,
           },
         },
       );
@@ -2796,7 +2830,7 @@ export const clientsApi = {
   updateClientById: async (
     accessToken: string,
     clientId: string | number,
-    payload: FormData | UpdateClientRequestBody,
+    payload: FormData | Partial<UpdateClientRequestBody>,
   ) => {
     try {
       const isFormData =

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
-import { Chip } from "@heroui/chip";
 import { DatePicker } from "@heroui/date-picker";
 import {
   Drawer,
@@ -17,6 +16,7 @@ import { Select, SelectItem } from "@heroui/select";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import {
   Calendar,
+  ChevronDown,
   CircleUserRound,
   Image as ImageIcon,
   List,
@@ -68,14 +68,22 @@ interface ViewTaskModalProps {
   task: {
     assigneeId: string;
     assigneeName: string;
+    blockedTaskId?: string;
     comment: string;
     description: string;
     dueDate: string;
+    dueDateRuleType?: string | null;
     id: string;
     projectId: string;
     status: string;
     taskName: string;
   } | null;
+  tasks?: Array<{
+    blockedTaskId?: string;
+    dueDateRuleType?: string | null;
+    id: string;
+    taskName: string;
+  }>;
   users: Array<{ avatar?: string; id: string; name: string }>;
 }
 
@@ -110,6 +118,17 @@ const toFriendlyDate = (value?: string) => {
     year: "numeric",
   });
 };
+
+const TaskStatusDisplay = ({ status }: { status?: string }) => (
+  <button
+    disabled
+    className="inline-flex h-7 min-w-[78px] items-center justify-between gap-2 rounded-full border border-default-200 bg-white px-2.5 text-xs font-medium text-[#6B7280] shadow-sm"
+    type="button"
+  >
+    <span className="truncate">{normalizeTaskStatus(status || "To Do")}</span>
+    <ChevronDown className="flex-none text-[#9CA3AF]" size={12} />
+  </button>
+);
 
 const getInitials = (name: string) => {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -268,6 +287,7 @@ export const ViewTaskModal = ({
   statusOptions,
   subtasks,
   task,
+  tasks = [],
   users,
 }: ViewTaskModalProps) => {
   const { getValidAccessToken, session } = useAuth();
@@ -308,6 +328,13 @@ export const ViewTaskModal = ({
   const todayDate = today(getLocalTimeZone());
   const [localDueDate, setLocalDueDate] = useState(todayDate);
   const lastInitializedTaskKeyRef = useRef<string>("");
+  const blockedTask = useMemo(
+    () =>
+      task?.dueDateRuleType === "BLOCKED_TASK" && task.blockedTaskId
+        ? (tasks.find((item) => item.id === task.blockedTaskId) ?? null)
+        : null,
+    [task?.blockedTaskId, task?.dueDateRuleType, tasks],
+  );
 
   useEffect(() => {
     if (!isOpen || !task) {
@@ -976,6 +1003,15 @@ export const ViewTaskModal = ({
                   }}
                 />
               </div>
+              {blockedTask ? (
+                <div className="flex items-center gap-2 text-[#6B7280]">
+                  <List className="text-[#022279]" size={16} />
+                  <span>Blocked Task</span>
+                  <span className="ml-auto max-w-[220px] truncate font-semibold text-[#111827]">
+                    {blockedTask.taskName}
+                  </span>
+                </div>
+              ) : null}
             </div>
             <div className="mt-4 flex justify-end">
               <Button
@@ -1019,39 +1055,42 @@ export const ViewTaskModal = ({
               aria-label="Subtasks"
               title="Subtasks"
             >
-              <div className="space-y-3">
+              <div className="overflow-hidden rounded-lg border border-default-200 bg-white">
                 {subtasks.length === 0 ? (
-                  <p className="text-sm text-[#6B7280]">
+                  <p className="p-3 text-sm text-[#6B7280]">
                     No subtasks for this task yet.
                   </p>
                 ) : (
                   subtasks.map((subtask) => (
                     <div
                       key={subtask.id}
-                      className="flex items-center justify-between text-sm text-[#111827]"
+                      className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
                     >
-                      <div className="flex items-center gap-3">
-                        <Chip
-                          className="bg-[#E5E7EB] text-[#1F2937]"
-                          radius="full"
-                          size="sm"
-                          variant="flat"
-                        >
-                          {normalizeTaskStatus(subtask.status)}
-                        </Chip>
-                        <span className="font-medium">{subtask.taskName}</span>
+                      <div className="flex min-w-0 items-center gap-3 px-3 py-2">
+                        <span className="h-8 w-1 flex-none rounded-full bg-[#10B981]" />
+                        <span className="block max-w-full truncate text-left text-sm font-semibold text-[#111827]">
+                          {subtask.taskName}
+                        </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[#6B7280]">
-                        <CircleUserRound size={14} />
+                      <div className="border-l border-default-100 px-2 py-2">
+                        <TaskStatusDisplay status={subtask.status} />
+                      </div>
+                      <div className="flex min-w-0 items-center gap-2 border-l border-default-100 px-2 py-2 text-xs text-[#6B7280]">
                         <Avatar
-                          className="h-5 w-5"
+                          className="h-5 w-5 flex-none"
                           name={subtask.assignee.name || "-"}
                           size="sm"
                           src={subtask.assignee.avatar}
                         />
-                        <span>{subtask.assignee.name || "-"}</span>
-                        <Calendar size={14} />
-                        <span>{toFriendlyDate(subtask.dueDate)}</span>
+                        <span className="truncate">
+                          {subtask.assignee.name || "-"}
+                        </span>
+                      </div>
+                      <div className="border-l border-default-100 px-2 py-2 text-xs font-semibold text-[#DC2626]">
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar size={13} />
+                          {toFriendlyDate(subtask.dueDate)}
+                        </span>
                       </div>
                     </div>
                   ))

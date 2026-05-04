@@ -23,6 +23,7 @@ const parseError = (error: unknown) => {
 };
 
 export interface ProjectTemplateTask {
+  assigneeAvatar?: string | null;
   assigneeId?: string;
   assigneeName?: string;
   blockedTaskId?: string;

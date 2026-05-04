@@ -14,7 +14,6 @@ import {
   ModalHeader,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { Switch } from "@heroui/switch";
 import { X } from "lucide-react";
 
 import { TokenInputField } from "@/components/form/token-input-field";
@@ -24,22 +23,18 @@ const dependencyRemapOptions = ["After Blocked Task", "After trigger date"];
 
 const addProjectTemplateTaskSchema = yup.object({
   assigneeId: yup.string().required("Assignee is required"),
-  blockedTaskId: yup.string().when("enableDependency", {
-    is: true,
+  blockedTaskId: yup.string().when("dependencyType", {
+    is: "After Blocked Task",
     otherwise: (schema) => schema.default("").notRequired(),
     then: (schema) => schema.required("Blocked task is required"),
   }),
-  dependencyType: yup.string().when("enableDependency", {
-    is: true,
-    otherwise: (schema) => schema.default("").notRequired(),
-    then: (schema) => schema.required("Dependency type is required"),
-  }),
-  enableDependency: yup.boolean().default(false).required(),
-  labels: yup
-    .array()
-    .of(yup.string().trim().required())
-    .min(1, "At least one label is required")
-    .required("At least one label is required"),
+  dependencyType: yup
+    .string()
+    .oneOf(dependencyRemapOptions)
+    .default("After trigger date")
+    .required("Dependency type is required"),
+  enableDependency: yup.boolean().default(false),
+  labels: yup.array().of(yup.string().trim().required()).default([]).required(),
   parentTaskId: yup.string().default(""),
   description: yup.string().default(""),
   remapDays: yup
@@ -96,7 +91,7 @@ export const AddProjectTemplateTaskModal = ({
       assigneeId: "",
       blockedTaskId: "",
       description: "",
-      dependencyType: "",
+      dependencyType: "After trigger date",
       enableDependency: false,
       labels: [],
       parentTaskId: "",
@@ -107,8 +102,9 @@ export const AddProjectTemplateTaskModal = ({
     mode: "onBlur",
   });
   const assigneeId = watch("assigneeId");
-  const enableDependency = watch("enableDependency");
+  const dependencyType = watch("dependencyType");
   const isEditing = mode === "edit";
+  const isBlockedTaskRule = dependencyType === "After Blocked Task";
 
   const filteredUsers = useMemo(() => {
     const normalized = assigneeSearch.trim().toLowerCase();
@@ -129,8 +125,8 @@ export const AddProjectTemplateTaskModal = ({
       assigneeId: initialValues?.assigneeId ?? "",
       blockedTaskId: initialValues?.blockedTaskId ?? "",
       description: initialValues?.description ?? "",
-      dependencyType: initialValues?.dependencyType ?? "",
-      enableDependency: initialValues?.enableDependency ?? false,
+      dependencyType: initialValues?.dependencyType ?? "After trigger date",
+      enableDependency: initialValues?.dependencyType === "After Blocked Task",
       labels: initialValues?.labels ?? [],
       parentTaskId: initialValues?.parentTaskId ?? "",
       remapDays: initialValues?.remapDays ?? "0",
@@ -376,98 +372,80 @@ export const AddProjectTemplateTaskModal = ({
             />
           </div>
 
-          <div className="rounded-xl border border-default-200 px-4 py-3">
-            <Controller
-              control={control}
-              name="enableDependency"
-              render={({ field }) => (
-                <Switch
-                  isSelected={field.value}
-                  size="sm"
-                  onValueChange={field.onChange}
-                >
-                  Enable dependency
-                </Switch>
-              )}
-            />
+          <div>
+            <p className={labelClassName}>Re-map due date</p>
+            <div className="grid gap-4 md:grid-cols-[130px_1fr]">
+              <Controller
+                control={control}
+                name="remapDays"
+                render={({ field }) => (
+                  <Input
+                    errorMessage={errors.remapDays?.message}
+                    isInvalid={!!errors.remapDays}
+                    placeholder="Days"
+                    radius="sm"
+                    size="sm"
+                    value={field.value}
+                    onBlur={field.onBlur}
+                    onValueChange={field.onChange}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="dependencyType"
+                render={({ field }) => (
+                  <Select
+                    errorMessage={errors.dependencyType?.message}
+                    isInvalid={!!errors.dependencyType}
+                    placeholder="Select rule"
+                    radius="sm"
+                    selectedKeys={field.value ? [field.value] : []}
+                    size="sm"
+                    onSelectionChange={(keys) => {
+                      const selected =
+                        Array.from(keys as Set<string>)[0] ??
+                        "After trigger date";
+
+                      field.onChange(selected);
+                    }}
+                  >
+                    {dependencyRemapOptions.map((option) => (
+                      <SelectItem key={option}>{option}</SelectItem>
+                    ))}
+                  </Select>
+                )}
+              />
+            </div>
           </div>
 
-          {enableDependency ? (
-            <>
-              <div>
-                <p className={labelClassName}>Blocked Task</p>
-                <Controller
-                  control={control}
-                  name="blockedTaskId"
-                  render={({ field }) => (
-                    <Select
-                      errorMessage={errors.blockedTaskId?.message}
-                      isInvalid={!!errors.blockedTaskId}
-                      placeholder="Select blocked task"
-                      radius="sm"
-                      selectedKeys={field.value ? [field.value] : []}
-                      size="sm"
-                      onSelectionChange={(keys) => {
-                        const selected =
-                          Array.from(keys as Set<string>)[0] ?? "";
+          {isBlockedTaskRule ? (
+            <div>
+              <p className={labelClassName}>Blocked Task</p>
+              <Controller
+                control={control}
+                name="blockedTaskId"
+                render={({ field }) => (
+                  <Select
+                    errorMessage={errors.blockedTaskId?.message}
+                    isInvalid={!!errors.blockedTaskId}
+                    placeholder="Select blocked task"
+                    radius="sm"
+                    selectedKeys={field.value ? [field.value] : []}
+                    size="sm"
+                    onSelectionChange={(keys) => {
+                      const selected = Array.from(keys as Set<string>)[0] ?? "";
 
-                        field.onChange(selected);
-                      }}
-                    >
-                      {blockedTaskOptions.map((option) => (
-                        <SelectItem key={option.id}>{option.label}</SelectItem>
-                      ))}
-                    </Select>
-                  )}
-                />
-              </div>
-
-              <div>
-                <p className={labelClassName}>Re-map due date</p>
-                <div className="grid gap-4 md:grid-cols-[130px_1fr]">
-                  <Controller
-                    control={control}
-                    name="remapDays"
-                    render={({ field }) => (
-                      <Input
-                        errorMessage={errors.remapDays?.message}
-                        isInvalid={!!errors.remapDays}
-                        placeholder="Days"
-                        radius="sm"
-                        size="sm"
-                        value={field.value}
-                        onBlur={field.onBlur}
-                        onValueChange={field.onChange}
-                      />
-                    )}
-                  />
-                  <Controller
-                    control={control}
-                    name="dependencyType"
-                    render={({ field }) => (
-                      <Select
-                        errorMessage={errors.dependencyType?.message}
-                        isInvalid={!!errors.dependencyType}
-                        placeholder="Select rule"
-                        radius="sm"
-                        selectedKeys={field.value ? [field.value] : []}
-                        size="sm"
-                        onSelectionChange={(keys) => {
-                          const selected =
-                            Array.from(keys as Set<string>)[0] ?? "";
-
-                          field.onChange(selected);
-                        }}
-                      >
-                        {dependencyRemapOptions.map((option) => (
-                          <SelectItem key={option}>{option}</SelectItem>
-                        ))}
-                      </Select>
-                    )}
-                  />
-                </div>
-              </div>
-            </>
+                      field.onChange(selected);
+                    }}
+                  >
+                    {blockedTaskOptions.map((option) => (
+                      <SelectItem key={option.id}>{option.label}</SelectItem>
+                    ))}
+                  </Select>
+                )}
+              />
+            </div>
           ) : null}
         </ModalBody>
         <ModalFooter className="border-t border-default-200">

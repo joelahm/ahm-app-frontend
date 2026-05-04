@@ -49,6 +49,7 @@ export interface RegisterInvitationRequestBody {
   confirmPassword: string;
   country: string;
   department: string;
+  discordUserId?: string | null;
   email: string;
   firstName: string;
   lastName: string;

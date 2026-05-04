@@ -8,17 +8,24 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 
-import {
-  notificationsApi,
-  type AppNotification,
-} from "@/apis/notifications";
+import { notificationsApi, type AppNotification } from "@/apis/notifications";
 import { useAuth } from "@/components/auth/auth-context";
-import { useAppToast } from "@/hooks/use-app-toast";
+import {
+  NotificationToastHost,
+  type NotificationToastItem,
+} from "@/components/dashboard/notification-toast-host";
 import { createNotificationSocketClient } from "@/lib/notification-socket-client";
+
+const MAX_VISIBLE_TOASTS = 4;
+
+export type RealtimeStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnected";
 
 interface NotificationsContextValue {
   clearNotification: (notificationId: string) => Promise<void>;
@@ -26,6 +33,8 @@ interface NotificationsContextValue {
   markAllRead: () => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
   notifications: AppNotification[];
+  realtimeError: string | null;
+  realtimeStatus: RealtimeStatus;
   refreshNotifications: () => Promise<void>;
   unreadCount: number;
 }
@@ -34,17 +43,34 @@ const NotificationsContext = createContext<NotificationsContextValue | null>(
   null,
 );
 
-export const NotificationsProvider = ({ children }: { children: ReactNode }) => {
+export const NotificationsProvider = ({
+  children,
+}: {
+  children: ReactNode;
+}) => {
   const { getValidAccessToken, session } = useAuth();
-  const toast = useAppToast();
-  const toastRef = useRef(toast);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] =
+    useState<RealtimeStatus>("idle");
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<NotificationToastItem[]>([]);
 
-  useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
+  const dismissToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((item) => item.id !== id));
+  }, []);
+
+  const pushToast = useCallback((notification: AppNotification) => {
+    setToasts((current) => {
+      const next: NotificationToastItem[] = [
+        { id: notification.id, notification },
+        ...current.filter((item) => item.id !== notification.id),
+      ];
+
+      return next.slice(0, MAX_VISIBLE_TOASTS);
+    });
+  }, []);
 
   const refreshNotifications = useCallback(async () => {
     if (!session?.accessToken) {
@@ -74,6 +100,8 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
 
   useEffect(() => {
     if (!session?.accessToken) {
+      setRealtimeStatus("idle");
+      setRealtimeError(null);
       return;
     }
 
@@ -88,6 +116,9 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
           return;
         }
 
+        setRealtimeStatus("connecting");
+        setRealtimeError(null);
+
         socket = createNotificationSocketClient(accessToken);
         socket.on("notification:new", (payload) => {
           setUnreadCount(payload.unreadCount);
@@ -95,17 +126,41 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
             payload.notification,
             ...current.filter((item) => item.id !== payload.notification.id),
           ]);
-          toastRef.current.info(payload.notification.title, {
-            description: payload.notification.body,
-            timeout: 5000,
-          });
+          pushToast(payload.notification);
         });
         socket.on("notification:count", (payload) => {
           setUnreadCount(payload.unreadCount);
         });
+        socket.on("connect", () => {
+          setRealtimeStatus("connected");
+          setRealtimeError(null);
+        });
+        socket.on("disconnect", (reason) => {
+          setRealtimeStatus("disconnected");
+          setRealtimeError(
+            reason === "io client disconnect" ? null : `Connection lost (${reason}).`,
+          );
+        });
+        socket.on("connect_error", (error) => {
+          setRealtimeStatus("disconnected");
+          setRealtimeError(
+            error instanceof Error ? error.message : "Connection error.",
+          );
+        });
+        socket.io.on("reconnect_failed", () => {
+          setRealtimeStatus("disconnected");
+          setRealtimeError(
+            "Could not reconnect after several attempts. Refresh the page to retry.",
+          );
+        });
         socket.connect();
-      } catch {
-        // Realtime notifications are optional; normal API refresh still works.
+      } catch (error) {
+        setRealtimeStatus("disconnected");
+        setRealtimeError(
+          error instanceof Error
+            ? error.message
+            : "Failed to start realtime notifications.",
+        );
       }
     };
 
@@ -115,7 +170,7 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
       isActive = false;
       socket?.disconnect();
     };
-  }, [getValidAccessToken, session?.accessToken]);
+  }, [getValidAccessToken, pushToast, session?.accessToken]);
 
   const markNotificationRead = useCallback(
     async (notificationId: string) => {
@@ -168,6 +223,8 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
       markAllRead,
       markNotificationRead,
       notifications,
+      realtimeError,
+      realtimeStatus,
       refreshNotifications,
       unreadCount,
     }),
@@ -177,6 +234,8 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
       markAllRead,
       markNotificationRead,
       notifications,
+      realtimeError,
+      realtimeStatus,
       refreshNotifications,
       unreadCount,
     ],
@@ -185,6 +244,7 @@ export const NotificationsProvider = ({ children }: { children: ReactNode }) => 
   return (
     <NotificationsContext.Provider value={contextValue}>
       {children}
+      <NotificationToastHost onDismiss={dismissToast} toasts={toasts} />
     </NotificationsContext.Provider>
   );
 };
@@ -193,7 +253,9 @@ export const useNotifications = () => {
   const context = useContext(NotificationsContext);
 
   if (!context) {
-    throw new Error("useNotifications must be used inside NotificationsProvider.");
+    throw new Error(
+      "useNotifications must be used inside NotificationsProvider.",
+    );
   }
 
   return context;

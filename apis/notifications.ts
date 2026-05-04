@@ -50,26 +50,39 @@ export interface AppNotification {
   updatedAt: string;
 }
 
+export interface NotificationChannels {
+  discord: {
+    defaultChannelId: string;
+    enabled: boolean;
+    useClientChannel: boolean;
+  };
+  email: {
+    enabled: boolean;
+  };
+  inApp: {
+    enabled: boolean;
+  };
+}
+
+export interface NotificationEventRow {
+  description: string;
+  discordEnabled: boolean;
+  emailEnabled: boolean;
+  inAppEnabled: boolean;
+  key: string;
+  title: string;
+}
+
+export interface NotificationModule {
+  description: string;
+  key: string;
+  rows: NotificationEventRow[];
+  title: string;
+}
+
 export interface NotificationSettings {
-  channels: {
-    discord: {
-      defaultChannelId: string;
-      enabled: boolean;
-      useClientChannel: boolean;
-    };
-    email: {
-      enabled: boolean;
-    };
-    inApp: {
-      enabled: boolean;
-    };
-  };
-  taskEvents: {
-    TASK_ASSIGNED: boolean;
-    TASK_COMMENT_CREATED: boolean;
-    TASK_COMPLETED: boolean;
-    TASK_STATUS_CHANGED: boolean;
-  };
+  channels: NotificationChannels;
+  modules: NotificationModule[];
 }
 
 const withAuth = (accessToken: string) => ({

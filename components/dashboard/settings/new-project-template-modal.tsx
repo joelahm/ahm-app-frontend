@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
+import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Checkbox } from "@heroui/checkbox";
@@ -22,14 +23,7 @@ import {
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableColumn,
-  TableHeader,
-  TableRow,
-} from "@heroui/table";
-import {
+  Calendar,
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
@@ -51,8 +45,11 @@ import {
   type AddProjectTemplateTaskFormValues,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
-import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
-import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
+import {
+  normalizeProjectStatus,
+  PROJECT_STATUS_OPTIONS,
+} from "@/lib/project-statuses";
+import { normalizeTaskStatus, TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const createProjectTemplateSchema = yup.object({
   description: yup.string().default(""),
@@ -65,6 +62,7 @@ type ProjectTemplateFormValues = yup.InferType<
 >;
 
 type ProjectTemplateTaskRow = {
+  assigneeAvatar?: string | null;
   assigneeId?: string;
   assigneeName?: string;
   blockedTaskId?: string;
@@ -106,18 +104,51 @@ const stepCards = [
   },
 ] as const;
 
-const defaultProjectTemplateStatusOptions = [
-  "Onboarding",
-  "Planning",
-  "Implementation",
-  "On hold",
-  "Closed",
-  "Cancelled",
-];
+const defaultProjectTemplateStatusOptions = [...PROJECT_STATUS_OPTIONS];
 const initialTaskRows: ProjectTemplateTaskRow[] = [];
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
-const headerCellClass = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+
+const getStatusChipClassName = (status?: string) => {
+  const normalizedStatus = normalizeTaskStatus(status ?? "");
+
+  if (normalizedStatus === "Completed") {
+    return "bg-[#DCFCE7] text-[#059669]";
+  }
+
+  if (normalizedStatus === "On Hold") {
+    return "bg-[#FEF3C7] text-[#B45309]";
+  }
+
+  if (normalizedStatus === "In Progress") {
+    return "bg-[#DBEAFE] text-[#1D4ED8]";
+  }
+
+  if (normalizedStatus === "Internal Review") {
+    return "bg-[#E9D5FF] text-[#7E22CE]";
+  }
+
+  if (normalizedStatus === "Client Review") {
+    return "bg-[#FCE7F3] text-[#BE185D]";
+  }
+
+  return "bg-[#E5E7EB] text-[#374151]";
+};
+
+const TaskStatusChip = ({ status }: { status?: string }) => {
+  const normalizedStatus = normalizeTaskStatus(status ?? "");
+
+  return (
+    <Chip
+      className={getStatusChipClassName(normalizedStatus)}
+      radius="full"
+      size="sm"
+      variant="flat"
+    >
+      {normalizedStatus}
+    </Chip>
+  );
+};
 
 const getVisibleTaskRows = (rows: ProjectTemplateTaskRow[]) => {
   const expansionByLevel = new Map<number, boolean>();
@@ -284,61 +315,8 @@ const moveTaskRows = ({
   ];
 };
 
-const buildTaskRowName = (
-  task: ProjectTemplateTaskRow,
-  hasChildren: boolean,
-  onToggleExpand: (taskId: string) => void,
-) => {
-  if (task.level === 0) {
-    return (
-      <button
-        className="flex items-center gap-2 text-left"
-        type="button"
-        onClick={() => (hasChildren ? onToggleExpand(task.id) : undefined)}
-      >
-        {hasChildren ? (
-          task.isExpanded ? (
-            <ChevronDown className="flex-none" size={14} />
-          ) : (
-            <ChevronRight className="flex-none" size={14} />
-          )
-        ) : (
-          <span className="inline-block w-[14px]" />
-        )}
-        <span className="text-sm font-medium text-[#1F2937]">
-          {task.taskName}
-        </span>
-      </button>
-    );
-  }
-
-  if (task.level === 1) {
-    return (
-      <button
-        className="flex items-center gap-2 pl-2 text-left"
-        type="button"
-        onClick={() => (hasChildren ? onToggleExpand(task.id) : undefined)}
-      >
-        {hasChildren ? (
-          task.isExpanded ? (
-            <ChevronDown className="flex-none" size={14} />
-          ) : (
-            <ChevronRight className="flex-none" size={14} />
-          )
-        ) : (
-          <span className="inline-block w-[14px]" />
-        )}
-        <span className="text-sm text-[#1F2937]">{task.taskName}</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex items-center pl-10">
-      <span className="mr-3 h-px w-4 bg-default-300" />
-      <span className="text-sm text-[#1F2937]">{task.taskName}</span>
-    </div>
-  );
+const getTaskRuleLabel = (task: ProjectTemplateTaskRow) => {
+  return task.dueDateTrigger.trim() || "-";
 };
 
 const renderStepCard = (step: number, currentStep: number) => {
@@ -387,7 +365,7 @@ export const NewProjectTemplateModal = ({
     useState<ProjectTemplateTaskRow[]>(initialTaskRows);
   const [submitError, setSubmitError] = useState("");
   const [taskUsers, setTaskUsers] = useState<
-    Array<{ id: string; name: string }>
+    Array<{ avatarUrl?: string | null; id: string; name: string }>
   >([]);
   const [projectStatusOptions, setProjectStatusOptions] = useState<string[]>(
     defaultProjectTemplateStatusOptions,
@@ -426,7 +404,13 @@ export const NewProjectTemplateModal = ({
             accessToken,
           );
         const nextOptions = response.statusOptions.length
-          ? response.statusOptions
+          ? Array.from(
+              new Set(
+                response.statusOptions.map((item) =>
+                  normalizeProjectStatus(item),
+                ),
+              ),
+            )
           : defaultProjectTemplateStatusOptions;
 
         if (!isMounted) {
@@ -437,8 +421,14 @@ export const NewProjectTemplateModal = ({
 
         const currentStatus = getValues("status");
 
-        if (!currentStatus || !nextOptions.includes(currentStatus)) {
-          setValue("status", initialTemplate?.status ?? nextOptions[0] ?? "");
+        const normalizedCurrentStatus = normalizeProjectStatus(
+          currentStatus || initialTemplate?.status,
+        );
+
+        if (!currentStatus || !nextOptions.includes(normalizedCurrentStatus)) {
+          setValue("status", nextOptions[0] ?? "");
+        } else if (currentStatus !== normalizedCurrentStatus) {
+          setValue("status", normalizedCurrentStatus);
         }
       } catch {
         if (isMounted) {
@@ -472,12 +462,15 @@ export const NewProjectTemplateModal = ({
     reset({
       description: initialTemplate?.description ?? "",
       projectName: initialTemplate?.projectName ?? "",
-      status: initialTemplate?.status ?? defaultProjectTemplateStatusOptions[0],
+      status: normalizeProjectStatus(
+        initialTemplate?.status ?? defaultProjectTemplateStatusOptions[0],
+      ),
     });
     setTaskRows(
       initialTemplate?.tasks?.map((task) => ({
         assigneeId: task.assigneeId,
         assigneeName: task.assigneeName,
+        assigneeAvatar: task.assigneeAvatar,
         blockedTaskId: task.blockedTaskId,
         dependency: task.dependency,
         dependencyType: task.dependencyType,
@@ -524,6 +517,7 @@ export const NewProjectTemplateModal = ({
                 .filter(Boolean)
                 .join(" ")
                 .trim() || user.email,
+            avatarUrl: user.avatarUrl,
           })),
         );
       } catch {
@@ -597,24 +591,25 @@ export const NewProjectTemplateModal = ({
   const addTask = (payload: AddProjectTemplateTaskFormValues) => {
     setTaskRows((current) => {
       const assignee = taskUsers.find((user) => user.id === payload.assigneeId);
+      const dependencyType = payload.dependencyType ?? "After trigger date";
+      const isBlockedTaskRule = dependencyType === "After Blocked Task";
       const parentIndex = current.findIndex(
         (row) => row.id === payload.parentTaskId,
       );
       const parentRow = parentIndex >= 0 ? current[parentIndex] : null;
       const nextTask: ProjectTemplateTaskRow = {
         assigneeId: payload.assigneeId,
+        assigneeAvatar: assignee?.avatarUrl ?? null,
         assigneeName: assignee?.name ?? "",
-        blockedTaskId: payload.blockedTaskId,
+        blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
         dependency:
-          payload.enableDependency && payload.blockedTaskId
+          isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((row) => row.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
-        dependencyType: payload.dependencyType,
-        dueDateTrigger: payload.enableDependency
-          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
-          : "On trigger date",
-        enableDependency: payload.enableDependency,
+        dependencyType,
+        dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
+        enableDependency: isBlockedTaskRule,
         id: `task-${Date.now()}`,
         isSelected: false,
         labels: payload.labels,
@@ -691,6 +686,8 @@ export const NewProjectTemplateModal = ({
     payload: AddProjectTemplateTaskFormValues,
   ) => {
     setTaskRows((current) => {
+      const dependencyType = payload.dependencyType ?? "After trigger date";
+      const isBlockedTaskRule = dependencyType === "After Blocked Task";
       const sourceIndex = current.findIndex((row) => row.id === taskId);
 
       if (sourceIndex < 0) {
@@ -707,18 +704,17 @@ export const NewProjectTemplateModal = ({
       const updatedTaskRow = {
         ...sourceRow,
         assigneeId: payload.assigneeId,
+        assigneeAvatar: assignee?.avatarUrl ?? null,
         assigneeName: assignee?.name ?? "",
-        blockedTaskId: payload.blockedTaskId,
+        blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
         dependency:
-          payload.enableDependency && payload.blockedTaskId
+          isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((item) => item.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
-        dependencyType: payload.dependencyType,
-        dueDateTrigger: payload.enableDependency
-          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
-          : "On trigger date",
-        enableDependency: payload.enableDependency,
+        dependencyType,
+        dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
+        enableDependency: isBlockedTaskRule,
         labels: payload.labels,
         level: nextLevel,
         parentTaskId: payload.parentTaskId,
@@ -877,7 +873,7 @@ export const NewProjectTemplateModal = ({
       return {
         assigneeId: editingTask.assigneeId ?? "",
         blockedTaskId: editingTask.blockedTaskId ?? "",
-        dependencyType: editingTask.dependencyType ?? "",
+        dependencyType: editingTask.dependencyType ?? "After trigger date",
         description:
           editingTask.taskDescription === "-"
             ? ""
@@ -949,57 +945,31 @@ export const NewProjectTemplateModal = ({
             : "max-h-[430px] overflow-y-auto"
         }
       >
-        <Table
-          removeWrapper
-          aria-label="Project template tasks"
-          classNames={{
-            table: "border-collapse border-spacing-0",
-            tbody:
-              "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#F9FAFB]",
-            td: "p-4 align-middle",
-            th: "!rounded-none",
-          }}
-        >
-          <TableHeader>
-            {[
-              <TableColumn key="select" className={headerCellClass}>
-                <Checkbox
-                  isSelected={
-                    selectedTaskIds.size > 0 &&
-                    selectedTaskIds.size === taskRows.length
-                  }
-                  onValueChange={(isSelected) =>
-                    setTaskRows((current) =>
-                      current.map((row) => ({ ...row, isSelected })),
-                    )
-                  }
-                />
-              </TableColumn>,
-              <TableColumn key="task-name" className={headerCellClass}>
-                Task Name
-              </TableColumn>,
-              <TableColumn key="task-description" className={headerCellClass}>
-                Task Description
-              </TableColumn>,
-              <TableColumn key="dependencies" className={headerCellClass}>
-                Dependencies
-              </TableColumn>,
-              <TableColumn key="due-date-trigger" className={headerCellClass}>
-                Due date trigger
-              </TableColumn>,
-              <TableColumn key="label" className={headerCellClass}>
-                Label
-              </TableColumn>,
-              <TableColumn
-                key="action"
-                className={`${headerCellClass} text-right`}
-              >
-                Action
-              </TableColumn>,
-            ]}
-          </TableHeader>
-          <TableBody items={visibleTaskRows}>
-            {(item) => {
+        <div>
+          <div className="grid min-h-[42px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_72px] items-center border-b border-default-200 bg-[#F9FAFB] text-xs font-medium text-[#111827]">
+            <div className="px-4">
+              <Checkbox
+                isSelected={
+                  selectedTaskIds.size > 0 &&
+                  selectedTaskIds.size === taskRows.length
+                }
+                onValueChange={(isSelected) =>
+                  setTaskRows((current) =>
+                    current.map((row) => ({ ...row, isSelected })),
+                  )
+                }
+              />
+            </div>
+            <div className="px-3">Task</div>
+            <div className="border-l border-default-100 px-2">Status</div>
+            <div className="border-l border-default-100 px-2">Assignee</div>
+            <div className="border-l border-default-100 px-2">Due rule</div>
+            <div className="border-l border-default-100 px-3 text-right">
+              Action
+            </div>
+          </div>
+          <div>
+            {visibleTaskRows.map((item) => {
               const sourceIndex = taskRows.findIndex(
                 (row) => row.id === item.id,
               );
@@ -1007,12 +977,15 @@ export const NewProjectTemplateModal = ({
                 sourceIndex >= 0
                   ? hasChildRows(taskRows, sourceIndex, item.level)
                   : false;
+              const isSubtask = item.level > 0;
 
               return (
-                <TableRow
+                <div
                   key={item.id}
                   draggable
-                  className={dragOverTaskId === item.id ? "bg-[#EEF2FF]" : ""}
+                  className={`grid min-h-[54px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_72px] items-center border-b border-default-200 text-sm last:border-b-0 ${
+                    dragOverTaskId === item.id ? "bg-[#EEF2FF]" : "bg-white"
+                  }`}
                   onDragEnd={() => {
                     setDraggingTaskId(null);
                     setDragOverTaskId(null);
@@ -1054,107 +1027,120 @@ export const NewProjectTemplateModal = ({
                     setDragOverTaskId(null);
                   }}
                 >
-                  {[
-                    <TableCell key="select">
-                      <Checkbox
-                        isSelected={item.isSelected}
-                        onValueChange={(isSelected) =>
-                          toggleTaskSelection(item.id, isSelected)
-                        }
+                  <div className="px-4">
+                    <Checkbox
+                      isSelected={item.isSelected}
+                      onValueChange={(isSelected) =>
+                        toggleTaskSelection(item.id, isSelected)
+                      }
+                    />
+                  </div>
+                  <div className="flex min-w-0 items-center gap-3 px-3 py-2">
+                    <GripVertical
+                      className="flex-none cursor-grab text-default-400"
+                      size={16}
+                    />
+                    <div
+                      className="flex min-w-0 items-center gap-2"
+                      style={{ paddingLeft: `${item.level * 18}px` }}
+                    >
+                      {hasChildren ? (
+                        <button
+                          aria-label={
+                            item.isExpanded
+                              ? `Collapse ${item.taskName}`
+                              : `Expand ${item.taskName}`
+                          }
+                          className="inline-flex h-[18px] w-[18px] flex-none items-center justify-center text-[#6B7280]"
+                          type="button"
+                          onClick={() => toggleTaskExpansion(item.id)}
+                        >
+                          {item.isExpanded ? (
+                            <ChevronDown size={14} />
+                          ) : (
+                            <ChevronRight size={14} />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="inline-block w-[18px] flex-none" />
+                      )}
+                      <span
+                        className={`h-8 w-1 flex-none rounded-full ${
+                          isSubtask ? "bg-[#10B981]" : "bg-[#60A5FA]"
+                        }`}
                       />
-                    </TableCell>,
-                    <TableCell key="task-name">
-                      <div className="flex items-center gap-2">
-                        <GripVertical
-                          className="shrink-0 cursor-grab text-default-400"
-                          size={16}
-                        />
-                        {buildTaskRowName(
-                          item,
-                          hasChildren,
-                          toggleTaskExpansion,
-                        )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block max-w-full truncate text-sm font-semibold text-[#111827]">
+                          {item.taskName}
+                        </span>
+                        {item.taskDescription &&
+                        item.taskDescription !== "-" ? (
+                          <span className="line-clamp-1 text-xs text-[#6B7280]">
+                            {item.taskDescription}
+                          </span>
+                        ) : null}
                       </div>
-                    </TableCell>,
-                    <TableCell
-                      key="task-description"
-                      className="text-sm text-[#4B5563]"
-                    >
-                      {item.taskDescription}
-                    </TableCell>,
-                    <TableCell
-                      key="dependencies"
-                      className="text-sm text-[#4B5563]"
-                    >
-                      {item.dependency}
-                    </TableCell>,
-                    <TableCell key="due-date-trigger">
-                      <span className="text-sm text-[#4B5563]">
-                        {item.dueDateTrigger}
-                      </span>
-                    </TableCell>,
-                    <TableCell key="label">
-                      <div className="flex flex-wrap gap-2">
-                        {item.labels.length ? (
-                          item.labels.map((label) => (
-                            <Chip
-                              key={label}
-                              className="bg-[#EEF2FF] text-[#6366F1]"
-                              size="sm"
-                              variant="flat"
-                            >
-                              {label}
-                            </Chip>
-                          ))
-                        ) : (
-                          <span className="text-sm text-default-400">-</span>
-                        )}
-                      </div>
-                    </TableCell>,
-                    <TableCell key="action">
-                      <div className="flex justify-end">
-                        <Dropdown placement="bottom-end">
-                          <DropdownTrigger>
-                            <Button isIconOnly radius="md" variant="bordered">
-                              <EllipsisVertical size={18} />
-                            </Button>
-                          </DropdownTrigger>
-                          <DropdownMenu
-                            aria-label={`Task ${item.taskName} actions`}
-                          >
-                            <DropdownItem
-                              key="edit"
-                              startContent={
-                                <Pencil className="text-[#4F46E5]" size={18} />
-                              }
-                              onPress={() => {
-                                setEditingTaskId(item.id);
-                                setIsAddTaskModalOpen(true);
-                              }}
-                            >
-                              Edit
-                            </DropdownItem>
-                            <DropdownItem
-                              key="delete"
-                              className="text-danger"
-                              color="danger"
-                              startContent={
-                                <Trash2 className="text-danger" size={18} />
-                              }
-                              onPress={() => removeTask(item.id)}
-                            >
-                              Delete
-                            </DropdownItem>
-                          </DropdownMenu>
-                        </Dropdown>
-                      </div>
-                    </TableCell>,
-                  ]}
-                </TableRow>
+                    </div>
+                  </div>
+                  <div className="border-l border-default-100 px-2 py-2">
+                    <TaskStatusChip status={item.status} />
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 border-l border-default-100 px-2 py-2 text-xs text-[#6B7280]">
+                    <Avatar
+                      className="h-5 w-5 flex-none"
+                      name={item.assigneeName || "-"}
+                      size="sm"
+                      src={item.assigneeAvatar ?? undefined}
+                    />
+                    <span className="truncate">{item.assigneeName || "-"}</span>
+                  </div>
+                  <div className="border-l border-default-100 px-2 py-2 text-xs font-semibold text-[#DC2626]">
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      <Calendar className="flex-none" size={13} />
+                      <span className="truncate">{getTaskRuleLabel(item)}</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-end border-l border-default-100 px-3 py-2">
+                    <Dropdown placement="bottom-end">
+                      <DropdownTrigger>
+                        <Button isIconOnly radius="md" variant="bordered">
+                          <EllipsisVertical size={18} />
+                        </Button>
+                      </DropdownTrigger>
+                      <DropdownMenu
+                        aria-label={`Task ${item.taskName} actions`}
+                      >
+                        <DropdownItem
+                          key="edit"
+                          startContent={
+                            <Pencil className="text-[#4F46E5]" size={18} />
+                          }
+                          onPress={() => {
+                            setEditingTaskId(item.id);
+                            setIsAddTaskModalOpen(true);
+                          }}
+                        >
+                          Edit
+                        </DropdownItem>
+                        <DropdownItem
+                          key="delete"
+                          className="text-danger"
+                          color="danger"
+                          startContent={
+                            <Trash2 className="text-danger" size={18} />
+                          }
+                          onPress={() => removeTask(item.id)}
+                        >
+                          Delete
+                        </DropdownItem>
+                      </DropdownMenu>
+                    </Dropdown>
+                  </div>
+                </div>
               );
-            }}
-          </TableBody>
-        </Table>
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

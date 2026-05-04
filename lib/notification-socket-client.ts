@@ -1,8 +1,8 @@
 "use client";
 
-import { io, type Socket } from "socket.io-client";
-
 import type { AppNotification } from "@/apis/notifications";
+
+import { io, type Socket } from "socket.io-client";
 
 interface NotificationNewEvent {
   notification: AppNotification;

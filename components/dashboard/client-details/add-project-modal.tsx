@@ -44,16 +44,14 @@ import {
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
+import { useAppToast } from "@/hooks/use-app-toast";
+import {
+  normalizeProjectStatus,
+  PROJECT_STATUS_OPTIONS,
+} from "@/lib/project-statuses";
 import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
-const defaultProjectStatusOptions = [
-  "Onboarding",
-  "Planning",
-  "Implementation",
-  "On hold",
-  "Closed",
-  "Cancelled",
-];
+const defaultProjectStatusOptions = [...PROJECT_STATUS_OPTIONS];
 
 type TaskTableRow = {
   assigneeId?: string;
@@ -71,7 +69,10 @@ type TaskTableRow = {
   status?: string;
   taskDescription: string;
   taskName: string;
-  timeEstimate: string;
+};
+
+type DisplayTaskTableRow = TaskTableRow & {
+  computedDueDateLabel: string;
 };
 
 type ProjectTemplate = {
@@ -160,6 +161,124 @@ const parseDueDateTriggerDays = (value?: string) => {
   const match = value?.match(/^(\d+)/);
 
   return match?.[1] ?? "0";
+};
+
+const parseDateInputValue = (value?: string) => {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.includes("T") ? value.slice(0, 10) : value;
+  const [year, month, day] = normalized.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
+};
+
+const toDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (date: Date, days: number) => {
+  const nextDate = new Date(date);
+
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+};
+
+const formatTaskDueDate = (date?: Date | null) => {
+  if (!date) {
+    return "-";
+  }
+
+  const weekday = date.toLocaleDateString("en-GB", { weekday: "short" });
+  const day = date.toLocaleDateString("en-GB", { day: "numeric" });
+  const month = date.toLocaleDateString("en-GB", { month: "short" });
+  const year = date.toLocaleDateString("en-GB", { year: "numeric" });
+
+  return `${weekday} ${day} ${month} ${year}`;
+};
+
+const isAfterBlockedTaskRule = (row: TaskTableRow) =>
+  row.dependencyType === "After Blocked Task" ||
+  row.dueDateTrigger.toLowerCase().includes("blocked task");
+
+const computeTaskDueDate = ({
+  row,
+  rows,
+  startDate,
+  visitedIds = new Set<string>(),
+}: {
+  row: TaskTableRow;
+  rows: TaskTableRow[];
+  startDate: Date;
+  visitedIds?: Set<string>;
+}): Date => {
+  if (visitedIds.has(row.id)) {
+    return startDate;
+  }
+
+  const nextVisitedIds = new Set(visitedIds);
+
+  nextVisitedIds.add(row.id);
+
+  const blockedTask = row.blockedTaskId
+    ? rows.find((task) => task.id === row.blockedTaskId)
+    : null;
+  const baseDate =
+    blockedTask && isAfterBlockedTaskRule(row)
+      ? computeTaskDueDate({
+          row: blockedTask,
+          rows,
+          startDate,
+          visitedIds: nextVisitedIds,
+        })
+      : startDate;
+  const offsetDays = Number(parseDueDateTriggerDays(row.dueDateTrigger));
+
+  return addDays(baseDate, Number.isFinite(offsetDays) ? offsetDays : 0);
+};
+
+const getTaskDueDates = (rows: TaskTableRow[], startDateValue?: string) => {
+  const startDate =
+    parseDateInputValue(startDateValue) ?? parseDateInputValue(today);
+  const dueDates = new Map<string, Date>();
+
+  if (!startDate) {
+    return dueDates;
+  }
+
+  rows.forEach((row) => {
+    dueDates.set(row.id, computeTaskDueDate({ row, rows, startDate }));
+  });
+
+  return dueDates;
+};
+
+const getProjectDueDate = (rows: TaskTableRow[], startDateValue?: string) => {
+  const startDate =
+    parseDateInputValue(startDateValue) ?? parseDateInputValue(today);
+
+  if (!startDate) {
+    return today;
+  }
+
+  const dueDates = getTaskDueDates(rows, startDateValue);
+  const latestDueDate = Array.from(dueDates.values()).reduce<Date>(
+    (latestDate, dueDate) =>
+      dueDate.getTime() > latestDate.getTime() ? dueDate : latestDate,
+    startDate,
+  );
+
+  return toDateInputValue(latestDueDate);
 };
 
 const moveTaskRows = ({
@@ -294,7 +413,7 @@ export const AddProjectModal = ({
   users,
 }: AddProjectModalProps) => {
   const { getValidAccessToken, session } = useAuth();
-  const [submitError, setSubmitError] = useState("");
+  const toast = useAppToast();
   const [availableTemplates, setAvailableTemplates] = useState<
     Record<string, ProjectTemplate>
   >(defaultProjectTemplates);
@@ -348,7 +467,6 @@ export const AddProjectModal = ({
               status: task.status,
               taskDescription: task.taskDescription,
               taskName: task.taskName,
-              timeEstimate: "",
             })),
           };
         });
@@ -427,19 +545,22 @@ export const AddProjectModal = ({
 
   const handleAddTask = (payload: AddProjectTemplateTaskFormValues) => {
     setTaskRows((current) => {
+      const dependencyType = payload.dependencyType ?? "After trigger date";
+      const isBlockedTaskRule = dependencyType === "After Blocked Task";
       const parentIndex = current.findIndex(
         (row) => row.id === payload.parentTaskId,
       );
       const parentRow = parentIndex >= 0 ? current[parentIndex] : null;
       const nextTask: TaskTableRow = {
+        blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
         dependency:
-          payload.enableDependency && payload.blockedTaskId
+          isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((row) => row.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
-        dueDateTrigger: payload.enableDependency
-          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
-          : "On trigger date",
+        dependencyType,
+        dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
+        enableDependency: isBlockedTaskRule,
         id: `task-${Date.now()}`,
         assigneeId: payload.assigneeId,
         isSelected: false,
@@ -449,7 +570,6 @@ export const AddProjectModal = ({
         status: payload.status,
         taskDescription: payload.description?.trim() || "-",
         taskName: payload.taskTitle,
-        timeEstimate: "",
       };
 
       if (!parentRow) {
@@ -517,6 +637,8 @@ export const AddProjectModal = ({
     payload: AddProjectTemplateTaskFormValues,
   ) => {
     setTaskRows((current) => {
+      const dependencyType = payload.dependencyType ?? "After trigger date";
+      const isBlockedTaskRule = dependencyType === "After Blocked Task";
       const sourceIndex = current.findIndex((row) => row.id === taskId);
 
       if (sourceIndex < 0) {
@@ -532,17 +654,15 @@ export const AddProjectModal = ({
       const updatedTaskRow = {
         ...sourceRow,
         assigneeId: payload.assigneeId,
-        blockedTaskId: payload.blockedTaskId,
+        blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
         dependency:
-          payload.enableDependency && payload.blockedTaskId
+          isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((item) => item.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
-        dependencyType: payload.dependencyType,
-        dueDateTrigger: payload.enableDependency
-          ? `${payload.remapDays} Days ${(payload.dependencyType ?? "After trigger date").toLowerCase()}`
-          : "On trigger date",
-        enableDependency: payload.enableDependency,
+        dependencyType,
+        dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
+        enableDependency: isBlockedTaskRule,
         labels: payload.labels,
         level: nextLevel,
         parentTaskId: payload.parentTaskId,
@@ -602,6 +722,30 @@ export const AddProjectModal = ({
 
   const selectedStatus = watch("status");
   const selectedStartDate = watch("startDate");
+  const taskDueDates = useMemo(
+    () => getTaskDueDates(taskRows, selectedStartDate),
+    [selectedStartDate, taskRows],
+  );
+  const visibleTaskRowsWithDueDates = useMemo<DisplayTaskTableRow[]>(
+    () =>
+      visibleTaskRows.map((row) => ({
+        ...row,
+        computedDueDateLabel: formatTaskDueDate(taskDueDates.get(row.id)),
+      })),
+    [taskDueDates, visibleTaskRows],
+  );
+  const computedProjectDueDate = useMemo(
+    () => getProjectDueDate(taskRows, selectedStartDate),
+    [selectedStartDate, taskRows],
+  );
+
+  useEffect(() => {
+    setValue("dueDate", computedProjectDueDate, {
+      shouldDirty: false,
+      shouldTouch: false,
+      shouldValidate: true,
+    });
+  }, [computedProjectDueDate, setValue]);
 
   useEffect(() => {
     if (!isOpen || !session) {
@@ -618,7 +762,13 @@ export const AddProjectModal = ({
             accessToken,
           );
         const nextOptions = response.statusOptions.length
-          ? response.statusOptions
+          ? Array.from(
+              new Set(
+                response.statusOptions.map((item) =>
+                  normalizeProjectStatus(item),
+                ),
+              ),
+            )
           : defaultProjectStatusOptions;
 
         if (!isMounted) {
@@ -629,8 +779,12 @@ export const AddProjectModal = ({
 
         const currentStatus = watch("status");
 
-        if (!currentStatus || !nextOptions.includes(currentStatus)) {
+        const normalizedCurrentStatus = normalizeProjectStatus(currentStatus);
+
+        if (!currentStatus || !nextOptions.includes(normalizedCurrentStatus)) {
           setValue("status", nextOptions[0] ?? "");
+        } else if (currentStatus !== normalizedCurrentStatus) {
+          setValue("status", normalizedCurrentStatus);
         }
       } catch {
         if (isMounted) {
@@ -703,7 +857,7 @@ export const AddProjectModal = ({
       return {
         assigneeId: editingTask.assigneeId ?? "",
         blockedTaskId: editingTask.blockedTaskId ?? "",
-        dependencyType: editingTask.dependencyType ?? "",
+        dependencyType: editingTask.dependencyType ?? "After trigger date",
         description:
           editingTask.taskDescription === "-"
             ? ""
@@ -717,7 +871,7 @@ export const AddProjectModal = ({
       };
     }, [editingTask]);
 
-  const taskColumns = useMemo<DashboardDataTableColumn<TaskTableRow>[]>(
+  const taskColumns = useMemo<DashboardDataTableColumn<DisplayTaskTableRow>[]>(
     () => [
       {
         key: "select",
@@ -811,11 +965,13 @@ export const AddProjectModal = ({
         ),
       },
       {
-        key: "timeEstimate",
-        label: "Time Estimate",
+        key: "dueDate",
+        label: "Due Date",
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
-        renderCell: (item) => <span>{item.timeEstimate}</span>,
+        renderCell: (item) => (
+          <span className="whitespace-nowrap">{item.computedDueDateLabel}</span>
+        ),
       },
       {
         key: "status",
@@ -913,7 +1069,6 @@ export const AddProjectModal = ({
     setEditingTaskId(null);
     setIsAddTaskOpen(false);
     clearErrors();
-    setSubmitError("");
   };
 
   const handleProjectChange = (selectedProject: string) => {
@@ -935,7 +1090,6 @@ export const AddProjectModal = ({
 
   const submitProject = async (values: AddProjectFormValues) => {
     clearErrors();
-    setSubmitError("");
 
     try {
       if (isClientSelectionRequired && !values.clientId) {
@@ -950,13 +1104,17 @@ export const AddProjectModal = ({
       const validatedValues = await addProjectSchema.validate(values, {
         abortEarly: false,
       });
+      const dueDate = getProjectDueDate(taskRows, validatedValues.startDate);
 
       await onSubmit({
         ...validatedValues,
         clientId: fixedClientId ?? values.clientId ?? "",
         description: values.description?.trim() ?? "",
+        dueDate,
         phase: "Onboarding",
-        progress: selectedStatus || projectStatusOptions[0] || "Planning",
+        progress:
+          normalizeProjectStatus(selectedStatus || projectStatusOptions[0]) ||
+          "On Going",
         tasks: taskRows.map((task) => ({ ...task })),
       });
       closeModal();
@@ -976,9 +1134,9 @@ export const AddProjectModal = ({
         return;
       }
 
-      setSubmitError(
-        error instanceof Error ? error.message : "Failed to save project.",
-      );
+      toast.danger("Failed to save project.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
     }
   };
 
@@ -1007,10 +1165,6 @@ export const AddProjectModal = ({
           </Button>
         </ModalHeader>
         <ModalBody className="space-y-4 px-6 py-4 max-h-none">
-          {submitError ? (
-            <p className="text-sm text-danger">{submitError}</p>
-          ) : null}
-
           <div className="space-y-1">
             <p className="text-base font-semibold text-[#111827]">
               Project Details
@@ -1111,25 +1265,7 @@ export const AddProjectModal = ({
                           return;
                         }
 
-                        const nextDate = String(value);
-
-                        field.onChange(nextDate);
-                        const dueDate = watch("dueDate");
-
-                        if (dueDate && nextDate && dueDate < nextDate) {
-                          reset(
-                            {
-                              ...watch(),
-                              dueDate: nextDate,
-                              startDate: nextDate,
-                            },
-                            {
-                              keepErrors: true,
-                              keepDirty: true,
-                              keepTouched: true,
-                            },
-                          );
-                        }
+                        field.onChange(String(value));
                       }}
                     />
                   )}
@@ -1142,6 +1278,7 @@ export const AddProjectModal = ({
                   name="dueDate"
                   render={({ field }) => (
                     <DatePicker
+                      isReadOnly
                       errorMessage={errors.dueDate?.message}
                       isInvalid={!!errors.dueDate}
                       minValue={
@@ -1152,9 +1289,6 @@ export const AddProjectModal = ({
                       radius="sm"
                       size="sm"
                       value={toCalendarDate(field.value)}
-                      onChange={(value) => {
-                        field.onChange(value ? String(value) : "");
-                      }}
                     />
                   )}
                 />
@@ -1349,7 +1483,7 @@ export const AddProjectModal = ({
                   dragOverTaskId === item.id ? "bg-[#EEF2FF]" : ""
                 }`,
               })}
-              rows={visibleTaskRows}
+              rows={visibleTaskRowsWithDueDates}
               showPagination={false}
               title=""
               withShell={false}

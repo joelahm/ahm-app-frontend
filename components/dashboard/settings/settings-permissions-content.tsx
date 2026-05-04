@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Alert } from "@heroui/alert";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
@@ -14,6 +13,7 @@ import {
   type PermissionSectionSetting,
 } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 type PermissionColumn = "guestEnabled" | "memberEnabled" | "adminEnabled";
 
@@ -101,25 +101,16 @@ const renderSectionTable = (
 
 export const SettingsPermissionsContent = () => {
   const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
   const [sections, setSections] = useState<PermissionSectionSetting[]>([]);
   const [permissionsState, setPermissionsState] = useState<PermissionState>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!successMessage && !error) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setSuccessMessage(null);
-      setError(null);
-    }, 3500);
-
-    return () => window.clearTimeout(timer);
-  }, [error, successMessage]);
+    toastRef.current = toast;
+  }, [toast]);
 
   const loadPermissions = useCallback(async () => {
     if (!session?.accessToken) {
@@ -130,8 +121,6 @@ export const SettingsPermissionsContent = () => {
 
     try {
       setIsLoading(true);
-      setError(null);
-      setSuccessMessage(null);
       const accessToken = await getValidAccessToken();
       const response = await usersApi.getPermissionsSettings(accessToken);
       const nextSections = response.sections ?? [];
@@ -139,11 +128,10 @@ export const SettingsPermissionsContent = () => {
       setSections(nextSections);
       setPermissionsState(buildStateFromSections(nextSections));
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Failed to load permissions settings.",
-      );
+      toastRef.current.danger("Failed to load permissions settings.", {
+        description:
+          loadError instanceof Error ? loadError.message : "Please try again.",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +157,6 @@ export const SettingsPermissionsContent = () => {
         row.key === rowKey ? { ...row, [column]: nextValue } : row,
       ),
     }));
-    setSuccessMessage(null);
   };
 
   const handleSave = async () => {
@@ -183,8 +170,6 @@ export const SettingsPermissionsContent = () => {
 
     try {
       setIsSaving(true);
-      setError(null);
-      setSuccessMessage(null);
       const accessToken = await getValidAccessToken();
       const response = await usersApi.updatePermissionsSettings(
         accessToken,
@@ -194,13 +179,12 @@ export const SettingsPermissionsContent = () => {
 
       setSections(nextSections);
       setPermissionsState(buildStateFromSections(nextSections));
-      setSuccessMessage("Permissions updated successfully.");
+      toastRef.current.success("Permissions updated successfully.");
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Failed to save permissions settings.",
-      );
+      toastRef.current.danger("Failed to save permissions settings.", {
+        description:
+          saveError instanceof Error ? saveError.message : "Please try again.",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -208,12 +192,6 @@ export const SettingsPermissionsContent = () => {
 
   return (
     <div className="space-y-4">
-      {successMessage ? (
-        <Alert color="success" title={successMessage} variant="flat" />
-      ) : null}
-
-      {error ? <Alert color="danger" title={error} variant="flat" /> : null}
-
       <Card className="border border-default-200 shadow-none">
         <CardBody className="gap-6 p-6">
           <div className="flex flex-col gap-4 border-b border-default-200 pb-6 sm:flex-row sm:items-center sm:justify-between">

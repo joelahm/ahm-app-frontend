@@ -7,6 +7,7 @@ import { Chip } from "@heroui/chip";
 import { Plus, X } from "lucide-react";
 
 interface AutocompleteTokenFieldProps {
+  allowCustomValue?: boolean;
   errorMessage?: string;
   label: string;
   maxTokens?: number;
@@ -17,6 +18,7 @@ interface AutocompleteTokenFieldProps {
 }
 
 export const AutocompleteTokenField = ({
+  allowCustomValue = true,
   errorMessage,
   label,
   maxTokens,
@@ -52,7 +54,8 @@ export const AutocompleteTokenField = ({
 
     if (
       !nextValue ||
-      (typeof maxTokens === "number" && tokens.length >= maxTokens)
+      (typeof maxTokens === "number" && tokens.length >= maxTokens) ||
+      (!allowCustomValue && !options.includes(nextValue))
     ) {
       return;
     }
@@ -78,7 +81,7 @@ export const AutocompleteTokenField = ({
       <div className="rounded-xl border border-default-200 bg-white">
         <div className="flex items-center gap-2 border-b border-default-200 px-3 py-2">
           <Autocomplete
-            allowsCustomValue
+            allowsCustomValue={allowCustomValue}
             className="flex-1"
             classNames={{
               base: "w-full",

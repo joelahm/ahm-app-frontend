@@ -75,6 +75,7 @@ export interface UserListItem {
   department: string | null;
   phoneNumber: string | null;
   country: string | null;
+  discordUserId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,10 +85,12 @@ export interface CurrentUserProfile {
   country: string | null;
   createdAt: string;
   department: string | null;
+  discordUserId: string | null;
   email: string;
   firstName: string | null;
   id: number;
   isActive: boolean;
+  isSuperadmin?: boolean;
   lastName: string | null;
   phoneNumber: string | null;
   role: "ADMIN" | "TEAM_MEMBER" | "GUEST";
@@ -99,6 +102,7 @@ export interface CurrentUserProfile {
 export interface UpdateCurrentUserRequestBody {
   country: string;
   department: string;
+  discordUserId?: string | null;
   email: string;
   firstName: string;
   lastName: string;
@@ -229,10 +233,12 @@ const parseCurrentUserProfile = (value: unknown): CurrentUserProfile => {
     country: asString(source.country),
     createdAt: asString(source.createdAt) ?? "",
     department: asString(source.department),
+    discordUserId: asString(source.discordUserId ?? source.discord_user_id),
     email,
     firstName: asString(source.firstName),
     id,
     isActive: Boolean(source.isActive),
+    isSuperadmin: Boolean(source.isSuperadmin ?? source.is_superadmin),
     lastName: asString(source.lastName),
     phoneNumber: asString(source.phoneNumber),
     role,
@@ -281,6 +287,45 @@ export const usersApi = {
       });
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  cancelPendingInvitation: async (
+    accessToken: string,
+    invitationId: string | number,
+  ) => {
+    try {
+      const response = await usersApiClient.delete(
+        `/api/v1/users/pending-invitations/${invitationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data as { email?: string; success?: boolean };
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  resendPendingInvitation: async (
+    accessToken: string,
+    invitationId: string | number,
+  ) => {
+    try {
+      const response = await usersApiClient.post(
+        `/api/v1/users/pending-invitations/${invitationId}/resend`,
+        undefined,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data as { email?: string; success?: boolean };
     } catch (error) {
       throw new Error(parseError(error));
     }
@@ -437,10 +482,12 @@ export const usersApi = {
         country: asString(source.country),
         createdAt: asString(source.createdAt) ?? "",
         department: asString(source.department),
+        discordUserId: asString(source.discordUserId ?? source.discord_user_id),
         email,
         firstName: asString(source.firstName),
         id,
         isActive: Boolean(source.isActive),
+        isSuperadmin: Boolean(source.isSuperadmin ?? source.is_superadmin),
         lastName: asString(source.lastName),
         phoneNumber: asString(source.phoneNumber),
         role,

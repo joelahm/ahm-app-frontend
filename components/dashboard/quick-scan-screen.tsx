@@ -242,11 +242,7 @@ const quickScanSchema = yup.object({
     .of(yup.string().required())
     .min(1, "Add at least one keyword.")
     .required(),
-  labels: yup
-    .array()
-    .of(yup.string().required())
-    .min(1, "Add at least one label.")
-    .required(),
+  labels: yup.array().of(yup.string().required()).default([]).required(),
   repeatTime: yup.string().when("isRecurring", {
     is: true,
     otherwise: (schema) => schema.default("").notRequired(),

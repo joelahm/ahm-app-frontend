@@ -54,6 +54,18 @@ const settingsProfileSchema = yup.object({
       },
     ),
   department: yup.string().required("Department is required"),
+  discordUserId: yup
+    .string()
+    .default("")
+    .test(
+      "discord-user-id-format",
+      "Discord user ID must be 15-25 digits",
+      (value) => {
+        const trimmed = (value ?? "").trim();
+        if (!trimmed) return true;
+        return /^\d{15,25}$/.test(trimmed);
+      },
+    ),
   email: yup
     .string()
     .email("Enter a valid email")
@@ -230,6 +242,7 @@ export const SettingsProfileContent = () => {
       country: "",
       currentPassword: "",
       department: "",
+      discordUserId: "",
       email: "",
       firstName: "",
       lastName: "",
@@ -268,6 +281,7 @@ export const SettingsProfileContent = () => {
           country: resolvedCountryLabel ?? resolvedCountry,
           currentPassword: "",
           department: profile.department ?? "",
+          discordUserId: profile.discordUserId ?? "",
           email: profile.email,
           firstName: profile.firstName ?? "",
           lastName: profile.lastName ?? "",
@@ -368,6 +382,7 @@ export const SettingsProfileContent = () => {
       const basicInformationPayload = {
         country: validatedValues.country,
         department: validatedValues.department,
+        discordUserId: (validatedValues.discordUserId ?? "").trim(),
         email: validatedValues.email,
         firstName: validatedValues.firstName,
         lastName: validatedValues.lastName,
@@ -380,6 +395,10 @@ export const SettingsProfileContent = () => {
 
             formData.append("country", basicInformationPayload.country);
             formData.append("department", basicInformationPayload.department);
+            formData.append(
+              "discordUserId",
+              basicInformationPayload.discordUserId,
+            );
             formData.append("email", basicInformationPayload.email);
             formData.append("firstName", basicInformationPayload.firstName);
             formData.append("lastName", basicInformationPayload.lastName);
@@ -671,6 +690,26 @@ export const SettingsProfileContent = () => {
                         <SelectItem key={department}>{department}</SelectItem>
                       ))}
                     </Select>
+                  )}
+                />
+              </div>
+              <div>
+                <p className={fieldLabel}>Discord User ID</p>
+                <Controller
+                  control={control}
+                  name="discordUserId"
+                  render={({ field }) => (
+                    <Input
+                      description="Optional. Enable Discord mentions on personal notifications."
+                      errorMessage={errors.discordUserId?.message}
+                      isInvalid={!!errors.discordUserId}
+                      placeholder="e.g. 123456789012345678"
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
                   )}
                 />
               </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
+import { Checkbox } from "@heroui/checkbox";
 import { Chip } from "@heroui/chip";
 import {
   Dropdown,
@@ -23,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { clientsApi } from "@/apis/clients";
+import { clientsApi, type ProjectTask } from "@/apis/clients";
 import { projectTemplatesApi } from "@/apis/project-templates";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
@@ -37,6 +38,10 @@ import {
 } from "@/components/dashboard/dashboard-data-table";
 import { ViewTaskListsPanelContent } from "@/components/dashboard/client-details/view-task-lists-panel-content";
 import { useAppToast } from "@/hooks/use-app-toast";
+import {
+  normalizeProjectStatus,
+  PROJECT_STATUS_OPTIONS,
+} from "@/lib/project-statuses";
 
 type ClientProjectsRow = {
   accountManagerId: string;
@@ -46,9 +51,13 @@ type ClientProjectsRow = {
   templateDescription: string;
   tasks: Array<{
     assigneeAvatar?: string;
+    assigneeId?: string | null;
     assigneeName: string;
+    blockedTaskId?: string | null;
     description?: string | null;
     dueDate: string;
+    dueDateOffsetDays?: number;
+    dueDateRuleType?: string | null;
     id: string;
     name: string;
     parentTaskId?: string | null;
@@ -65,12 +74,11 @@ type ClientProjectsRow = {
     name: string;
   };
   status: string;
-  phase: string;
-  progress: string;
   startDate: string | null;
 };
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+const pageSizeOptions = [5, 10, 15, 20, 25, 50];
 
 const buildColumns = ({
   onRemoveProject,
@@ -161,22 +169,6 @@ const buildColumns = ({
     ),
   },
   {
-    key: "phase",
-    label: "Phase",
-    className: thClassName,
-    renderCell: (item) => (
-      <span className="text-sm text-[#374151]">{item.phase}</span>
-    ),
-  },
-  {
-    key: "progress",
-    label: "Progress",
-    className: thClassName,
-    renderCell: (item) => (
-      <span className="text-sm text-[#374151]">{item.progress}</span>
-    ),
-  },
-  {
     key: "action",
     label: "Action",
     className: thClassName,
@@ -243,6 +235,25 @@ const calculateProjectProgressPercent = (
   return Math.round((completedTasks.length / projectTasks.length) * 100);
 };
 
+const mapProjectTaskToPanelTask = (task: ProjectTask) => ({
+  assigneeAvatar: resolveServerAssetUrl(task.assignedTo?.avatar ?? undefined),
+  assigneeId: task.assignedToId ? String(task.assignedToId) : null,
+  assigneeName:
+    getFullName(
+      task.assignedTo?.firstName ?? null,
+      task.assignedTo?.lastName ?? null,
+    ) || "-",
+  description: task.description,
+  blockedTaskId: task.blockedTaskId ? String(task.blockedTaskId) : null,
+  dueDate: task.dueDate ?? "-",
+  dueDateOffsetDays: task.dueDateOffsetDays,
+  dueDateRuleType: task.dueDateRuleType ?? null,
+  id: String(task.id),
+  name: task.taskName ?? task.task ?? "-",
+  parentTaskId: task.parentTaskId ? String(task.parentTaskId) : null,
+  status: task.status ?? "Todo",
+});
+
 const resolveServerAssetUrl = (value?: string | null) => {
   if (!value) {
     return undefined;
@@ -303,7 +314,12 @@ export const ClientProjectsTable = ({
   const [clientAddress, setClientAddress] = useState("-");
   const [clientName, setClientName] = useState(clientId);
   const [rows, setRows] = useState<ClientProjectsRow[]>([]);
+  const [accountManagerFilter, setAccountManagerFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [csmFilter, setCsmFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(10);
+  const [searchValue, setSearchValue] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [totalPages, setTotalPages] = useState(1);
   const [users, setUsers] = useState<
     Array<{ avatar?: string | null; id: string; name: string }>
@@ -314,6 +330,13 @@ export const ClientProjectsTable = ({
     Record<string, string>
   >({});
   const [hasHandledOpenProjectId, setHasHandledOpenProjectId] = useState(false);
+
+  const resetFilters = () => {
+    setAccountManagerFilter("all");
+    setCsmFilter("all");
+    setSearchValue("");
+    setStatusFilter("all");
+  };
 
   useEffect(() => {
     setHasHandledOpenProjectId(false);
@@ -498,8 +521,13 @@ export const ClientProjectsTable = ({
 
       const [response, tasksResponse] = await Promise.all([
         clientsApi.getClientProjects(accessToken, clientId, {
-          limit: 10,
+          accountManagerId:
+            accountManagerFilter === "all" ? undefined : accountManagerFilter,
+          clientSuccessManagerId: csmFilter === "all" ? undefined : csmFilter,
+          limit: pageSize,
           page,
+          search: searchValue.trim() || undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
         }),
         clientsApi.getProjectTasks(accessToken, clientId),
       ]);
@@ -532,32 +560,13 @@ export const ClientProjectsTable = ({
               "",
             tasks: tasksResponse.tasks
               .filter((task) => String(task.projectId) === String(project.id))
-              .map((task) => ({
-                assigneeAvatar: resolveServerAssetUrl(
-                  task.assignedTo?.avatar ?? undefined,
-                ),
-                assigneeName:
-                  getFullName(
-                    task.assignedTo?.firstName ?? null,
-                    task.assignedTo?.lastName ?? null,
-                  ) || "-",
-                description: task.description,
-                dueDate: task.dueDate ?? "-",
-                id: String(task.id),
-                name: task.taskName ?? task.task ?? "-",
-                parentTaskId: task.parentTaskId
-                  ? String(task.parentTaskId)
-                  : null,
-                status: task.status ?? "Todo",
-              })),
-            progress: project.progress ?? "-",
+              .map(mapProjectTaskToPanelTask),
             progressPercent: calculateProjectProgressPercent(
               String(project.id),
               tasksResponse.tasks,
             ),
-            phase: project.phase ?? "-",
             startDate: project.startDate ?? null,
-            status: project.progress ?? "Draft",
+            status: normalizeProjectStatus(project.progress),
             accountManager: {
               avatar: resolveServerAssetUrl(project.accountManager.avatar),
               name: accountManagerName,
@@ -575,10 +584,15 @@ export const ClientProjectsTable = ({
       setTotalPages(Math.max(1, response.pagination.totalPages || 1));
     },
     [
+      accountManagerFilter,
       clientId,
+      csmFilter,
       getValidAccessToken,
+      pageSize,
       projectDescriptionById,
+      searchValue,
       session,
+      statusFilter,
       templateDescriptionByProject,
     ],
   );
@@ -586,6 +600,10 @@ export const ClientProjectsTable = ({
   useEffect(() => {
     void loadProjects(currentPage);
   }, [currentPage, loadProjects]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [accountManagerFilter, csmFilter, pageSize, searchValue, statusFilter]);
 
   useEffect(() => {
     if (hasHandledOpenProjectId || !openProjectId || rows.length === 0) {
@@ -642,77 +660,79 @@ export const ClientProjectsTable = ({
     if (payload.tasks?.length) {
       const failedTaskNames: string[] = [];
       const createdTaskIdByLocalId = new Map<string, string>();
-      const pendingTasks = [...payload.tasks];
-      const deferredTasks: typeof pendingTasks = [];
+      let pendingTasks = [...payload.tasks];
 
       while (pendingTasks.length > 0) {
-        const task = pendingTasks.shift();
+        const deferredTasks: typeof pendingTasks = [];
+        let createdTaskCount = 0;
 
-        if (!task) {
+        for (const task of pendingTasks) {
+          const waitsForParentTask =
+            task.parentTaskId &&
+            !createdTaskIdByLocalId.has(task.parentTaskId) &&
+            payload.tasks.some((item) => item.id === task.parentTaskId);
+          const waitsForBlockedTask =
+            task.enableDependency &&
+            task.blockedTaskId &&
+            !createdTaskIdByLocalId.has(task.blockedTaskId) &&
+            payload.tasks.some((item) => item.id === task.blockedTaskId);
+
+          if (waitsForParentTask || waitsForBlockedTask) {
+            deferredTasks.push(task);
+            continue;
+          }
+
+          const blockedTaskId =
+            task.enableDependency && task.blockedTaskId
+              ? createdTaskIdByLocalId.get(task.blockedTaskId)
+              : undefined;
+
+          if (task.enableDependency && task.blockedTaskId && !blockedTaskId) {
+            deferredTasks.push(task);
+            continue;
+          }
+
+          const taskPayload = {
+            assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
+            blockedTaskId,
+            description: task.taskDescription,
+            dependencyType: task.dependencyType,
+            dueDate: payload.dueDate,
+            dueDateTrigger: task.dueDateTrigger,
+            enableDependency: task.enableDependency,
+            parentTaskId: task.parentTaskId
+              ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
+              : undefined,
+            projectId: createdProject.id,
+            status: normalizeProjectTaskStatus(task.status),
+            task: task.taskName,
+            taskName: task.taskName,
+          };
+
+          try {
+            const createdTask = await clientsApi.createProjectTask(
+              accessToken,
+              createdProject.id,
+              taskPayload,
+            );
+
+            createdTaskIdByLocalId.set(task.id, String(createdTask.id));
+            createdTaskCount += 1;
+          } catch {
+            failedTaskNames.push(task.taskName);
+          }
+        }
+
+        if (deferredTasks.length === 0) {
           break;
         }
 
-        if (
-          task.parentTaskId &&
-          !createdTaskIdByLocalId.has(task.parentTaskId) &&
-          payload.tasks.some((item) => item.id === task.parentTaskId)
-        ) {
-          deferredTasks.push(task);
-          continue;
+        if (createdTaskCount === 0) {
+          failedTaskNames.push(...deferredTasks.map((task) => task.taskName));
+          break;
         }
 
-        const taskPayload = {
-          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
-          description: task.taskDescription,
-          dueDate: payload.dueDate,
-          parentTaskId: task.parentTaskId
-            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
-            : undefined,
-          projectId: createdProject.id,
-          status: normalizeProjectTaskStatus(task.status),
-          task: task.taskName,
-          taskName: task.taskName,
-        };
-
-        try {
-          const createdTask = await clientsApi.createProjectTask(
-            accessToken,
-            createdProject.id,
-            taskPayload,
-          );
-
-          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
-        } catch {
-          failedTaskNames.push(task.taskName);
-        }
-      }
-
-      // Retry deferred tasks once parent tasks have been created.
-      for (const task of deferredTasks) {
-        const taskPayload = {
-          assigneeId: task.assigneeId ?? payload.clientSuccessManagerId,
-          description: task.taskDescription,
-          dueDate: payload.dueDate,
-          parentTaskId: task.parentTaskId
-            ? (createdTaskIdByLocalId.get(task.parentTaskId) ?? undefined)
-            : undefined,
-          projectId: createdProject.id,
-          status: normalizeProjectTaskStatus(task.status),
-          task: task.taskName,
-          taskName: task.taskName,
-        };
-
-        try {
-          const createdTask = await clientsApi.createProjectTask(
-            accessToken,
-            createdProject.id,
-            taskPayload,
-          );
-
-          createdTaskIdByLocalId.set(task.id, String(createdTask.id));
-        } catch {
-          failedTaskNames.push(task.taskName);
-        }
+        pendingTasks = deferredTasks;
       }
 
       if (failedTaskNames.length > 0) {
@@ -825,6 +845,83 @@ export const ClientProjectsTable = ({
     );
   };
 
+  const handleTaskDueDateChange = async (taskId: string, dueDate: string) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    if (!session) {
+      throw new Error("Your session has expired. Please login again.");
+    }
+
+    const accessToken = await getValidAccessToken();
+
+    await clientsApi.updateProjectTask(accessToken, taskId, { dueDate });
+
+    const tasksResponse = await clientsApi.getProjectTasks(
+      accessToken,
+      clientId,
+    );
+    const nextTasks = tasksResponse.tasks
+      .filter((task) => String(task.projectId) === selectedProject.id)
+      .map(mapProjectTaskToPanelTask);
+    const nextProject = {
+      ...selectedProject,
+      progressPercent: calculateProjectProgressPercent(
+        selectedProject.id,
+        tasksResponse.tasks,
+      ),
+      tasks: nextTasks,
+    };
+
+    setSelectedProject(nextProject);
+    setRows((previous) =>
+      previous.map((row) => (row.id === nextProject.id ? nextProject : row)),
+    );
+  };
+
+  const handleTaskChange = async (
+    taskId: string,
+    payload: {
+      assigneeId?: string;
+      dueDate?: string;
+      status?: string;
+    },
+  ) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    if (!session) {
+      throw new Error("Your session has expired. Please login again.");
+    }
+
+    const accessToken = await getValidAccessToken();
+
+    await clientsApi.updateProjectTask(accessToken, taskId, payload);
+
+    const tasksResponse = await clientsApi.getProjectTasks(
+      accessToken,
+      clientId,
+    );
+    const nextTasks = tasksResponse.tasks
+      .filter((task) => String(task.projectId) === selectedProject.id)
+      .map(mapProjectTaskToPanelTask);
+    const nextProject = {
+      ...selectedProject,
+      progressPercent: calculateProjectProgressPercent(
+        selectedProject.id,
+        tasksResponse.tasks,
+      ),
+      tasks: nextTasks,
+    };
+
+    setSelectedProject(nextProject);
+    setRows((previous) =>
+      previous.map((row) => (row.id === nextProject.id ? nextProject : row)),
+    );
+  };
+
   const handleRemoveProject = async (projectId: string) => {
     if (!session) {
       toast.danger("Session expired", {
@@ -853,10 +950,45 @@ export const ClientProjectsTable = ({
     }
   };
 
-  const columns = buildColumns({
-    onRemoveProject: handleRemoveProject,
-    onViewTaskLists: handleViewTaskLists,
-  });
+  const columns = useMemo(
+    () =>
+      buildColumns({
+        onRemoveProject: handleRemoveProject,
+        onViewTaskLists: handleViewTaskLists,
+      }),
+    [handleRemoveProject, handleViewTaskLists],
+  );
+  const toggleableColumns = useMemo(
+    () => columns.filter((column) => column.key !== "action"),
+    [columns],
+  );
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(toggleableColumns.map((column) => column.key)),
+  );
+  const visibleColumns = useMemo(
+    () =>
+      columns.filter(
+        (column) =>
+          column.key === "action" || visibleColumnKeys.has(column.key),
+      ),
+    [columns, visibleColumnKeys],
+  );
+  const csmOptions = useMemo(
+    () =>
+      users
+        .filter((user) => user.id && user.name !== "-")
+        .map((user) => ({ id: user.id, name: user.name }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [users],
+  );
+  const accountManagerOptions = useMemo(
+    () =>
+      users
+        .filter((user) => user.id && user.name !== "-")
+        .map((user) => ({ id: user.id, name: user.name }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [users],
+  );
 
   return (
     <>
@@ -864,27 +996,176 @@ export const ClientProjectsTable = ({
         serverPagination
         showPagination
         ariaLabel="Client projects"
-        columns={columns}
+        columns={visibleColumns}
         currentPage={currentPage}
         getRowKey={(item) => item.id}
         headerRight={
           <div className="flex w-full flex-wrap items-center justify-end gap-2">
-            <Button
-              startContent={<SlidersHorizontal size={14} />}
-              variant="bordered"
-            >
-              Filter
-            </Button>
-            <Button startContent={<List size={14} />} variant="bordered">
-              Show 10
-            </Button>
-            <Button startContent={<Columns3 size={14} />} variant="bordered">
-              Columns
-            </Button>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button
+                  startContent={<SlidersHorizontal size={14} />}
+                  variant="bordered"
+                >
+                  Filter
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Client project filters"
+                className="min-w-64"
+                closeOnSelect={false}
+              >
+                <DropdownItem key="status-filter" textValue="Status filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Status
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={statusFilter}
+                      onChange={(event) => {
+                        setStatusFilter(event.target.value);
+                      }}
+                    >
+                      <option value="all">All statuses</option>
+                      {PROJECT_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="csm-filter"
+                  textValue="Client success manager filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Client Success Manager
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={csmFilter}
+                      onChange={(event) => {
+                        setCsmFilter(event.target.value);
+                      }}
+                    >
+                      <option value="all">All managers</option>
+                      {csmOptions.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="account-manager-filter"
+                  textValue="Account manager filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Account Manager
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={accountManagerFilter}
+                      onChange={(event) => {
+                        setAccountManagerFilter(event.target.value);
+                      }}
+                    >
+                      <option value="all">All account managers</option>
+                      {accountManagerOptions.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="reset-filters" textValue="Reset filters">
+                  <Button
+                    fullWidth
+                    radius="sm"
+                    variant="bordered"
+                    onPress={resetFilters}
+                  >
+                    Reset
+                  </Button>
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown>
+              <DropdownTrigger>
+                <Button startContent={<List size={14} />} variant="bordered">
+                  Show {pageSize}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Projects rows per page"
+                selectedKeys={new Set([String(pageSize)])}
+                selectionMode="single"
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys as Set<string>)[0];
+
+                  if (selected) {
+                    setPageSize(Number(selected));
+                  }
+                }}
+              >
+                {pageSizeOptions.map((option) => (
+                  <DropdownItem key={String(option)}>{option}</DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown closeOnSelect={false}>
+              <DropdownTrigger>
+                <Button
+                  startContent={<Columns3 size={14} />}
+                  variant="bordered"
+                >
+                  Columns
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Visible project columns"
+                closeOnSelect={false}
+              >
+                {toggleableColumns.map((column) => (
+                  <DropdownItem
+                    key={column.key}
+                    textValue={column.label}
+                    onPress={() => {
+                      setVisibleColumnKeys((current) => {
+                        const next = new Set(current);
+
+                        if (next.has(column.key)) {
+                          next.delete(column.key);
+                        } else {
+                          next.add(column.key);
+                        }
+
+                        return next;
+                      });
+                    }}
+                  >
+                    <Checkbox
+                      className="pointer-events-none"
+                      isSelected={visibleColumnKeys.has(column.key)}
+                    >
+                      {column.label}
+                    </Checkbox>
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
             <Input
               className="max-w-[220px]"
-              placeholder="Search here"
+              placeholder="Search projects"
               startContent={<Search className="text-default-400" size={14} />}
+              value={searchValue}
+              onValueChange={setSearchValue}
             />
             <Button
               className="bg-[#022279] text-white"
@@ -897,6 +1178,7 @@ export const ClientProjectsTable = ({
             </Button>
           </div>
         }
+        pageSize={pageSize}
         rows={rows}
         title="Projects"
         totalPages={totalPages}
@@ -949,6 +1231,8 @@ export const ClientProjectsTable = ({
                 setIsTaskListPanelOpen(false);
               }}
               onProjectMetaChange={handleProjectMetaChange}
+              onTaskChange={handleTaskChange}
+              onTaskDueDateChange={handleTaskDueDateChange}
             />
           </DrawerBody>
         </DrawerContent>

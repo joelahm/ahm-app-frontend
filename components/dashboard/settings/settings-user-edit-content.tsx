@@ -1,7 +1,6 @@
 "use client";
 
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Alert } from "@heroui/alert";
@@ -13,11 +12,14 @@ import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { CloudUpload, Eye, EyeOff, Mail, UserCircle2 } from "lucide-react";
 
+import { clientsApi, type ClientApiItem } from "@/apis/clients";
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
+import { AutocompleteTokenField } from "@/components/form/autocomplete-token-field";
 import { usersApi } from "@/apis/users";
 import { departmentOptions } from "@/components/form/department-options";
 import { getCountryOptions } from "@/components/form/location-options";
 import { useAuth } from "@/components/auth/auth-context";
+import { useAppToast } from "@/hooks/use-app-toast";
 
 const fieldLabel = "mb-1.5 block text-xs text-[#585763]";
 const sectionCard = "rounded-xl border border-default-200 bg-white";
@@ -26,6 +28,20 @@ const settingsProfileSchema = yup.object({
   country: yup.string().required("Country is required"),
   currentPassword: yup.string().default(""),
   department: yup.string().required("Department is required"),
+  discordUserId: yup
+    .string()
+    .default("")
+    .test(
+      "discord-user-id-format",
+      "Discord user ID must be 15-25 digits",
+      (value) => {
+        const trimmed = (value ?? "").trim();
+
+        if (!trimmed) return true;
+
+        return /^\d{15,25}$/.test(trimmed);
+      },
+    ),
   email: yup
     .string()
     .email("Enter a valid email")
@@ -37,7 +53,7 @@ const settingsProfileSchema = yup.object({
     .default("")
     .test(
       "new-password-min-length",
-      "Password must be at least 8 characters",
+      "Password must be at least 10 characters",
       (value) => {
         const password = value?.trim() ?? "";
 
@@ -45,7 +61,7 @@ const settingsProfileSchema = yup.object({
           return true;
         }
 
-        return password.length >= 8;
+        return password.length >= 10;
       },
     )
     .test(
@@ -127,7 +143,8 @@ export const SettingsUserEditContent = ({
   userId,
 }: SettingsUserEditContentProps) => {
   const { getValidAccessToken, session } = useAuth();
-  const router = useRouter();
+  const toast = useAppToast();
+  const toastRef = useRef(toast);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [avatarError, setAvatarError] = useState("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -135,14 +152,23 @@ export const SettingsUserEditContent = ({
     undefined,
   );
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
+  const [assignedClientTokens, setAssignedClientTokens] = useState<string[]>(
+    [],
+  );
+  const [clients, setClients] = useState<ClientApiItem[]>([]);
   const [countrySearch, setCountrySearch] = useState("");
+  const [initialAssignedClientIds, setInitialAssignedClientIds] = useState<
+    string[]
+  >([]);
   const [memberId, setMemberId] = useState<string>("-");
-  const [profileError, setProfileError] = useState("");
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
-  const [submitMessage, setSubmitMessage] = useState("");
   const [displayName, setDisplayName] = useState<string>("");
+  const canManageUserPassword = Boolean(session?.user.isSuperadmin);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const countryOptions = useMemo(() => getCountryOptions(), []);
   const filteredCountryOptions = useMemo(() => {
@@ -156,6 +182,49 @@ export const SettingsUserEditContent = ({
       country.label.toLowerCase().includes(normalizedQuery),
     );
   }, [countryOptions, countrySearch]);
+  const clientLabelById = useMemo(() => {
+    const nameCounts = new Map<string, number>();
+
+    clients.forEach((client) => {
+      const name =
+        (client.businessName || client.clientName || "").trim() ||
+        `Client ${client.id}`;
+
+      nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+    });
+
+    return clients.reduce<Map<string, string>>((map, client) => {
+      const clientId = String(client.id);
+      const name =
+        (client.businessName || client.clientName || "").trim() ||
+        `Client ${clientId}`;
+      const label =
+        (nameCounts.get(name) ?? 0) > 1 ? `${name} (${clientId})` : name;
+
+      map.set(clientId, label);
+
+      return map;
+    }, new Map());
+  }, [clients]);
+  const clientIdByLabel = useMemo(
+    () =>
+      Array.from(clientLabelById.entries()).reduce<Map<string, string>>(
+        (map, [id, label]) => {
+          map.set(label, id);
+
+          return map;
+        },
+        new Map(),
+      ),
+    [clientLabelById],
+  );
+  const clientOptions = useMemo(
+    () =>
+      Array.from(clientLabelById.values()).sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    [clientLabelById],
+  );
 
   const {
     control,
@@ -164,12 +233,14 @@ export const SettingsUserEditContent = ({
     register,
     reset,
     setError,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<SettingsProfileFormValues>({
     defaultValues: {
       country: "",
       currentPassword: "",
       department: "",
+      discordUserId: "",
       email: "",
       firstName: "",
       lastName: "",
@@ -200,6 +271,7 @@ export const SettingsUserEditContent = ({
           country: matchedUser.country ?? null,
           createdAt: matchedUser.createdAt,
           department: matchedUser.department ?? null,
+          discordUserId: matchedUser.discordUserId ?? null,
           email: matchedUser.email,
           firstName: matchedUser.firstName ?? null,
           id: matchedUser.id,
@@ -228,11 +300,12 @@ export const SettingsUserEditContent = ({
     let isMounted = true;
 
     const hydrateProfile = async () => {
-      setProfileError("");
-
       try {
         const accessToken = await getValidAccessToken();
-        const profile = await loadUserFromList(accessToken);
+        const [profile, clientRows] = await Promise.all([
+          loadUserFromList(accessToken),
+          clientsApi.getClients(accessToken),
+        ]);
 
         if (!isMounted) {
           return;
@@ -248,6 +321,7 @@ export const SettingsUserEditContent = ({
           country: resolvedCountryLabel ?? resolvedCountry,
           currentPassword: "",
           department: profile.department ?? "",
+          discordUserId: profile.discordUserId ?? "",
           email: profile.email,
           firstName: profile.firstName ?? "",
           lastName: profile.lastName ?? "",
@@ -264,6 +338,51 @@ export const SettingsUserEditContent = ({
         );
         setCountrySearch(resolvedCountryLabel ?? resolvedCountry);
         setMemberId(String(profile.id));
+        setClients(clientRows);
+
+        const nameCounts = new Map<string, number>();
+
+        clientRows.forEach((client) => {
+          const name =
+            (client.businessName || client.clientName || "").trim() ||
+            `Client ${client.id}`;
+
+          nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+        });
+
+        const assignedClientIds = clientRows
+          .filter((client) => {
+            const assignedTo = client.assignedToId ?? client.assignedTo ?? null;
+
+            return (
+              assignedTo !== null &&
+              assignedTo !== undefined &&
+              String(assignedTo) === String(profile.id)
+            );
+          })
+          .map((client) => String(client.id));
+        const assignedClientLabels = assignedClientIds
+          .map((clientId) => {
+            const client = clientRows.find(
+              (candidate) => String(candidate.id) === clientId,
+            );
+
+            if (!client) {
+              return null;
+            }
+
+            const name =
+              (client.businessName || client.clientName || "").trim() ||
+              `Client ${clientId}`;
+
+            return (nameCounts.get(name) ?? 0) > 1
+              ? `${name} (${clientId})`
+              : name;
+          })
+          .filter((label): label is string => Boolean(label));
+
+        setInitialAssignedClientIds(assignedClientIds);
+        setAssignedClientTokens(assignedClientLabels);
 
         if (profile.avatarUrl) {
           const isAbsolute = /^https?:\/\//i.test(profile.avatarUrl);
@@ -286,9 +405,10 @@ export const SettingsUserEditContent = ({
           return;
         }
 
-        setProfileError(
-          error instanceof Error ? error.message : "Failed to load profile.",
-        );
+        toastRef.current.danger("Failed to load user", {
+          description:
+            error instanceof Error ? error.message : "Failed to load profile.",
+        });
       }
     };
 
@@ -345,8 +465,6 @@ export const SettingsUserEditContent = ({
 
   const onSubmit = async (values: SettingsProfileFormValues) => {
     clearErrors();
-    setSubmitMessage("");
-    setProfileError("");
 
     try {
       const validatedValues = await settingsProfileSchema.validate(values, {
@@ -362,6 +480,7 @@ export const SettingsUserEditContent = ({
       const basicInformationPayload = {
         country: validatedValues.country,
         department: validatedValues.department,
+        discordUserId: (validatedValues.discordUserId ?? "").trim(),
         email: validatedValues.email,
         firstName: validatedValues.firstName,
         lastName: validatedValues.lastName,
@@ -374,6 +493,10 @@ export const SettingsUserEditContent = ({
 
             formData.append("country", basicInformationPayload.country);
             formData.append("department", basicInformationPayload.department);
+            formData.append(
+              "discordUserId",
+              basicInformationPayload.discordUserId,
+            );
             formData.append("email", basicInformationPayload.email);
             formData.append("firstName", basicInformationPayload.firstName);
             formData.append("lastName", basicInformationPayload.lastName);
@@ -391,14 +514,43 @@ export const SettingsUserEditContent = ({
       const newPassword = validatedValues.newPassword.trim();
       const confirmPassword = validatedValues.confirmPassword.trim();
       const shouldChangePassword =
-        !!currentPassword || !!newPassword || !!confirmPassword;
+        canManageUserPassword &&
+        (!!currentPassword || !!newPassword || !!confirmPassword);
 
       if (shouldChangePassword) {
         await usersApi.updateUserPasswordById(accessToken, userId, {
           confirmPassword,
-          currentPassword,
           newPassword,
         });
+      }
+
+      const nextAssignedClientIds = assignedClientTokens
+        .map((token) => clientIdByLabel.get(token))
+        .filter((clientId): clientId is string => Boolean(clientId));
+      const nextAssignedClientIdSet = new Set(nextAssignedClientIds);
+      const initialAssignedClientIdSet = new Set(initialAssignedClientIds);
+      const addedClientIds = nextAssignedClientIds.filter(
+        (clientId) => !initialAssignedClientIdSet.has(clientId),
+      );
+      const removedClientIds = initialAssignedClientIds.filter(
+        (clientId) => !nextAssignedClientIdSet.has(clientId),
+      );
+
+      if (addedClientIds.length || removedClientIds.length) {
+        await Promise.all([
+          ...addedClientIds.map((clientId) =>
+            clientsApi.updateClientById(accessToken, clientId, {
+              assignedTo: userId,
+            }),
+          ),
+          ...removedClientIds.map((clientId) =>
+            clientsApi.updateClientById(accessToken, clientId, {
+              assignedTo: null,
+            }),
+          ),
+        ]);
+
+        setInitialAssignedClientIds(nextAssignedClientIds);
       }
 
       const refreshedProfile = await loadUserFromList(accessToken);
@@ -435,7 +587,22 @@ export const SettingsUserEditContent = ({
         currentPassword: "",
         newPassword: "",
       });
-      setSubmitMessage("User updated successfully.");
+      setValue("confirmPassword", "", {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+      setValue("currentPassword", "", {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+      setValue("newPassword", "", {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+      toast.success("User updated successfully.");
     } catch (error) {
       if (error instanceof yup.ValidationError) {
         error.inner.forEach((issue) => {
@@ -452,9 +619,10 @@ export const SettingsUserEditContent = ({
         return;
       }
 
-      setProfileError(
-        error instanceof Error ? error.message : "Failed to update profile.",
-      );
+      toast.danger("Failed to update user", {
+        description:
+          error instanceof Error ? error.message : "Failed to update profile.",
+      });
     }
   };
 
@@ -469,22 +637,6 @@ export const SettingsUserEditContent = ({
             <h2 className="font-semibold text-[#111827]">Basic Information</h2>
           </CardHeader>
           <CardBody className="space-y-3 px-4 py-4">
-            {profileError ? (
-              <Alert
-                color="danger"
-                description={profileError}
-                title="Failed to update user"
-                variant="flat"
-              />
-            ) : null}
-            {submitMessage ? (
-              <Alert
-                color="success"
-                description={submitMessage}
-                title="User updated"
-                variant="flat"
-              />
-            ) : null}
             <div className="flex items-center gap-2">
               <UserCircle2 className="text-[#0568C9]" size={16} />
               <p className="text-sm text-[#4B5563]">Member ID</p>
@@ -662,111 +814,111 @@ export const SettingsUserEditContent = ({
                   )}
                 />
               </div>
+              <div>
+                <p className={fieldLabel}>Discord User ID</p>
+                <Controller
+                  control={control}
+                  name="discordUserId"
+                  render={({ field }) => (
+                    <Input
+                      description="Optional. Enable Discord mentions on personal notifications."
+                      errorMessage={errors.discordUserId?.message}
+                      isInvalid={!!errors.discordUserId}
+                      placeholder="e.g. 123456789012345678"
+                      radius="sm"
+                      size="sm"
+                      value={field.value ?? ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+              </div>
             </div>
           </CardBody>
         </Card>
 
         <Card className={sectionCard} shadow="none">
           <CardHeader className="border-b border-default-200 px-4 py-3">
-            <div className="flex w-full items-center justify-between">
-              <h2 className="font-semibold text-[#111827]">Change Password</h2>
-              <Button
-                radius="sm"
-                size="sm"
-                variant="light"
-                onPress={() => router.push("/dashboard/settings")}
-              >
-                Back to users
-              </Button>
-            </div>
+            <h2 className="font-semibold text-[#111827]">Assigned Clients</h2>
           </CardHeader>
           <CardBody className="space-y-3 px-4 py-4">
-            <div>
-              <p className={fieldLabel}>Current Password *</p>
-              <Input
-                {...register("currentPassword")}
-                endContent={
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    type="button"
-                    variant="light"
-                    onPress={() => {
-                      setShowCurrentPassword((value) => !value);
-                    }}
-                  >
-                    {showCurrentPassword ? (
-                      <EyeOff className="text-default-400" size={14} />
-                    ) : (
-                      <Eye className="text-default-400" size={14} />
-                    )}
-                  </Button>
-                }
-                errorMessage={errors.currentPassword?.message}
-                isInvalid={!!errors.currentPassword}
-                radius="sm"
-                size="sm"
-                type={showCurrentPassword ? "text" : "password"}
-              />
-            </div>
-            <div>
-              <p className={fieldLabel}>New Password *</p>
-              <Input
-                {...register("newPassword")}
-                endContent={
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    type="button"
-                    variant="light"
-                    onPress={() => {
-                      setShowNewPassword((value) => !value);
-                    }}
-                  >
-                    {showNewPassword ? (
-                      <EyeOff className="text-default-400" size={14} />
-                    ) : (
-                      <Eye className="text-default-400" size={14} />
-                    )}
-                  </Button>
-                }
-                errorMessage={errors.newPassword?.message}
-                isInvalid={!!errors.newPassword}
-                radius="sm"
-                size="sm"
-                type={showNewPassword ? "text" : "password"}
-              />
-            </div>
-            <div>
-              <p className={fieldLabel}>Confirm Password *</p>
-              <Input
-                {...register("confirmPassword")}
-                endContent={
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    type="button"
-                    variant="light"
-                    onPress={() => {
-                      setShowConfirmPassword((value) => !value);
-                    }}
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff className="text-default-400" size={14} />
-                    ) : (
-                      <Eye className="text-default-400" size={14} />
-                    )}
-                  </Button>
-                }
-                errorMessage={errors.confirmPassword?.message}
-                isInvalid={!!errors.confirmPassword}
-                radius="sm"
-                size="sm"
-                type={showConfirmPassword ? "text" : "password"}
-              />
-            </div>
+            <AutocompleteTokenField
+              allowCustomValue={false}
+              label="Clients"
+              options={clientOptions}
+              placeholder="Search and add client"
+              tokens={assignedClientTokens}
+              onChange={setAssignedClientTokens}
+            />
           </CardBody>
         </Card>
+
+        {canManageUserPassword ? (
+          <Card className={sectionCard} shadow="none">
+            <CardHeader className="border-b border-default-200 px-4 py-3">
+              <h2 className="font-semibold text-[#111827]">Change Password</h2>
+            </CardHeader>
+            <CardBody className="space-y-3 px-4 py-4">
+              <div>
+                <p className={fieldLabel}>New Password *</p>
+                <Input
+                  {...register("newPassword")}
+                  endContent={
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      type="button"
+                      variant="light"
+                      onPress={() => {
+                        setShowNewPassword((value) => !value);
+                      }}
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="text-default-400" size={14} />
+                      ) : (
+                        <Eye className="text-default-400" size={14} />
+                      )}
+                    </Button>
+                  }
+                  errorMessage={errors.newPassword?.message}
+                  isInvalid={!!errors.newPassword}
+                  radius="sm"
+                  size="sm"
+                  type={showNewPassword ? "text" : "password"}
+                />
+              </div>
+              <div>
+                <p className={fieldLabel}>Confirm Password *</p>
+                <Input
+                  {...register("confirmPassword")}
+                  endContent={
+                    <Button
+                      isIconOnly
+                      size="sm"
+                      type="button"
+                      variant="light"
+                      onPress={() => {
+                        setShowConfirmPassword((value) => !value);
+                      }}
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="text-default-400" size={14} />
+                      ) : (
+                        <Eye className="text-default-400" size={14} />
+                      )}
+                    </Button>
+                  }
+                  errorMessage={errors.confirmPassword?.message}
+                  isInvalid={!!errors.confirmPassword}
+                  radius="sm"
+                  size="sm"
+                  type={showConfirmPassword ? "text" : "password"}
+                />
+              </div>
+            </CardBody>
+          </Card>
+        ) : null}
       </div>
 
       <div>

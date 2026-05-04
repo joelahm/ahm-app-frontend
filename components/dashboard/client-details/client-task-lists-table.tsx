@@ -6,10 +6,12 @@ import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Card, CardBody, CardHeader } from "@heroui/card";
+import { Drawer, DrawerBody, DrawerContent } from "@heroui/drawer";
 import {
   Dropdown,
   DropdownItem,
   DropdownMenu,
+  DropdownSection,
   DropdownTrigger,
 } from "@heroui/dropdown";
 import { Input } from "@heroui/input";
@@ -18,7 +20,6 @@ import {
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
-  List,
   ListChecks,
   Plus,
   Search,
@@ -26,19 +27,20 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { clientsApi, ProjectTask } from "@/apis/clients";
+import { clientsApi, ClientProject, ProjectTask } from "@/apis/clients";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import {
   AddProjectTemplateTaskModal,
   type AddProjectTemplateTaskFormValues,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
-import { ViewTaskModal } from "@/components/dashboard/client-details/view-task-modal";
+import { ViewTaskListsPanelContent } from "@/components/dashboard/client-details/view-task-lists-panel-content";
 import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
 import { formatCommentPreview } from "@/lib/comment-preview";
+import { normalizeProjectStatus } from "@/lib/project-statuses";
 import { normalizeTaskStatus, TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 type TaskListRow = {
@@ -48,9 +50,11 @@ type TaskListRow = {
     name: string;
   };
   assigneeId?: string;
+  blockedTaskId?: string;
   comment: string;
   description: string;
   dueDate: string;
+  dueDateRuleType?: string | null;
   parentTaskId?: string;
   projectId?: string;
   projectType: string;
@@ -69,7 +73,45 @@ type TaskListGroup = {
   rows: TaskListRow[];
 };
 
+type TaskPanelProject = {
+  accountManagerAvatar?: string;
+  accountManagerId: string;
+  accountManagerName: string;
+  csmAvatar?: string;
+  csmId: string;
+  csmName: string;
+  dueDate: string | null;
+  id: string;
+  name: string;
+  startDate: string | null;
+  status: string;
+};
+
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+const toggleableColumnKeys = [
+  "taskName",
+  "projectType",
+  "assignee",
+  "comment",
+  "dueDate",
+  "status",
+];
+const allDueDateFilter = "all";
+const dueDateFilterOptions = [
+  { key: allDueDateFilter, label: "All due dates" },
+  { key: "overdue", label: "Overdue" },
+  { key: "today", label: "Today" },
+  { key: "this-week", label: "This week" },
+  { key: "none", label: "No due date" },
+];
+
+const getFullName = (firstName?: string | null, lastName?: string | null) => {
+  const parts = [firstName, lastName]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+
+  return parts.join(" ");
+};
 
 const getStatusChipClassName = (status: string) => {
   const normalizedStatus = normalizeTaskStatus(status);
@@ -114,7 +156,7 @@ const buildColumns = ({
     className: thClassName,
     renderCell: (item) => (
       <div
-        className="flex items-center gap-2"
+        className="flex min-w-0 items-center gap-2"
         style={{ paddingLeft: `${Math.min(item.depth, 2) * 20}px` }}
       >
         {item.hasChildren ? (
@@ -132,7 +174,12 @@ const buildColumns = ({
         ) : (
           <span className="inline-block w-[14px] flex-none" />
         )}
-        <span className="line-clamp-2 text-sm text-[#111827]">
+        <span
+          className={`h-8 w-1 flex-none rounded-full ${
+            item.depth > 0 ? "bg-[#10B981]" : "bg-[#60A5FA]"
+          }`}
+        />
+        <span className="line-clamp-2 min-w-0 text-sm font-semibold text-[#111827]">
           {item.taskName}
         </span>
       </div>
@@ -158,14 +205,14 @@ const buildColumns = ({
     label: "Assignee",
     className: thClassName,
     renderCell: (item) => (
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <Avatar
           className="flex-none w-8 h-8"
           name={item.assignee.name}
           size="sm"
           src={item.assignee.avatar}
         />
-        <span>{item.assignee.name}</span>
+        <span className="truncate">{item.assignee.name}</span>
       </div>
     ),
   },
@@ -174,7 +221,9 @@ const buildColumns = ({
     label: "Latest comment",
     className: thClassName,
     renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.comment}</span>
+      <span className="line-clamp-1 text-sm text-[#111827]">
+        {item.comment}
+      </span>
     ),
   },
   {
@@ -182,7 +231,7 @@ const buildColumns = ({
     label: "Due Date",
     className: thClassName,
     renderCell: (item) => (
-      <span className="text-sm text-[#111827]">
+      <span className="inline-flex items-center whitespace-nowrap text-sm font-semibold text-[#DC2626]">
         {formatDateForDisplay(item.dueDate)}
       </span>
     ),
@@ -245,11 +294,14 @@ const buildColumns = ({
 ];
 
 const formatDateForDisplay = (isoDate: string) => {
-  const date = new Date(isoDate);
+  const normalized = isoDate.includes("T") ? isoDate.slice(0, 10) : isoDate;
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
 
-  if (Number.isNaN(date.getTime())) {
+  if (!year || !month || !day) {
     return isoDate;
   }
+
+  const date = new Date(year, month - 1, day);
 
   return date.toLocaleDateString("en-US", {
     day: "numeric",
@@ -257,6 +309,65 @@ const formatDateForDisplay = (isoDate: string) => {
     year: "numeric",
   });
 };
+
+const getTaskDueDateTime = (value?: string) => {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const normalized = value.includes("T") ? value.slice(0, 10) : value;
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
+
+  if (!year || !month || !day) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return new Date(year, month - 1, day).getTime();
+};
+
+const getLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+};
+
+const getTaskDueDateKey = (value?: string) => {
+  if (!value) {
+    return "";
+  }
+
+  const normalized = value.includes("T") ? value.slice(0, 10) : value;
+  const [year, month, day] = normalized.split("-").map((part) => Number(part));
+
+  if (!year || !month || !day) {
+    return "";
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+    2,
+    "0",
+  )}`;
+};
+
+const sortTaskRowsByDueDate = (
+  rows: TaskListRow[],
+  originalIndexByTaskId: Map<string, number>,
+) =>
+  [...rows].sort((left, right) => {
+    const dueDateDifference =
+      getTaskDueDateTime(left.dueDate) - getTaskDueDateTime(right.dueDate);
+
+    if (dueDateDifference !== 0) {
+      return dueDateDifference;
+    }
+
+    return (
+      (originalIndexByTaskId.get(left.id) ?? 0) -
+      (originalIndexByTaskId.get(right.id) ?? 0)
+    );
+  });
 
 const resolveServerAssetUrl = (value?: string | null) => {
   if (!value) {
@@ -272,6 +383,28 @@ const resolveServerAssetUrl = (value?: string | null) => {
 
   return baseUrl ? `${baseUrl}/${normalizedPath}` : value;
 };
+
+const toTaskPanelProject = (project: ClientProject): TaskPanelProject => ({
+  accountManagerAvatar: resolveServerAssetUrl(project.accountManager.avatar),
+  accountManagerId: String(project.accountManagerId ?? ""),
+  accountManagerName:
+    getFullName(
+      project.accountManager.firstName,
+      project.accountManager.lastName,
+    ) || "-",
+  csmAvatar: resolveServerAssetUrl(project.clientSuccessManager.avatar),
+  csmId: String(project.clientSuccessManagerId ?? ""),
+  csmName:
+    getFullName(
+      project.clientSuccessManager.firstName,
+      project.clientSuccessManager.lastName,
+    ) || "-",
+  dueDate: project.dueDate ?? null,
+  id: String(project.id),
+  name: project.project ?? `Project ${String(project.id)}`,
+  startDate: project.startDate ?? null,
+  status: normalizeProjectStatus(project.progress),
+});
 
 const toTaskListRow = (task: ProjectTask): TaskListRow => {
   const assigneeName = [task.assignedTo.firstName, task.assignedTo.lastName]
@@ -290,9 +423,15 @@ const toTaskListRow = (task: ProjectTask): TaskListRow => {
       typeof task.assignedToId === "string"
         ? String(task.assignedToId)
         : undefined,
+    blockedTaskId:
+      typeof task.blockedTaskId === "number" ||
+      typeof task.blockedTaskId === "string"
+        ? String(task.blockedTaskId)
+        : undefined,
     comment: "-",
     description: task.description ?? "",
     dueDate: task.dueDate ?? "",
+    dueDateRuleType: task.dueDateRuleType ?? null,
     parentTaskId:
       typeof task.parentTaskId === "number" ||
       typeof task.parentTaskId === "string"
@@ -333,6 +472,9 @@ const flattenTaskRowsByHierarchy = (
   expandedTaskIds: Set<string>,
 ): VisibleTaskListRow[] => {
   const taskById = new Map(rows.map((row) => [row.id, row]));
+  const originalIndexByTaskId = new Map(
+    rows.map((row, index) => [row.id, index]),
+  );
   const childrenByParentId = new Map<string, TaskListRow[]>();
 
   rows.forEach((row) => {
@@ -366,12 +508,15 @@ const flattenTaskRowsByHierarchy = (
       return;
     }
 
-    children.forEach((child) => appendRow(child, depth + 1, nextVisited));
+    sortTaskRowsByDueDate(children, originalIndexByTaskId).forEach((child) =>
+      appendRow(child, depth + 1, nextVisited),
+    );
   };
 
-  rows
-    .filter((row) => !row.parentTaskId || !taskById.has(row.parentTaskId))
-    .forEach((row) => appendRow(row, 0, new Set<string>()));
+  sortTaskRowsByDueDate(
+    rows.filter((row) => !row.parentTaskId || !taskById.has(row.parentTaskId)),
+    originalIndexByTaskId,
+  ).forEach((row) => appendRow(row, 0, new Set<string>()));
 
   return visibleRows;
 };
@@ -393,12 +538,23 @@ export const ClientTaskListsTable = ({
   const { getValidAccessToken, session } = useAuth();
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
   const [isDeletingTask, setIsDeletingTask] = useState(false);
-  const [isViewTaskOpen, setIsViewTaskOpen] = useState(false);
+  const [isTaskListPanelOpen, setIsTaskListPanelOpen] = useState(false);
   const [resolvedProjectId, setResolvedProjectId] = useState(projectId ?? "");
   const [projectOptions, setProjectOptions] = useState<
     Array<{ id: string; label: string }>
   >([]);
+  const [projectDetailsById, setProjectDetailsById] = useState<
+    Record<string, TaskPanelProject>
+  >({});
   const [rows, setRows] = useState<TaskListRow[]>([]);
+  const [searchValue, setSearchValue] = useState("");
+  const [selectedAssigneeFilter, setSelectedAssigneeFilter] = useState("all");
+  const [selectedDueDateFilter, setSelectedDueDateFilter] =
+    useState(allDueDateFilter);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(toggleableColumnKeys),
+  );
   const [selectedTask, setSelectedTask] = useState<TaskListRow | null>(null);
   const [openGroupKey, setOpenGroupKey] = useState<string | null>(null);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
@@ -411,26 +567,97 @@ export const ClientTaskListsTable = ({
   const [clientAddress, setClientAddress] = useState("-");
   const [statusOptions] = useState<string[]>([...TASK_STATUS_OPTIONS]);
   const [hasProcessedInitialTask, setHasProcessedInitialTask] = useState(false);
-  const groups = useMemo(() => groupRowsByProjectType(rows), [rows]);
+  const assigneeFilterOptions = useMemo(
+    () =>
+      Array.from(
+        rows.reduce<Map<string, string>>((acc, row) => {
+          const key = row.assignee.name || "-";
+
+          acc.set(key, key);
+
+          return acc;
+        }, new Map()),
+      )
+        .map(([key, label]) => ({ key, label }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [rows],
+  );
+  const filteredRows = useMemo(() => {
+    const query = searchValue.trim().toLowerCase();
+    const today = new Date();
+    const todayStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const todayKey = getLocalDateKey(today);
+    const weekEnd = new Date(today);
+
+    weekEnd.setDate(today.getDate() + 7);
+
+    return rows.filter((row) => {
+      const normalizedStatus = normalizeTaskStatus(row.status);
+      const dueDateKey = getTaskDueDateKey(row.dueDate);
+      const dueDateTime = getTaskDueDateTime(row.dueDate);
+      const matchesSearch =
+        !query ||
+        [
+          row.taskName,
+          row.projectType,
+          row.assignee.name,
+          row.comment,
+          formatDateForDisplay(row.dueDate),
+          normalizedStatus,
+        ].some((value) => value.toLowerCase().includes(query));
+      const matchesStatus =
+        selectedStatusFilter === "all" ||
+        normalizedStatus === selectedStatusFilter;
+      const matchesAssignee =
+        selectedAssigneeFilter === "all" ||
+        row.assignee.name === selectedAssigneeFilter;
+      const matchesDueDate =
+        selectedDueDateFilter === allDueDateFilter ||
+        (selectedDueDateFilter === "none" && !dueDateKey) ||
+        (selectedDueDateFilter === "overdue" &&
+          Boolean(dueDateKey) &&
+          dueDateKey < todayKey) ||
+        (selectedDueDateFilter === "today" && dueDateKey === todayKey) ||
+        (selectedDueDateFilter === "this-week" &&
+          Number.isFinite(dueDateTime) &&
+          dueDateTime >= todayStart.getTime() &&
+          dueDateTime <= weekEnd.getTime());
+
+      return (
+        matchesSearch && matchesStatus && matchesAssignee && matchesDueDate
+      );
+    });
+  }, [
+    rows,
+    searchValue,
+    selectedAssigneeFilter,
+    selectedDueDateFilter,
+    selectedStatusFilter,
+  ]);
+  const groups = useMemo(
+    () => groupRowsByProjectType(filteredRows),
+    [filteredRows],
+  );
   const parentTaskIds = useMemo(() => {
-    const taskIds = new Set(rows.map((row) => row.id));
+    const taskIds = new Set(filteredRows.map((row) => row.id));
     const nextParentTaskIds = new Set<string>();
 
-    rows.forEach((row) => {
+    filteredRows.forEach((row) => {
       if (row.parentTaskId && taskIds.has(row.parentTaskId)) {
         nextParentTaskIds.add(row.parentTaskId);
       }
     });
 
     return nextParentTaskIds;
-  }, [rows]);
-  const selectedTaskSubtasks = useMemo(() => {
-    if (!selectedTask) {
-      return [];
-    }
-
-    return rows.filter((row) => row.parentTaskId === selectedTask.id);
-  }, [rows, selectedTask]);
+  }, [filteredRows]);
+  const hasActiveFilters =
+    selectedAssigneeFilter !== "all" ||
+    selectedDueDateFilter !== allDueDateFilter ||
+    selectedStatusFilter !== "all";
   const currentProjectTaskOptions = useMemo(
     () =>
       rows
@@ -442,6 +669,36 @@ export const ClientTaskListsTable = ({
           label: row.taskName,
         })),
     [resolvedProjectId, rows],
+  );
+  const selectedTaskProjectId = selectedTask?.projectId ?? resolvedProjectId;
+  const selectedPanelProject = useMemo(
+    () =>
+      selectedTaskProjectId
+        ? (projectDetailsById[selectedTaskProjectId] ?? null)
+        : null,
+    [projectDetailsById, selectedTaskProjectId],
+  );
+  const selectedPanelTasks = useMemo(
+    () =>
+      rows
+        .filter(
+          (row) =>
+            !selectedTaskProjectId || row.projectId === selectedTaskProjectId,
+        )
+        .map((row) => ({
+          assigneeAvatar: row.assignee.avatar,
+          assigneeId: row.assigneeId ?? null,
+          assigneeName: row.assignee.name,
+          blockedTaskId: row.blockedTaskId ?? null,
+          description: row.description,
+          dueDate: row.dueDate || "-",
+          dueDateRuleType: row.dueDateRuleType ?? null,
+          id: row.id,
+          name: row.taskName,
+          parentTaskId: row.parentTaskId ?? null,
+          status: row.status,
+        })),
+    [rows, selectedTaskProjectId],
   );
   const currentProjectParentTaskOptions = useMemo(
     () =>
@@ -498,10 +755,7 @@ export const ClientTaskListsTable = ({
     const hydrateProjects = async () => {
       try {
         const accessToken = await getValidAccessToken();
-        const allProjects: Array<{
-          id: number | string;
-          project: string | null;
-        }> = [];
+        const allProjects: ClientProject[] = [];
         let page = 1;
         let hasNext = true;
 
@@ -515,12 +769,7 @@ export const ClientTaskListsTable = ({
             },
           );
 
-          allProjects.push(
-            ...response.projects.map((project) => ({
-              id: project.id,
-              project: project.project,
-            })),
-          );
+          allProjects.push(...response.projects);
           hasNext = Boolean(response.pagination?.hasNext);
           page += 1;
         }
@@ -533,8 +782,16 @@ export const ClientTaskListsTable = ({
           id: String(project.id),
           label: project.project ?? `Project ${String(project.id)}`,
         }));
+        const mappedProjectDetails = allProjects.reduce<
+          Record<string, TaskPanelProject>
+        >((acc, project) => {
+          acc[String(project.id)] = toTaskPanelProject(project);
+
+          return acc;
+        }, {});
 
         setProjectOptions(mappedOptions);
+        setProjectDetailsById(mappedProjectDetails);
 
         if (!resolvedProjectId && mappedOptions[0]) {
           setResolvedProjectId(mappedOptions[0].id);
@@ -545,6 +802,7 @@ export const ClientTaskListsTable = ({
         }
 
         setProjectOptions([]);
+        setProjectDetailsById({});
         setResolvedProjectId("");
       }
     };
@@ -629,10 +887,11 @@ export const ClientTaskListsTable = ({
     }
 
     setOpenGroupKey(getGroupKeyForRow(matchedTask));
+    setResolvedProjectId(matchedTask.projectId ?? resolvedProjectId);
     setSelectedTask(matchedTask);
-    setIsViewTaskOpen(true);
+    setIsTaskListPanelOpen(true);
     setHasProcessedInitialTask(true);
-  }, [hasProcessedInitialTask, initialTaskId, rows]);
+  }, [hasProcessedInitialTask, initialTaskId, resolvedProjectId, rows]);
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -799,6 +1058,43 @@ export const ClientTaskListsTable = ({
     }
   };
 
+  const handleTaskDueDateChange = async (taskId: string, dueDate: string) => {
+    if (!session?.accessToken) {
+      throw new Error("Your session has expired. Please login again.");
+    }
+
+    const accessToken = await getValidAccessToken();
+
+    await clientsApi.updateProjectTask(accessToken, taskId, { dueDate });
+
+    const latestRows = await loadTasks();
+    const updatedTask = latestRows.find((row) => row.id === taskId);
+
+    setSelectedTask((current) => updatedTask ?? current);
+  };
+
+  const handleTaskChange = async (
+    taskId: string,
+    payload: {
+      assigneeId?: string;
+      dueDate?: string;
+      status?: string;
+    },
+  ) => {
+    if (!session?.accessToken) {
+      throw new Error("Your session has expired. Please login again.");
+    }
+
+    const accessToken = await getValidAccessToken();
+
+    await clientsApi.updateProjectTask(accessToken, taskId, payload);
+
+    const latestRows = await loadTasks();
+    const updatedTask = latestRows.find((row) => row.id === taskId);
+
+    setSelectedTask((current) => updatedTask ?? current);
+  };
+
   const columns = buildColumns({
     expandedTaskIds,
     onDeleteTask: (taskId) => {
@@ -820,10 +1116,16 @@ export const ClientTaskListsTable = ({
     onViewTask: (taskId) => {
       const task = rows.find((row) => row.id === taskId) ?? null;
 
+      if (task?.projectId) {
+        setResolvedProjectId(task.projectId);
+      }
       setSelectedTask(task);
-      setIsViewTaskOpen(true);
+      setIsTaskListPanelOpen(true);
     },
-  });
+  }).filter(
+    (column) =>
+      column.key === "action" || visibleColumnKeys.has(String(column.key)),
+  );
 
   return (
     <>
@@ -831,22 +1133,145 @@ export const ClientTaskListsTable = ({
         <CardHeader className="flex flex-col items-start justify-between gap-3 border-b-0 sm:flex-row sm:items-center">
           <h2 className="flex-none font-semibold text-[#111827]">Task List</h2>
           <div className="flex w-full flex-wrap items-center justify-end gap-2">
-            <Button
-              startContent={<SlidersHorizontal size={14} />}
-              variant="bordered"
-            >
-              Filter
-            </Button>
-            <Button startContent={<List size={14} />} variant="bordered">
-              Show 10
-            </Button>
-            <Button startContent={<Columns3 size={14} />} variant="bordered">
-              Columns
-            </Button>
+            <Dropdown closeOnSelect={false} placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  color={hasActiveFilters ? "primary" : "default"}
+                  startContent={<SlidersHorizontal size={14} />}
+                  variant={hasActiveFilters ? "flat" : "bordered"}
+                >
+                  Filter
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Task filters"
+                selectedKeys={
+                  new Set([
+                    `status:${selectedStatusFilter}`,
+                    `assignee:${selectedAssigneeFilter}`,
+                    `due:${selectedDueDateFilter}`,
+                  ])
+                }
+                selectionMode="multiple"
+                onAction={(key) => {
+                  const value = String(key);
+
+                  if (value === "reset") {
+                    setSelectedStatusFilter("all");
+                    setSelectedAssigneeFilter("all");
+                    setSelectedDueDateFilter(allDueDateFilter);
+
+                    return;
+                  }
+
+                  const [type, selectedValue] = value.split(":");
+
+                  if (type === "status") {
+                    setSelectedStatusFilter(selectedValue || "all");
+                  }
+
+                  if (type === "assignee") {
+                    setSelectedAssigneeFilter(selectedValue || "all");
+                  }
+
+                  if (type === "due") {
+                    setSelectedDueDateFilter(selectedValue || allDueDateFilter);
+                  }
+                }}
+              >
+                <DropdownSection
+                  items={[
+                    { key: "status:all", label: "All statuses" },
+                    ...TASK_STATUS_OPTIONS.map((option) => ({
+                      key: `status:${option}`,
+                      label: option,
+                    })),
+                  ]}
+                  title="Status"
+                >
+                  {(item) => (
+                    <DropdownItem key={item.key}>{item.label}</DropdownItem>
+                  )}
+                </DropdownSection>
+                <DropdownSection
+                  items={[
+                    { key: "assignee:all", label: "All assignees" },
+                    ...assigneeFilterOptions.map((option) => ({
+                      key: `assignee:${option.key}`,
+                      label: option.label,
+                    })),
+                  ]}
+                  title="Assignee"
+                >
+                  {(item) => (
+                    <DropdownItem key={item.key}>{item.label}</DropdownItem>
+                  )}
+                </DropdownSection>
+                <DropdownSection
+                  items={dueDateFilterOptions.map((option) => ({
+                    key: `due:${option.key}`,
+                    label: option.label,
+                  }))}
+                  title="Due date"
+                >
+                  {(item) => (
+                    <DropdownItem key={item.key}>{item.label}</DropdownItem>
+                  )}
+                </DropdownSection>
+                <DropdownItem
+                  key="reset"
+                  className="text-danger"
+                  color="danger"
+                >
+                  Reset
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown closeOnSelect={false} placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  startContent={<Columns3 size={14} />}
+                  variant="bordered"
+                >
+                  Columns
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Toggle task columns"
+                selectedKeys={visibleColumnKeys}
+                selectionMode="multiple"
+                onSelectionChange={(keys) => {
+                  const nextKeys = new Set(Array.from(keys as Set<string>));
+
+                  setVisibleColumnKeys(
+                    nextKeys.size > 0
+                      ? nextKeys
+                      : new Set(toggleableColumnKeys),
+                  );
+                }}
+              >
+                {toggleableColumnKeys.map((columnKey) => {
+                  const column = buildColumns({
+                    expandedTaskIds,
+                    onDeleteTask: () => undefined,
+                    onToggleTaskExpanded: () => undefined,
+                    onViewTask: () => undefined,
+                  }).find((item) => item.key === columnKey);
+
+                  return (
+                    <DropdownItem key={columnKey}>
+                      {column?.label ?? columnKey}
+                    </DropdownItem>
+                  );
+                })}
+              </DropdownMenu>
+            </Dropdown>
             <Input
               className="max-w-[220px]"
               placeholder="Search here"
               startContent={<Search className="text-default-400" size={14} />}
+              value={searchValue}
+              onValueChange={setSearchValue}
             />
             <Button
               className="bg-[#022279] text-white"
@@ -919,48 +1344,57 @@ export const ClientTaskListsTable = ({
         onSubmit={handleAddTask}
       />
 
-      <ViewTaskModal
-        clientAddress={clientAddress}
-        clientName={clientName}
-        isOpen={isViewTaskOpen}
-        projectOptions={projectOptions}
-        statusOptions={statusOptions}
-        subtasks={selectedTaskSubtasks}
-        task={
-          selectedTask
-            ? {
-                assigneeId: selectedTask.assigneeId ?? "",
-                assigneeName: selectedTask.assignee.name,
-                comment: selectedTask.comment,
-                description: selectedTask.description,
-                dueDate: selectedTask.dueDate,
-                id: selectedTask.id,
-                projectId: selectedTask.projectId ?? "",
-                status: selectedTask.status,
-                taskName: selectedTask.taskName,
-              }
-            : null
-        }
-        users={users.map((user) => ({
-          avatar: user.avatar ?? undefined,
-          id: user.id,
-          name: user.name,
-        }))}
+      <Drawer
+        hideCloseButton
+        classNames={{
+          backdrop: "bg-black/20",
+          base: "w-full max-w-4xl",
+          wrapper: "justify-end",
+        }}
+        isDismissable={false}
+        isOpen={isTaskListPanelOpen}
+        placement="right"
+        scrollBehavior="inside"
         onOpenChange={(open) => {
-          setIsViewTaskOpen(open);
+          setIsTaskListPanelOpen(open);
 
           if (!open) {
             setSelectedTask(null);
           }
         }}
-        onTaskSaved={async (taskId) => {
-          const latestRows = await loadTasks();
-          const updatedTask =
-            latestRows.find((row) => row.id === taskId) ?? selectedTask;
-
-          setSelectedTask(updatedTask ?? null);
-        }}
-      />
+      >
+        <DrawerContent className="h-screen max-h-screen rounded-none">
+          <DrawerBody className="p-5">
+            <ViewTaskListsPanelContent
+              accountManagerAvatar={selectedPanelProject?.accountManagerAvatar}
+              accountManagerId={selectedPanelProject?.accountManagerId ?? ""}
+              accountManagerName={
+                selectedPanelProject?.accountManagerName ?? "-"
+              }
+              address={clientAddress}
+              clientName={clientName}
+              csmAvatar={selectedPanelProject?.csmAvatar}
+              csmId={selectedPanelProject?.csmId ?? ""}
+              csmName={selectedPanelProject?.csmName ?? "-"}
+              description=""
+              initialSelectedTaskId={selectedTask?.id ?? null}
+              projectDueDate={selectedPanelProject?.dueDate ?? null}
+              projectId={selectedTaskProjectId ?? ""}
+              projectName={selectedPanelProject?.name ?? "Project"}
+              projectStartDate={selectedPanelProject?.startDate ?? null}
+              status={selectedPanelProject?.status ?? "Draft"}
+              tasks={selectedPanelTasks}
+              users={users}
+              onClose={() => {
+                setIsTaskListPanelOpen(false);
+                setSelectedTask(null);
+              }}
+              onTaskChange={handleTaskChange}
+              onTaskDueDateChange={handleTaskDueDateChange}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
     </>
   );
 };
