@@ -27,6 +27,7 @@ import {
   LifeBuoy,
   MessageSquareMore,
   FileText,
+  ArrowDownWideNarrow,
 } from "lucide-react";
 
 import { DashboardLogo } from "@/components/dashboard/dashboard-logo";
@@ -106,6 +107,11 @@ const sidebarSections: SidebarSection[] = [
         href: "/dashboard/google-reviews",
         label: "Google Reviews",
         Icon: Star,
+      },
+      {
+        href: "/dashboard/local-rank-summary",
+        label: "Local Rank Summary",
+        Icon: ArrowDownWideNarrow,
       },
     ],
   },
