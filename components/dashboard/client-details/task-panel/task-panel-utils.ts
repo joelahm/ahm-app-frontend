@@ -1,8 +1,6 @@
 import { parseDate, today } from "@internationalized/date";
 
-import {
-  PROJECT_STATUS_OPTIONS,
-} from "@/lib/project-statuses";
+import { PROJECT_STATUS_OPTIONS } from "@/lib/project-statuses";
 import { normalizeTaskStatus } from "@/lib/task-statuses";
 
 export const toFriendlyDate = (value?: string) => {

@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@heroui/button";
-import { Modal, ModalBody, ModalContent, ModalFooter, ModalHeader } from "@heroui/modal";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import { FileText, Paperclip, Trash2, Upload, X } from "lucide-react";
 
 import { clientsApi, type TaskAttachment } from "@/apis/clients";
@@ -18,6 +24,7 @@ interface TaskPanelAttachmentsProps {
 const formatSize = (sizeBytes: number) => {
   if (sizeBytes < 1024) return `${sizeBytes}B`;
   if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)}KB`;
+
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`;
 };
 
@@ -43,7 +50,10 @@ export const TaskPanelAttachments = ({ taskId }: TaskPanelAttachmentsProps) => {
     try {
       setIsLoading(true);
       const accessToken = await getValidAccessToken();
-      const response = await clientsApi.listTaskAttachments(accessToken, taskId);
+      const response = await clientsApi.listTaskAttachments(
+        accessToken,
+        taskId,
+      );
 
       setAttachments(response.attachments);
     } catch (error) {
@@ -128,6 +138,7 @@ export const TaskPanelAttachments = ({ taskId }: TaskPanelAttachmentsProps) => {
           type="file"
           onChange={(event) => {
             const file = event.target.files?.[0];
+
             if (file) {
               void handleUpload(file);
             }
@@ -161,12 +172,14 @@ export const TaskPanelAttachments = ({ taskId }: TaskPanelAttachmentsProps) => {
                   onClick={() => {
                     if (isImage) {
                       setPreviewAttachment(attachment);
+
                       return;
                     }
                     window.open(url, "_blank", "noopener,noreferrer");
                   }}
                 >
                   {isImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       alt={attachment.filename}
                       className="h-20 w-20 rounded-md border border-default-200 object-cover"
@@ -215,6 +228,7 @@ export const TaskPanelAttachments = ({ taskId }: TaskPanelAttachmentsProps) => {
           </ModalHeader>
           <ModalBody className="pb-6">
             {previewAttachment ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 alt={previewAttachment.filename}
                 className="max-h-[70vh] w-full rounded-md object-contain"

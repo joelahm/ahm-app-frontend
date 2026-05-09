@@ -1,6 +1,10 @@
 import React, { useEffect } from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
-import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import {
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from "@tiptap/react";
 
 import { RemoveEmbedButton } from "./embed-utils";
 
@@ -21,8 +25,10 @@ const previewCache = new Map<string, UrlPreviewData>();
 
 const replaceWithPlainLink = (props: NodeViewProps) => {
   const position = props.getPos();
+
   if (typeof position !== "number") {
     props.deleteNode();
+
     return;
   }
 
@@ -45,13 +51,16 @@ const LinkPreviewNodeView = (props: NodeViewProps) => {
     if (!url || status !== "loading") return;
 
     const cached = previewCache.get(url);
+
     if (cached) {
       props.updateAttributes({ ...cached, status: "ready" });
+
       return;
     }
 
     if (!fetchPreview) {
       replaceWithPlainLink(props);
+
       return;
     }
 
@@ -107,7 +116,10 @@ const LinkPreviewNodeView = (props: NodeViewProps) => {
         description
           ? React.createElement(
               "p",
-              { className: "mt-1 line-clamp-2 text-xs leading-5 text-default-500" },
+              {
+                className:
+                  "mt-1 line-clamp-2 text-xs leading-5 text-default-500",
+              },
               description,
             )
           : null,

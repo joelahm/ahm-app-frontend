@@ -2,9 +2,9 @@
 
 import { Chip } from "@heroui/chip";
 
-import { normalizeTaskStatus } from "@/lib/task-statuses";
-
 import { getStatusChipClassName } from "./task-panel-utils";
+
+import { normalizeTaskStatus } from "@/lib/task-statuses";
 
 export const TaskStatusChip = ({ status }: { status?: string }) => {
   const normalizedStatus = normalizeTaskStatus(status ?? "");

@@ -1,5 +1,7 @@
 "use client";
 
+import type { UrlPreviewData } from "@/components/dashboard/client-details/task-panel/editor/extensions/link-preview";
+
 import { useState } from "react";
 import { Button } from "@heroui/button";
 
@@ -7,7 +9,6 @@ import {
   RichTextEditor,
   type JSONContent,
 } from "@/components/dashboard/client-details/task-panel/editor/rich-text-editor";
-import type { UrlPreviewData } from "@/components/dashboard/client-details/task-panel/editor/extensions/link-preview";
 import { proseMirrorToPlainText } from "@/lib/prosemirror";
 
 interface ActivityComposerProps {
@@ -18,7 +19,10 @@ interface ActivityComposerProps {
   onUploadImage?: (file: File) => Promise<{ url: string }>;
 }
 
-const EMPTY_DOC: JSONContent = { type: "doc", content: [{ type: "paragraph" }] };
+const EMPTY_DOC: JSONContent = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
 const hasMeaningfulContent = (doc: JSONContent | null): boolean => {
   if (!doc) return false;
@@ -32,6 +36,7 @@ const hasMeaningfulContent = (doc: JSONContent | null): boolean => {
   if (Array.isArray(doc.content)) {
     return doc.content.some(hasMeaningfulContent);
   }
+
   return false;
 };
 
@@ -50,13 +55,13 @@ export const ActivityComposer = ({
   return (
     <div className="space-y-2">
       <RichTextEditor
+        placeholder="Write a comment..."
+        value={value}
         onChange={setValue}
         onFetchUrlPreview={onFetchUrlPreview}
         onUploadError={onUploadError}
         onUploadImage={onUploadImage}
         onUploadStateChange={setIsUploading}
-        placeholder="Write a comment..."
-        value={value}
       />
       <div className="flex items-center justify-end gap-2">
         {isUploading ? (

@@ -1,10 +1,13 @@
-import React from "react";
 import type { NodeViewProps } from "@tiptap/react";
+
+import React from "react";
 
 export const removeButtonClassName =
   "absolute right-2 top-2 hidden h-7 w-7 items-center justify-center rounded-full bg-white/95 text-default-500 shadow-sm ring-1 ring-default-200 hover:text-danger group-hover:flex";
 
-export const RemoveEmbedButton = ({ deleteNode }: Pick<NodeViewProps, "deleteNode">) =>
+export const RemoveEmbedButton = ({
+  deleteNode,
+}: Pick<NodeViewProps, "deleteNode">) =>
   React.createElement(
     "button",
     {

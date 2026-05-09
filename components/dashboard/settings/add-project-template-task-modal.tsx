@@ -253,6 +253,7 @@ export const AddProjectTemplateTaskModal = ({
     text: string,
   ) => {
     const trimmed = text.trim();
+
     if (!trimmed) return;
     updateChecklist(checklistId, (checklist) => ({
       ...checklist,
@@ -276,6 +277,7 @@ export const AddProjectTemplateTaskModal = ({
   const handleUploadAttachment = async (file: File) => {
     if (!session?.accessToken) {
       toast.danger("You must be signed in to upload attachments.");
+
       return;
     }
 
@@ -401,6 +403,7 @@ export const AddProjectTemplateTaskModal = ({
               onChange={(json) => setDescriptionJson(json)}
               onFetchUrlPreview={async (url) => {
                 const accessToken = await getValidAccessToken();
+
                 return clientsApi.getUrlPreview(accessToken, url);
               }}
               onUploadError={(message) =>
@@ -412,9 +415,9 @@ export const AddProjectTemplateTaskModal = ({
                   accessToken,
                   file,
                 );
+
                 return {
-                  url:
-                    resolveServerAssetUrl(attachment.url) ?? attachment.url,
+                  url: resolveServerAssetUrl(attachment.url) ?? attachment.url,
                 };
               }}
             />
@@ -521,6 +524,7 @@ export const AddProjectTemplateTaskModal = ({
                 type="file"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
+
                   if (file) {
                     void handleUploadAttachment(file);
                   }
@@ -768,7 +772,6 @@ export const AddProjectTemplateTaskModal = ({
     </Modal>
   );
 };
-
 
 interface ChecklistItemInputProps {
   onAdd: (value: string) => void;

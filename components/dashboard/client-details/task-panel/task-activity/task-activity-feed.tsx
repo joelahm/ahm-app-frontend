@@ -39,6 +39,7 @@ export const TaskActivityFeed = ({ taskId }: TaskActivityFeedProps) => {
       items.filter((item) => {
         if (filter === "comments") return item.kind === "comment";
         if (filter === "updates") return item.kind === "event";
+
         return true;
       }),
     [filter, items],
@@ -100,7 +101,8 @@ export const TaskActivityFeed = ({ taskId }: TaskActivityFeedProps) => {
       await clientsApi.deleteTaskComment(accessToken, commentId);
       setItems((current) =>
         current.filter(
-          (item) => !(item.kind === "comment" && String(item.id) === String(commentId)),
+          (item) =>
+            !(item.kind === "comment" && String(item.id) === String(commentId)),
         ),
       );
     } catch (error) {
@@ -154,7 +156,10 @@ export const TaskActivityFeed = ({ taskId }: TaskActivityFeedProps) => {
             taskId,
             file,
           );
-          return { url: resolveServerAssetUrl(attachment.url) ?? attachment.url };
+
+          return {
+            url: resolveServerAssetUrl(attachment.url) ?? attachment.url,
+          };
         }}
       />
 

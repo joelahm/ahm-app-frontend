@@ -851,16 +851,20 @@ export const NewProjectTemplateModal = ({
   );
   const taskNameById = useMemo(() => {
     const map = new Map<string, string>();
+
     for (const row of taskRows) {
       map.set(row.id, row.taskName ?? "-");
     }
+
     return map;
   }, [taskRows]);
   const taskUserAvatarById = useMemo(() => {
     const map = new Map<string, string | null>();
+
     for (const user of taskUsers) {
       map.set(user.id, user.avatarUrl ?? null);
     }
+
     return map;
   }, [taskUsers]);
   const taskOptionRows = useMemo(
@@ -1386,6 +1390,7 @@ export const NewProjectTemplateModal = ({
                   }}
                   onFetchUrlPreview={async (url) => {
                     const accessToken = await getValidAccessToken();
+
                     return clientsApi.getUrlPreview(accessToken, url);
                   }}
                   onUploadError={(message) =>
@@ -1400,6 +1405,7 @@ export const NewProjectTemplateModal = ({
                         accessToken,
                         file,
                       );
+
                     return {
                       url:
                         resolveServerAssetUrl(attachment.url) ?? attachment.url,

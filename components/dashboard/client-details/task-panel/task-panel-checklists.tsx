@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
 import { Checkbox } from "@heroui/checkbox";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
@@ -36,13 +36,17 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
   >({});
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingChecklist, setIsCreatingChecklist] = useState(false);
+  const checklistTitleInputRef = useRef<HTMLInputElement | null>(null);
+  const itemTextInputRef = useRef<HTMLInputElement | null>(null);
 
   const checklistStats = useMemo(
     () =>
       checklists.reduce<Record<string, { complete: number; total: number }>>(
         (acc, checklist) => {
           const total = checklist.items.length;
-          const complete = checklist.items.filter((item) => item.isComplete).length;
+          const complete = checklist.items.filter(
+            (item) => item.isComplete,
+          ).length;
 
           acc[String(checklist.id)] = { complete, total };
 
@@ -52,6 +56,18 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
       ),
     [checklists],
   );
+
+  useEffect(() => {
+    if (editingChecklistId) {
+      checklistTitleInputRef.current?.focus();
+    }
+  }, [editingChecklistId]);
+
+  useEffect(() => {
+    if (editingItemId) {
+      itemTextInputRef.current?.focus();
+    }
+  }, [editingItemId]);
 
   const loadChecklists = async () => {
     if (!session?.accessToken) return;
@@ -104,10 +120,14 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
     try {
       setIsCreatingChecklist(true);
       const accessToken = await getValidAccessToken();
-      const checklist = await clientsApi.createTaskChecklist(accessToken, taskId, {
-        position: checklists.length,
-        title: "Checklist",
-      });
+      const checklist = await clientsApi.createTaskChecklist(
+        accessToken,
+        taskId,
+        {
+          position: checklists.length,
+          title: "Checklist",
+        },
+      );
 
       setChecklists((current) => [...current, checklist]);
       bumpActivity();
@@ -152,7 +172,9 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
 
       await clientsApi.deleteTaskChecklist(accessToken, checklistId);
       setChecklists((current) =>
-        current.filter((checklist) => String(checklist.id) !== String(checklistId)),
+        current.filter(
+          (checklist) => String(checklist.id) !== String(checklistId),
+        ),
       );
       bumpActivity();
     } catch (error) {
@@ -218,9 +240,13 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
 
     try {
       const accessToken = await getValidAccessToken();
-      const updated = await clientsApi.updateChecklistItem(accessToken, item.id, {
-        isComplete: !item.isComplete,
-      });
+      const updated = await clientsApi.updateChecklistItem(
+        accessToken,
+        item.id,
+        {
+          isComplete: !item.isComplete,
+        },
+      );
 
       updateItemInState(checklist.id, updated);
       bumpActivity();
@@ -244,9 +270,13 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
 
     try {
       const accessToken = await getValidAccessToken();
-      const updated = await clientsApi.updateChecklistItem(accessToken, item.id, {
-        text,
-      });
+      const updated = await clientsApi.updateChecklistItem(
+        accessToken,
+        item.id,
+        {
+          text,
+        },
+      );
 
       updateItemInState(checklist.id, updated);
     } catch (error) {
@@ -353,7 +383,7 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
               </button>
               {editingChecklistId === checklistId ? (
                 <input
-                  autoFocus
+                  ref={checklistTitleInputRef}
                   className="h-8 min-w-0 flex-1 rounded border border-default-200 px-2 text-sm font-semibold outline-none"
                   value={draftText}
                   onBlur={() => {
@@ -411,7 +441,7 @@ export const TaskPanelChecklists = ({ taskId }: TaskPanelChecklistsProps) => {
                       />
                       {editingItemId === itemId ? (
                         <input
-                          autoFocus
+                          ref={itemTextInputRef}
                           className="h-8 min-w-0 flex-1 rounded border border-default-200 px-2 text-sm outline-none"
                           value={draftText}
                           onBlur={() => {

@@ -1,6 +1,10 @@
 import React from "react";
 import { Node, mergeAttributes } from "@tiptap/core";
-import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import {
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from "@tiptap/react";
 
 import { RemoveEmbedButton } from "./embed-utils";
 
@@ -13,7 +17,10 @@ export const matchVimeoUrl = (url: string) => {
 const VimeoNodeView = (props: NodeViewProps) =>
   React.createElement(
     NodeViewWrapper,
-    { className: "group relative my-3 overflow-hidden rounded-lg border border-default-200 bg-black" },
+    {
+      className:
+        "group relative my-3 overflow-hidden rounded-lg border border-default-200 bg-black",
+    },
     React.createElement(RemoveEmbedButton, { deleteNode: props.deleteNode }),
     React.createElement("iframe", {
       allow: "autoplay; fullscreen; picture-in-picture",

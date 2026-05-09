@@ -2,6 +2,7 @@ import type { JSONContent } from "@/components/dashboard/client-details/task-pan
 
 export const getRelativeTime = (value: string) => {
   const parsed = new Date(value).getTime();
+
   if (Number.isNaN(parsed)) return "";
 
   const diffSeconds = Math.round((parsed - Date.now()) / 1000);

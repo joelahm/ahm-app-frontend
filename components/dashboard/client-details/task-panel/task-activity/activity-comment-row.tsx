@@ -1,10 +1,11 @@
 "use client";
 
+import type { TaskActivityCommentItem } from "@/apis/clients";
+
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Trash2 } from "lucide-react";
 
-import type { TaskActivityCommentItem } from "@/apis/clients";
 import {
   RichTextEditor,
   type JSONContent,
@@ -57,10 +58,7 @@ export const ActivityCommentRow = ({
         </div>
         {item.bodyJson ? (
           <div className="mt-2">
-            <RichTextEditor
-              isReadOnly
-              value={item.bodyJson as JSONContent}
-            />
+            <RichTextEditor isReadOnly value={item.bodyJson as JSONContent} />
           </div>
         ) : (
           <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-default-700">

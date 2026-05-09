@@ -379,7 +379,10 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return value;
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(
+    /\/api\/v\d+\/?$/,
+    "",
+  ).replace(/\/$/, "");
   const normalizedPath = value.replace(/^\/+/, "");
 
   return baseUrl ? `${baseUrl}/${normalizedPath}` : value;

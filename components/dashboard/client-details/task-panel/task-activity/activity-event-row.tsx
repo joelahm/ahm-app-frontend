@@ -1,10 +1,14 @@
 "use client";
 
+import type { TaskActivityEventItem } from "@/apis/clients";
+
 import { Avatar } from "@heroui/avatar";
 
-import type { TaskActivityEventItem } from "@/apis/clients";
 import { resolveServerAssetUrl } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
-import { getMetadataString, getRelativeTime } from "@/components/dashboard/client-details/task-panel/task-activity/activity-utils";
+import {
+  getMetadataString,
+  getRelativeTime,
+} from "@/components/dashboard/client-details/task-panel/task-activity/activity-utils";
 
 interface ActivityEventRowProps {
   item: TaskActivityEventItem;
@@ -24,7 +28,9 @@ const buildVerb = (item: TaskActivityEventItem) => {
     case "DUE_DATE_CHANGED": {
       const to = getMetadataString(metadata, "to");
 
-      return to ? `set due date to ${new Date(to).toLocaleDateString()}` : "removed the due date";
+      return to
+        ? `set due date to ${new Date(to).toLocaleDateString()}`
+        : "removed the due date";
     }
     case "PRIORITY_CHANGED":
       return `changed priority from ${getMetadataString(metadata, "from") || "-"} to ${getMetadataString(metadata, "to") || "-"}`;

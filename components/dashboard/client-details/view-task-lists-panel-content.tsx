@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { DatePicker } from "@heroui/date-picker";
-import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { getLocalTimeZone, today } from "@internationalized/date";
 import {
@@ -14,18 +13,13 @@ import {
   ChevronDown,
   ChevronRight,
   CircleUserRound,
-  Image as ImageIcon,
   List,
   LocateIcon,
   MapPin,
-  Paperclip,
-  SendHorizontal,
-  Trash2,
   X,
 } from "lucide-react";
-import Image from "next/image";
 
-import { clientsApi, ProjectComment } from "@/apis/clients";
+import { clientsApi } from "@/apis/clients";
 import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
 import {
@@ -44,29 +38,13 @@ import { TaskStatusChip } from "@/components/dashboard/client-details/task-panel
 import {
   calendarDateToIso,
   defaultProjectStatusOptions,
-  extractSelectedLines,
-  getCaretCharacterOffset,
-  getInitials,
   getTaskDueDateTime,
   resolveServerAssetUrl,
-  sanitizeCommentHtml,
   toCalendarDate,
   toFriendlyDate,
 } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { normalizeProjectStatus } from "@/lib/project-statuses";
-import {
-  buildCommentMessage,
-  buildPendingAttachmentsFromFileList,
-  MAX_COMMENT_ATTACHMENT_BYTES,
-  MAX_COMMENT_ATTACHMENTS,
-  MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES,
-  MAX_COMMENT_PAYLOAD_BYTES,
-  parseCommentAttachments,
-  PendingAttachmentItem,
-  ParsedCommentAttachment,
-  validateCommentPayloadSize,
-} from "@/lib/comment-attachments";
 import { normalizeTaskStatus, TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 interface ViewTaskListsPanelContentProps {
@@ -161,42 +139,12 @@ const ViewTaskListsPanelContentInner = ({
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
   const { bump: bumpActivity } = useTaskActivityRefresh();
-  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const commentEditorRef = useRef<HTMLDivElement | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [activeAccountManagerId, setActiveAccountManagerId] =
     useState(accountManagerId);
-  const [caretPosition, setCaretPosition] = useState(0);
-  const [commentInput, setCommentInput] = useState("");
-  const [comments, setComments] = useState<ProjectComment[]>([]);
-  const [commentAttachmentLibrary, setCommentAttachmentLibrary] = useState<
-    Record<
-      string,
-      { isImage: boolean; mimeType?: string; name: string; previewUrl: string }
-    >
-  >({});
-  const [pendingAttachments, setPendingAttachments] = useState<
-    PendingAttachmentItem[]
-  >([]);
-  const [previewAttachment, setPreviewAttachment] = useState<{
-    name: string;
-    url: string;
-  } | null>(null);
   const [activeCsmId, setActiveCsmId] = useState(csmId);
-  const [isCommentsLoading, setIsCommentsLoading] = useState(false);
-  const [isDeletingCommentId, setIsDeletingCommentId] = useState<string | null>(
-    null,
-  );
-  const [isSendingComment, setIsSendingComment] = useState(false);
   const todayDate = useMemo(() => today(getLocalTimeZone()), []);
   const [startDate, setStartDate] = useState(todayDate);
   const [dueDate, setDueDate] = useState(todayDate);
-  const [formatState, setFormatState] = useState({
-    bold: false,
-    italic: false,
-    strikeThrough: false,
-    underline: false,
-  });
   const [activeStatus, setActiveStatus] = useState(
     normalizeProjectStatus(status),
   );
@@ -341,50 +289,6 @@ const ViewTaskListsPanelContentInner = ({
     };
 
     void loadProjectStatusOptions();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [getValidAccessToken, projectId, session]);
-
-  useEffect(() => {
-    if (!session || !projectId) {
-      setComments([]);
-
-      return;
-    }
-
-    let isMounted = true;
-
-    setIsCommentsLoading(true);
-
-    const loadComments = async () => {
-      try {
-        const accessToken = await getValidAccessToken();
-        const response = await clientsApi.getProjectComments(
-          accessToken,
-          projectId,
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        setComments(response.comments);
-      } catch {
-        if (!isMounted) {
-          return;
-        }
-
-        setComments([]);
-      } finally {
-        if (isMounted) {
-          setIsCommentsLoading(false);
-        }
-      }
-    };
-
-    void loadComments();
 
     return () => {
       isMounted = false;
@@ -609,17 +513,13 @@ const ViewTaskListsPanelContentInner = ({
     () => tasks.some((task) => Boolean(task.parentTaskId)),
     [tasks],
   );
-  const displayedDescription =
-    selectedTask?.description?.trim() ||
-    description?.trim() ||
-    "No project template description found.";
-
   const selectedTaskDescriptionValue = useMemo<JSONContent | null>(() => {
     if (!selectedTask) return null;
     if (descriptionDirty) return descriptionDraft;
     if (selectedTask.descriptionJson) {
       return selectedTask.descriptionJson as JSONContent;
     }
+
     return buildDocFromPlainText(selectedTask.description ?? null);
   }, [descriptionDirty, descriptionDraft, selectedTask]);
 
@@ -628,6 +528,7 @@ const ViewTaskListsPanelContentInner = ({
     if (projectDescriptionJsonProp) {
       return projectDescriptionJsonProp as JSONContent;
     }
+
     return buildDocFromPlainText(description ?? null);
   }, [
     description,
@@ -648,9 +549,10 @@ const ViewTaskListsPanelContentInner = ({
     try {
       setIsSavingProjectDescription(true);
       await onProjectMetaChange({
-        descriptionJson: projectDescriptionDraft as
-          | Record<string, unknown>
-          | null,
+        descriptionJson: projectDescriptionDraft as Record<
+          string,
+          unknown
+        > | null,
       });
       setProjectDescriptionDirty(false);
       toast.success("Project description saved.");
@@ -681,8 +583,10 @@ const ViewTaskListsPanelContentInner = ({
         selectedTask.id,
         payload as Parameters<typeof clientsApi.updateProjectTask>[2],
       );
-      const nextDescriptionJson =
-        (response?.descriptionJson ?? null) as Record<string, unknown> | null;
+      const nextDescriptionJson = (response?.descriptionJson ?? null) as Record<
+        string,
+        unknown
+      > | null;
       const nextDescriptionPlain = response?.description ?? null;
 
       setTaskOverridesById((current) => ({
@@ -704,479 +608,6 @@ const ViewTaskListsPanelContentInner = ({
       setIsSavingDescription(false);
     }
   };
-
-  const activeMention = useMemo(() => {
-    if (!commentInput || caretPosition < 0) {
-      return null;
-    }
-
-    const beforeCaret = commentInput.slice(0, caretPosition);
-    const mentionStart = beforeCaret.lastIndexOf("@");
-
-    if (mentionStart < 0) {
-      return null;
-    }
-
-    const query = beforeCaret.slice(mentionStart + 1);
-
-    if (/\s/.test(query)) {
-      return null;
-    }
-
-    return { query: query.toLowerCase(), startIndex: mentionStart };
-  }, [caretPosition, commentInput]);
-  const mentionOptions = useMemo(() => {
-    if (!activeMention) {
-      return [];
-    }
-
-    return users
-      .filter((user) =>
-        activeMention.query
-          ? user.name.toLowerCase().includes(activeMention.query)
-          : true,
-      )
-      .slice(0, 6);
-  }, [activeMention, users]);
-
-  const formatCommentAuthor = (comment: ProjectComment) => {
-    if (!comment.author) {
-      return "User";
-    }
-
-    const parts = [comment.author.firstName, comment.author.lastName]
-      .map((value) => value?.trim() ?? "")
-      .filter(Boolean);
-
-    return parts.join(" ") || "User";
-  };
-
-  const formatCommentTime = (value?: string | null) => {
-    if (!value) {
-      return "-";
-    }
-
-    const parsed = new Date(value);
-
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
-    }
-
-    return parsed.toLocaleString();
-  };
-
-  const renderCommentWithMentions = (message: string) => {
-    if (!message) {
-      return null;
-    }
-
-    const mentionTokens = users
-      .map((user) => `@${user.name}`)
-      .sort((left, right) => right.length - left.length);
-    const elements: Array<JSX.Element | string> = [];
-    let cursor = 0;
-
-    while (cursor < message.length) {
-      const matchedToken = mentionTokens.find((token) =>
-        message.startsWith(token, cursor),
-      );
-
-      if (matchedToken) {
-        elements.push(
-          <span key={`${cursor}-${matchedToken}`} className="text-[#2563EB]">
-            {matchedToken}
-          </span>,
-        );
-        cursor += matchedToken.length;
-
-        continue;
-      }
-
-      elements.push(message[cursor] ?? "");
-      cursor += 1;
-    }
-
-    return elements;
-  };
-
-  const handleAddComment = async () => {
-    const editorHtml = commentEditorRef.current?.innerHTML?.trim() ?? "";
-    const message = buildCommentMessage({
-      editorHtml,
-      pendingAttachments,
-      plainText: commentInput,
-    });
-
-    if (!session || !projectId || !message || isSendingComment) {
-      return;
-    }
-
-    const payloadValidation = validateCommentPayloadSize(message);
-
-    if (!payloadValidation.isValid) {
-      toast.warning("Comment is too large to send.", {
-        description: `Please reduce text or attachments (max ${Math.floor(
-          MAX_COMMENT_PAYLOAD_BYTES / 1024,
-        )}KB payload).`,
-      });
-
-      return;
-    }
-
-    setIsSendingComment(true);
-
-    try {
-      const accessToken = await getValidAccessToken();
-      const createdComment = await clientsApi.createProjectComment(
-        accessToken,
-        projectId,
-        { comment: message },
-      );
-
-      setCommentAttachmentLibrary((previous) => {
-        const next = { ...previous };
-
-        pendingAttachments.forEach((attachment) => {
-          if (!attachment.previewUrl && !attachment.dataUrl) {
-            return;
-          }
-
-          next[attachment.id] = {
-            isImage: attachment.isImage,
-            mimeType: attachment.mimeType,
-            name: attachment.name,
-            previewUrl: attachment.dataUrl ?? attachment.previewUrl ?? "",
-          };
-        });
-
-        return next;
-      });
-
-      setComments((previous) => [...previous, createdComment]);
-      setCommentInput("");
-      setPendingAttachments([]);
-      if (commentEditorRef.current) {
-        commentEditorRef.current.innerHTML = "";
-      }
-    } finally {
-      setIsSendingComment(false);
-    }
-  };
-
-  const refreshFormatState = () => {
-    const editor = commentEditorRef.current;
-    const selection = window.getSelection();
-
-    if (!editor || !selection || selection.rangeCount === 0) {
-      setFormatState({
-        bold: false,
-        italic: false,
-        strikeThrough: false,
-        underline: false,
-      });
-
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    const isInsideEditor =
-      editor.contains(range.startContainer) &&
-      editor.contains(range.endContainer);
-
-    if (!isInsideEditor) {
-      setFormatState({
-        bold: false,
-        italic: false,
-        strikeThrough: false,
-        underline: false,
-      });
-
-      return;
-    }
-
-    setFormatState({
-      bold: document.queryCommandState("bold"),
-      italic: document.queryCommandState("italic"),
-      strikeThrough: document.queryCommandState("strikeThrough"),
-      underline: document.queryCommandState("underline"),
-    });
-  };
-
-  const applyEditorCommand = (
-    command: string,
-    value?: string,
-    options?: { requireSelection?: boolean },
-  ) => {
-    const editor = commentEditorRef.current;
-    const selection = window.getSelection();
-
-    if (!editor) {
-      return;
-    }
-
-    if (!selection || selection.rangeCount === 0) {
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    const selectedTextLength = range.toString().trim().length;
-
-    if (options?.requireSelection && selectedTextLength === 0) {
-      return;
-    }
-
-    editor.focus();
-    document.execCommand(command, false, value);
-    setCommentInput(editor.innerText || "");
-    setCaretPosition(getCaretCharacterOffset(editor));
-    refreshFormatState();
-  };
-
-  const applyListFromSelection = () => {
-    const editor = commentEditorRef.current;
-    const selection = window.getSelection();
-
-    if (!editor || !selection || selection.rangeCount === 0) {
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    const lines = extractSelectedLines(range);
-
-    if (lines.length === 0) {
-      return;
-    }
-
-    const bulletText = lines.map((line) => `- ${line}`).join("\n");
-    const textNode = document.createTextNode(bulletText);
-
-    range.deleteContents();
-    range.insertNode(textNode);
-    selection.removeAllRanges();
-
-    const collapseRange = document.createRange();
-
-    collapseRange.selectNodeContents(editor);
-    collapseRange.collapse(false);
-    selection.addRange(collapseRange);
-
-    editor.focus();
-    setCommentInput(editor.innerText || "");
-    setCaretPosition(getCaretCharacterOffset(editor));
-    refreshFormatState();
-  };
-
-  const handleInsertMention = (name: string) => {
-    const editor = commentEditorRef.current;
-
-    if (!activeMention) {
-      return;
-    }
-
-    if (!editor) {
-      return;
-    }
-
-    editor.focus();
-
-    const selection = window.getSelection();
-
-    if (!selection || selection.rangeCount === 0) {
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    const queryLength = activeMention.query.length + 1;
-
-    if (range.startContainer.nodeType === Node.TEXT_NODE) {
-      const textNode = range.startContainer as Text;
-      const startOffset = Math.max(0, range.startOffset - queryLength);
-
-      range.setStart(textNode, startOffset);
-      range.deleteContents();
-    }
-
-    const mentionSpan = document.createElement("span");
-
-    mentionSpan.className = "text-[#2563EB]";
-    mentionSpan.textContent = `@${name}`;
-    const trailingSpace = document.createTextNode(" ");
-
-    range.insertNode(trailingSpace);
-    range.insertNode(mentionSpan);
-    range.setStartAfter(trailingSpace);
-    range.setEndAfter(trailingSpace);
-    selection.removeAllRanges();
-    selection.addRange(range);
-
-    requestAnimationFrame(() => {
-      const target = commentEditorRef.current;
-
-      if (!target) {
-        return;
-      }
-
-      target.focus();
-      setCommentInput(target.innerText || "");
-      setCaretPosition(getCaretCharacterOffset(target));
-      refreshFormatState();
-    });
-  };
-
-  const handleAddPendingFiles = async (
-    fileList: FileList | null,
-    options?: { imageOnly?: boolean },
-  ) => {
-    if (!fileList || fileList.length === 0) {
-      return;
-    }
-
-    const {
-      attachments,
-      countExceededFiles,
-      oversizedFiles,
-      totalSizeExceededFiles,
-      unsupportedFiles,
-    } = await buildPendingAttachmentsFromFileList(fileList, {
-      currentAttachments: pendingAttachments,
-      imageOnly: options?.imageOnly,
-    });
-
-    if (attachments.length === 0) {
-      if (unsupportedFiles.length > 0) {
-        toast.warning("Unsupported file type.", {
-          description: options?.imageOnly
-            ? "Please upload image files only."
-            : "Please upload a supported file format.",
-        });
-      }
-
-      if (oversizedFiles.length > 0) {
-        toast.warning("File is too large.", {
-          description: `Each file must be ${Math.floor(MAX_COMMENT_ATTACHMENT_BYTES / 1024)}KB or less.`,
-        });
-      }
-
-      if (totalSizeExceededFiles.length > 0) {
-        toast.warning("Total attachment size exceeded.", {
-          description: `Combined attachments must stay under ${Math.floor(
-            MAX_COMMENT_ATTACHMENTS_TOTAL_BYTES / 1024,
-          )}KB.`,
-        });
-      }
-
-      if (countExceededFiles.length > 0) {
-        toast.warning("Attachment limit reached.", {
-          description: `You can attach up to ${MAX_COMMENT_ATTACHMENTS} files per comment.`,
-        });
-      }
-
-      return;
-    }
-
-    setPendingAttachments((previous) => [...previous, ...attachments]);
-
-    if (unsupportedFiles.length > 0) {
-      toast.warning("Some files were skipped because they are not images.");
-    }
-
-    if (oversizedFiles.length > 0) {
-      toast.warning("Some files were skipped for size limits.");
-    }
-
-    if (totalSizeExceededFiles.length > 0) {
-      toast.warning("Some files were skipped because total size is too large.");
-    }
-
-    if (countExceededFiles.length > 0) {
-      toast.warning(
-        "Some files were skipped because attachment limit is reached.",
-      );
-    }
-  };
-
-  const handleRemovePendingAttachment = (indexToRemove: number) => {
-    setPendingAttachments((previous) => {
-      const target = previous[indexToRemove];
-
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-      }
-
-      return previous.filter((_, index) => index !== indexToRemove);
-    });
-  };
-
-  const handleOpenAttachment = (attachment: ParsedCommentAttachment) => {
-    const mapped = attachment.id
-      ? (commentAttachmentLibrary[attachment.id] ?? null)
-      : null;
-    const attachmentUrl = attachment.dataUrl ?? mapped?.previewUrl;
-    const attachmentName = mapped?.name ?? attachment.name;
-    const isImage = attachment.isImage ?? mapped?.isImage;
-
-    if (!attachmentUrl) {
-      toast.warning("Attachment is unavailable.");
-
-      return;
-    }
-
-    if (isImage) {
-      setPreviewAttachment({
-        name: attachmentName,
-        url: attachmentUrl,
-      });
-
-      return;
-    }
-
-    const openedWindow = window.open(
-      attachmentUrl,
-      "_blank",
-      "noopener,noreferrer",
-    );
-
-    if (openedWindow) {
-      return;
-    }
-
-    const link = document.createElement("a");
-
-    link.href = attachmentUrl;
-    link.download = attachmentName;
-    link.click();
-  };
-
-  const handleDeleteComment = async (commentId: string) => {
-    if (!session || !commentId || isDeletingCommentId) {
-      return;
-    }
-
-    setIsDeletingCommentId(commentId);
-
-    try {
-      const accessToken = await getValidAccessToken();
-
-      await clientsApi.deleteProjectComment(accessToken, commentId);
-      setComments((previous) =>
-        previous.filter((comment) => String(comment.id) !== commentId),
-      );
-    } finally {
-      setIsDeletingCommentId(null);
-    }
-  };
-
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      refreshFormatState();
-    };
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-
-    return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
-    };
-  }, []);
 
   return (
     <div className="space-y-5">
@@ -1635,9 +1066,7 @@ const ViewTaskListsPanelContentInner = ({
                 ) : null}
                 <Button
                   className="bg-[#022279] text-white"
-                  isDisabled={
-                    !descriptionDirty || isUploadingDescriptionImage
-                  }
+                  isDisabled={!descriptionDirty || isUploadingDescriptionImage}
                   isLoading={isSavingDescription}
                   radius="sm"
                   size="sm"
@@ -1660,6 +1089,7 @@ const ViewTaskListsPanelContentInner = ({
                 }}
                 onFetchUrlPreview={async (url) => {
                   const accessToken = await getValidAccessToken();
+
                   return clientsApi.getUrlPreview(accessToken, url);
                 }}
                 onUploadError={(message) =>
@@ -1712,15 +1142,15 @@ const ViewTaskListsPanelContentInner = ({
         >
           <div className="overflow-hidden rounded-lg border border-default-200 bg-white">
             {displayedTasks.map(({ depth, isSubtask, task }) => (
-                <div
-                  key={task.id}
-                  className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
-                >
-                  <div className="flex min-w-0 items-center gap-3 px-3 py-2">
-                    <div
-                      className="flex min-w-0 items-center gap-2"
-                      style={{ paddingLeft: `${depth * 18}px` }}
-                    >
+              <div
+                key={task.id}
+                className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
+              >
+                <div className="flex min-w-0 items-center gap-3 px-3 py-2">
+                  <div
+                    className="flex min-w-0 items-center gap-2"
+                    style={{ paddingLeft: `${depth * 18}px` }}
+                  >
                     {parentTaskIds.has(task.id) ? (
                       <button
                         className="rounded p-0.5 text-[#6B7280] hover:bg-default-100"
@@ -1827,35 +1257,6 @@ const ViewTaskListsPanelContentInner = ({
           </AccordionItem>
         ) : null}
       </Accordion>
-
-      <Modal
-        isOpen={previewAttachment !== null}
-        size="3xl"
-        onOpenChange={(open) => {
-          if (!open) {
-            setPreviewAttachment(null);
-          }
-        }}
-      >
-        <ModalContent>
-          <ModalHeader>
-            {previewAttachment?.name ?? "Image preview"}
-          </ModalHeader>
-          <ModalBody className="pb-6">
-            {previewAttachment ? (
-              <div className="relative h-[70vh] w-full">
-                <Image
-                  fill
-                  unoptimized
-                  alt={previewAttachment.name}
-                  className="rounded-md object-contain"
-                  src={previewAttachment.url}
-                />
-              </div>
-            ) : null}
-          </ModalBody>
-        </ModalContent>
-      </Modal>
     </div>
   );
 };

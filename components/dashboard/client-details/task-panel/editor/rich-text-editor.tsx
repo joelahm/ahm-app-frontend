@@ -30,10 +30,22 @@ import {
 } from "lucide-react";
 
 import { getPlainUrlFromText } from "@/components/dashboard/client-details/task-panel/editor/extensions/embed-utils";
-import { FigmaEmbed, matchFigmaUrl } from "@/components/dashboard/client-details/task-panel/editor/extensions/figma-embed";
-import { LinkPreview, type UrlPreviewData } from "@/components/dashboard/client-details/task-panel/editor/extensions/link-preview";
-import { VimeoEmbed, matchVimeoUrl } from "@/components/dashboard/client-details/task-panel/editor/extensions/vimeo-embed";
-import { YouTubeEmbed, matchYouTubeUrl } from "@/components/dashboard/client-details/task-panel/editor/extensions/youtube-embed";
+import {
+  FigmaEmbed,
+  matchFigmaUrl,
+} from "@/components/dashboard/client-details/task-panel/editor/extensions/figma-embed";
+import {
+  LinkPreview,
+  type UrlPreviewData,
+} from "@/components/dashboard/client-details/task-panel/editor/extensions/link-preview";
+import {
+  VimeoEmbed,
+  matchVimeoUrl,
+} from "@/components/dashboard/client-details/task-panel/editor/extensions/vimeo-embed";
+import {
+  YouTubeEmbed,
+  matchYouTubeUrl,
+} from "@/components/dashboard/client-details/task-panel/editor/extensions/youtube-embed";
 
 interface RichTextEditorProps {
   isReadOnly?: boolean;
@@ -47,7 +59,10 @@ interface RichTextEditorProps {
   value: JSONContent | null;
 }
 
-const EMPTY_DOC: JSONContent = { type: "doc", content: [{ type: "paragraph" }] };
+const EMPTY_DOC: JSONContent = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
 const baseToolbarButton =
   "inline-flex h-7 w-7 items-center justify-center rounded transition-colors text-default-600 hover:bg-default-100 hover:text-default-900 disabled:cursor-not-allowed disabled:opacity-40";
@@ -59,12 +74,17 @@ const buildPlaceholderImageSrc = () => {
   return `data:image/svg+xml;base64,${window.btoa(svg)}`;
 };
 
-const replaceImageSrc = (editor: Editor, currentSrc: string, nextSrc: string) => {
+const replaceImageSrc = (
+  editor: Editor,
+  currentSrc: string,
+  nextSrc: string,
+) => {
   let imagePosition: number | null = null;
 
   editor.state.doc.descendants((node, pos) => {
     if (node.type.name === "image" && node.attrs.src === currentSrc) {
       imagePosition = pos;
+
       return false;
     }
 
@@ -73,14 +93,10 @@ const replaceImageSrc = (editor: Editor, currentSrc: string, nextSrc: string) =>
 
   if (imagePosition === null) return;
 
-  const transaction = editor.state.tr.setNodeMarkup(
-    imagePosition,
-    undefined,
-    {
-      ...editor.state.doc.nodeAt(imagePosition)?.attrs,
-      src: nextSrc,
-    },
-  );
+  const transaction = editor.state.tr.setNodeMarkup(imagePosition, undefined, {
+    ...editor.state.doc.nodeAt(imagePosition)?.attrs,
+    src: nextSrc,
+  });
 
   editor.view.dispatch(transaction);
 };
@@ -93,6 +109,7 @@ const removeImageBySrc = (editor: Editor, src: string) => {
     if (node.type.name === "image" && node.attrs.src === src) {
       imagePosition = pos;
       imageSize = node.nodeSize;
+
       return false;
     }
 
@@ -101,7 +118,9 @@ const removeImageBySrc = (editor: Editor, src: string) => {
 
   if (imagePosition === null) return;
 
-  editor.view.dispatch(editor.state.tr.delete(imagePosition, imagePosition + imageSize));
+  editor.view.dispatch(
+    editor.state.tr.delete(imagePosition, imagePosition + imageSize),
+  );
 };
 
 export const RichTextEditor = ({
@@ -159,7 +178,10 @@ export const RichTextEditor = ({
     return true;
   };
 
-  const uploadFirstImageFile = (editorInstance: Editor, files: FileList | File[]) => {
+  const uploadFirstImageFile = (
+    editorInstance: Editor,
+    files: FileList | File[],
+  ) => {
     const imageFile = Array.from(files).find((file) =>
       file.type.startsWith("image/"),
     );
@@ -173,32 +195,38 @@ export const RichTextEditor = ({
 
   const insertEmbedFromUrl = (editorInstance: Editor, url: string) => {
     const youtubeId = matchYouTubeUrl(url);
+
     if (youtubeId) {
       editorInstance
         .chain()
         .focus()
         .insertContent({ type: "youtubeEmbed", attrs: { videoId: youtubeId } })
         .run();
+
       return true;
     }
 
     const vimeoId = matchVimeoUrl(url);
+
     if (vimeoId) {
       editorInstance
         .chain()
         .focus()
         .insertContent({ type: "vimeoEmbed", attrs: { videoId: vimeoId } })
         .run();
+
       return true;
     }
 
     const figmaUrl = matchFigmaUrl(url);
+
     if (figmaUrl) {
       editorInstance
         .chain()
         .focus()
         .insertContent({ type: "figmaEmbed", attrs: { url: figmaUrl } })
         .run();
+
       return true;
     }
 
@@ -211,6 +239,7 @@ export const RichTextEditor = ({
           attrs: { status: "loading", url },
         })
         .run();
+
       return true;
     }
 
@@ -263,6 +292,7 @@ export const RichTextEditor = ({
           editorRef.current,
           event.dataTransfer.files,
         );
+
         if (handled) {
           event.preventDefault();
         }
@@ -276,8 +306,10 @@ export const RichTextEditor = ({
 
         if (editorRef.current && plainUrl) {
           const handled = insertEmbedFromUrl(editorRef.current, plainUrl);
+
           if (handled) {
             event.preventDefault();
+
             return true;
           }
         }
@@ -294,6 +326,7 @@ export const RichTextEditor = ({
           editorRef.current,
           event.clipboardData.files,
         );
+
         if (handled) {
           event.preventDefault();
         }
@@ -312,14 +345,17 @@ export const RichTextEditor = ({
   useEffect(() => {
     if (!editor) return;
     const incoming = value ?? EMPTY_DOC;
+
     if (JSON.stringify(editor.getJSON()) === JSON.stringify(incoming)) return;
     // Defer setContent to a microtask: TipTap calls flushSync internally,
     // which React forbids during commit/lifecycle.
     let cancelled = false;
+
     queueMicrotask(() => {
       if (cancelled) return;
       editor.commands.setContent(incoming, { emitUpdate: false });
     });
+
     return () => {
       cancelled = true;
     };
@@ -366,11 +402,8 @@ export const RichTextEditor = ({
     <div className="rounded-lg border border-default-200 bg-white">
       {!isReadOnly ? (
         <div className="flex flex-wrap items-center gap-1 border-b border-default-200 px-2 py-1.5">
-          {button(
-            "Bold",
-            <Bold size={14} />,
-            editor.isActive("bold"),
-            () => editor.chain().focus().toggleBold().run(),
+          {button("Bold", <Bold size={14} />, editor.isActive("bold"), () =>
+            editor.chain().focus().toggleBold().run(),
           )}
           {button(
             "Italic",
@@ -443,9 +476,11 @@ export const RichTextEditor = ({
               const previousUrl =
                 (editor.getAttributes("link") as { href?: string }).href ?? "";
               const url = window.prompt("Link URL", previousUrl);
+
               if (url === null) return;
               if (url.trim() === "") {
                 editor.chain().focus().unsetLink().run();
+
                 return;
               }
               editor
@@ -485,6 +520,7 @@ export const RichTextEditor = ({
             type="file"
             onChange={(event) => {
               const file = event.target.files?.[0];
+
               if (file) {
                 void uploadImageFile(editor, file);
               }
@@ -503,6 +539,7 @@ export const RichTextEditor = ({
 
 export const buildDocFromPlainText = (plain: string | null): JSONContent => {
   if (!plain) return EMPTY_DOC;
+
   return {
     type: "doc",
     content: [

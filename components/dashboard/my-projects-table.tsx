@@ -494,8 +494,7 @@ export const MyProjectsTable = () => {
               ) || "-",
             description: task.description,
             descriptionJson:
-              task.descriptionJson &&
-              typeof task.descriptionJson === "object"
+              task.descriptionJson && typeof task.descriptionJson === "object"
                 ? (task.descriptionJson as Record<string, unknown>)
                 : null,
             dueDate: task.dueDate ?? "-",

@@ -35,7 +35,10 @@ export const proseMirrorToPlainText = (value: JSONContent | null): string => {
       }
     }
 
-    if (node.type === "youtubeEmbed" && typeof node.attrs?.videoId === "string") {
+    if (
+      node.type === "youtubeEmbed" &&
+      typeof node.attrs?.videoId === "string"
+    ) {
       parts.push(`https://youtu.be/${node.attrs.videoId}`);
     }
 
