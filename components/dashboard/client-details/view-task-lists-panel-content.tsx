@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Accordion, AccordionItem } from "@heroui/accordion";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
-import { Chip } from "@heroui/chip";
 import { DatePicker } from "@heroui/date-picker";
 import { Modal, ModalBody, ModalContent, ModalHeader } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
+import { getLocalTimeZone, today } from "@internationalized/date";
 import {
   ArrowLeft,
   Calendar,
@@ -29,11 +28,33 @@ import Image from "next/image";
 import { clientsApi, ProjectComment } from "@/apis/clients";
 import { projectTemplatesApi } from "@/apis/project-templates";
 import { useAuth } from "@/components/auth/auth-context";
-import { useAppToast } from "@/hooks/use-app-toast";
 import {
-  normalizeProjectStatus,
-  PROJECT_STATUS_OPTIONS,
-} from "@/lib/project-statuses";
+  RichTextEditor,
+  buildDocFromPlainText,
+  type JSONContent,
+} from "@/components/dashboard/client-details/task-panel/editor/rich-text-editor";
+import { TaskPanelAttachments } from "@/components/dashboard/client-details/task-panel/task-panel-attachments";
+import { TaskPanelChecklists } from "@/components/dashboard/client-details/task-panel/task-panel-checklists";
+import { TaskActivityFeed } from "@/components/dashboard/client-details/task-panel/task-activity/task-activity-feed";
+import {
+  TaskActivityRefreshProvider,
+  useTaskActivityRefresh,
+} from "@/components/dashboard/client-details/task-panel/task-activity/use-task-activity-refresh";
+import { TaskStatusChip } from "@/components/dashboard/client-details/task-panel/task-status-chip";
+import {
+  calendarDateToIso,
+  defaultProjectStatusOptions,
+  extractSelectedLines,
+  getCaretCharacterOffset,
+  getInitials,
+  getTaskDueDateTime,
+  resolveServerAssetUrl,
+  sanitizeCommentHtml,
+  toCalendarDate,
+  toFriendlyDate,
+} from "@/components/dashboard/client-details/task-panel/task-panel-utils";
+import { useAppToast } from "@/hooks/use-app-toast";
+import { normalizeProjectStatus } from "@/lib/project-statuses";
 import {
   buildCommentMessage,
   buildPendingAttachmentsFromFileList,
@@ -58,6 +79,7 @@ interface ViewTaskListsPanelContentProps {
   csmId?: string;
   csmName: string;
   description?: string;
+  descriptionJson?: Record<string, unknown> | null;
   initialSelectedTaskId?: string | null;
   projectName: string;
   projectId: string;
@@ -71,6 +93,7 @@ interface ViewTaskListsPanelContentProps {
     assigneeName: string;
     blockedTaskId?: string | null;
     description?: string | null;
+    descriptionJson?: Record<string, unknown> | null;
     dueDate: string;
     dueDateOffsetDays?: number;
     dueDateRuleType?: string | null;
@@ -83,6 +106,8 @@ interface ViewTaskListsPanelContentProps {
   onProjectMetaChange?: (payload: {
     accountManagerId?: string;
     csmId?: string;
+    description?: string | null;
+    descriptionJson?: Record<string, unknown> | null;
     dueDate?: string | null;
     startDate?: string | null;
     status?: string;
@@ -101,226 +126,15 @@ interface ViewTaskListsPanelContentProps {
   ) => Promise<void> | void;
 }
 
-const toFriendlyDate = (value?: string) => {
-  if (!value) {
-    return "-";
-  }
+export const ViewTaskListsPanelContent = (
+  props: ViewTaskListsPanelContentProps,
+) => (
+  <TaskActivityRefreshProvider>
+    <ViewTaskListsPanelContentInner {...props} />
+  </TaskActivityRefreshProvider>
+);
 
-  const parsed = new Date(value);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return value.includes("T") ? value.slice(0, 10) : value;
-  }
-
-  return parsed.toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-};
-
-const getTaskDueDateTime = (value?: string) => {
-  if (!value) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const parsed = new Date(value);
-
-  return Number.isNaN(parsed.getTime())
-    ? Number.POSITIVE_INFINITY
-    : parsed.getTime();
-};
-
-const getStatusChipClassName = (status?: string) => {
-  const normalizedStatus = normalizeTaskStatus(status ?? "");
-
-  if (normalizedStatus === "Completed") {
-    return "bg-[#DCFCE7] text-[#059669]";
-  }
-
-  if (normalizedStatus === "On Hold") {
-    return "bg-[#FEF3C7] text-[#B45309]";
-  }
-
-  if (normalizedStatus === "In Progress") {
-    return "bg-[#DBEAFE] text-[#1D4ED8]";
-  }
-
-  if (normalizedStatus === "Internal Review") {
-    return "bg-[#E9D5FF] text-[#7E22CE]";
-  }
-
-  if (normalizedStatus === "Client Review") {
-    return "bg-[#FCE7F3] text-[#BE185D]";
-  }
-
-  return "bg-[#E5E7EB] text-[#374151]";
-};
-
-const TaskStatusChip = ({ status }: { status?: string }) => {
-  const normalizedStatus = normalizeTaskStatus(status ?? "");
-
-  return (
-    <Chip
-      className={getStatusChipClassName(normalizedStatus)}
-      radius="full"
-      size="sm"
-      variant="flat"
-    >
-      {normalizedStatus}
-    </Chip>
-  );
-};
-
-const defaultProjectStatusOptions = [...PROJECT_STATUS_OPTIONS];
-
-const toCalendarDate = (value?: string | null) => {
-  if (!value || value === "-") {
-    return null;
-  }
-
-  const normalized = value.includes("T") ? value.slice(0, 10) : value;
-
-  try {
-    return parseDate(normalized);
-  } catch {
-    return null;
-  }
-};
-
-const calendarDateToIso = (value: ReturnType<typeof today>) => value.toString();
-
-const resolveServerAssetUrl = (value?: string | null) => {
-  if (!value) {
-    return undefined;
-  }
-
-  if (/^https?:\/\//i.test(value)) {
-    return value;
-  }
-
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
-  const normalizedPath = value.replace(/^\/+/, "");
-
-  return baseUrl ? `${baseUrl}/${normalizedPath}` : value;
-};
-
-const getInitials = (name: string) => {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-
-  if (parts.length === 0) {
-    return "U";
-  }
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-};
-
-const extractSelectedLines = (range: Range) => {
-  const fragment = range.cloneContents();
-  const container = document.createElement("div");
-
-  container.appendChild(fragment);
-
-  let buffer = "";
-
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      buffer += node.textContent ?? "";
-
-      return;
-    }
-
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return;
-    }
-
-    const element = node as HTMLElement;
-    const tagName = element.tagName.toLowerCase();
-    const blockTags = new Set(["div", "p", "li", "ul", "ol"]);
-
-    if (tagName === "br") {
-      buffer += "\n";
-
-      return;
-    }
-
-    Array.from(element.childNodes).forEach((childNode) => {
-      walk(childNode);
-    });
-
-    if (blockTags.has(tagName)) {
-      buffer += "\n";
-    }
-  };
-
-  Array.from(container.childNodes).forEach((childNode) => {
-    walk(childNode);
-  });
-
-  return buffer
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-};
-
-const getCaretCharacterOffset = (element: HTMLElement) => {
-  const selection = window.getSelection();
-
-  if (!selection || selection.rangeCount === 0) {
-    return 0;
-  }
-
-  const range = selection.getRangeAt(0);
-  const preCaretRange = range.cloneRange();
-
-  preCaretRange.selectNodeContents(element);
-  preCaretRange.setEnd(range.endContainer, range.endOffset);
-
-  return preCaretRange.toString().length;
-};
-
-const sanitizeCommentHtml = (html: string) => {
-  if (typeof window === "undefined" || !html) {
-    return "";
-  }
-
-  const parser = new DOMParser();
-  const documentNode = parser.parseFromString(html, "text/html");
-  const blockedTags = ["script", "style", "iframe", "object", "embed"];
-
-  blockedTags.forEach((tagName) => {
-    documentNode.querySelectorAll(tagName).forEach((node) => {
-      node.remove();
-    });
-  });
-
-  documentNode.querySelectorAll("*").forEach((element) => {
-    Array.from(element.attributes).forEach((attribute) => {
-      const attributeName = attribute.name.toLowerCase();
-      const attributeValue = attribute.value.trim().toLowerCase();
-
-      if (attributeName.startsWith("on")) {
-        element.removeAttribute(attribute.name);
-
-        return;
-      }
-
-      if (
-        (attributeName === "href" || attributeName === "src") &&
-        attributeValue.startsWith("javascript:")
-      ) {
-        element.removeAttribute(attribute.name);
-      }
-    });
-  });
-
-  return documentNode.body.innerHTML;
-};
-
-export const ViewTaskListsPanelContent = ({
+const ViewTaskListsPanelContentInner = ({
   accountManagerAvatar,
   accountManagerId,
   accountManagerName,
@@ -330,6 +144,7 @@ export const ViewTaskListsPanelContent = ({
   csmId,
   csmName,
   description,
+  descriptionJson: projectDescriptionJsonProp,
   initialSelectedTaskId,
   onClose,
   onProjectMetaChange,
@@ -345,6 +160,7 @@ export const ViewTaskListsPanelContent = ({
 }: ViewTaskListsPanelContentProps) => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
+  const { bump: bumpActivity } = useTaskActivityRefresh();
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const commentEditorRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -405,12 +221,30 @@ export const ViewTaskListsPanelContent = ({
           | "assigneeAvatar"
           | "assigneeId"
           | "assigneeName"
+          | "description"
+          | "descriptionJson"
           | "dueDate"
           | "status"
         >
       >
     >
   >({});
+  const [descriptionDraft, setDescriptionDraft] = useState<JSONContent | null>(
+    null,
+  );
+  const [isSavingDescription, setIsSavingDescription] = useState(false);
+  const [descriptionDirty, setDescriptionDirty] = useState(false);
+  const [projectDescriptionDraft, setProjectDescriptionDraft] =
+    useState<JSONContent | null>(null);
+  const [projectDescriptionDirty, setProjectDescriptionDirty] = useState(false);
+  const [isSavingProjectDescription, setIsSavingProjectDescription] =
+    useState(false);
+  const [
+    isUploadingProjectDescriptionImage,
+    setIsUploadingProjectDescriptionImage,
+  ] = useState(false);
+  const [isUploadingDescriptionImage, setIsUploadingDescriptionImage] =
+    useState(false);
 
   useEffect(() => {
     setActiveAccountManagerId(accountManagerId);
@@ -428,7 +262,13 @@ export const ViewTaskListsPanelContent = ({
     setSelectedTaskId(initialSelectedTaskId ?? null);
     setExpandedTaskIds(new Set());
     setTaskOverridesById({});
+    setProjectDescriptionDraft(null);
+    setProjectDescriptionDirty(false);
   }, [initialSelectedTaskId, projectId]);
+
+  useEffect(() => {
+    setDescriptionDirty(false);
+  }, [selectedTaskId]);
 
   useEffect(() => {
     const nextStartDate = toCalendarDate(projectStartDate) ?? todayDate;
@@ -773,6 +613,97 @@ export const ViewTaskListsPanelContent = ({
     selectedTask?.description?.trim() ||
     description?.trim() ||
     "No project template description found.";
+
+  const selectedTaskDescriptionValue = useMemo<JSONContent | null>(() => {
+    if (!selectedTask) return null;
+    if (descriptionDirty) return descriptionDraft;
+    if (selectedTask.descriptionJson) {
+      return selectedTask.descriptionJson as JSONContent;
+    }
+    return buildDocFromPlainText(selectedTask.description ?? null);
+  }, [descriptionDirty, descriptionDraft, selectedTask]);
+
+  const projectDescriptionValue = useMemo<JSONContent | null>(() => {
+    if (projectDescriptionDirty) return projectDescriptionDraft;
+    if (projectDescriptionJsonProp) {
+      return projectDescriptionJsonProp as JSONContent;
+    }
+    return buildDocFromPlainText(description ?? null);
+  }, [
+    description,
+    projectDescriptionDirty,
+    projectDescriptionDraft,
+    projectDescriptionJsonProp,
+  ]);
+
+  const handleSaveProjectDescription = async () => {
+    if (
+      !projectDescriptionDirty ||
+      isSavingProjectDescription ||
+      !onProjectMetaChange
+    ) {
+      return;
+    }
+
+    try {
+      setIsSavingProjectDescription(true);
+      await onProjectMetaChange({
+        descriptionJson: projectDescriptionDraft as
+          | Record<string, unknown>
+          | null,
+      });
+      setProjectDescriptionDirty(false);
+      toast.success("Project description saved.");
+    } catch (error) {
+      toast.danger("Failed to save project description.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSavingProjectDescription(false);
+    }
+  };
+
+  const handleSaveTaskDescription = async () => {
+    if (!selectedTask || !descriptionDirty || isSavingDescription) return;
+    if (!session?.accessToken) return;
+
+    try {
+      setIsSavingDescription(true);
+      const accessToken = await getValidAccessToken();
+      const payload = {
+        descriptionJson: descriptionDraft as Record<string, unknown> | null,
+      } as unknown as Partial<
+        Parameters<typeof clientsApi.updateProjectTask>[2]
+      >;
+      const response = await clientsApi.updateProjectTask(
+        accessToken,
+        selectedTask.id,
+        payload as Parameters<typeof clientsApi.updateProjectTask>[2],
+      );
+      const nextDescriptionJson =
+        (response?.descriptionJson ?? null) as Record<string, unknown> | null;
+      const nextDescriptionPlain = response?.description ?? null;
+
+      setTaskOverridesById((current) => ({
+        ...current,
+        [selectedTask.id]: {
+          ...(current[selectedTask.id] ?? {}),
+          description: nextDescriptionPlain,
+          descriptionJson: nextDescriptionJson,
+        },
+      }));
+      setDescriptionDirty(false);
+      toast.success("Description saved.");
+    } catch (error) {
+      toast.danger("Failed to save description.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSavingDescription(false);
+    }
+  };
 
   const activeMention = useMemo(() => {
     if (!commentInput || caretPosition < 0) {
@@ -1429,6 +1360,7 @@ export const ViewTaskListsPanelContent = ({
                       },
                     }));
 
+                    bumpActivity();
                     toast.success("Task updated.");
                   } catch (error) {
                     setTaskDueDate(
@@ -1628,7 +1560,9 @@ export const ViewTaskListsPanelContent = ({
         defaultExpandedKeys={[
           "description",
           selectedTask ? "subtasks" : "task",
-          "comment",
+          "checklists",
+          "attachments",
+          "activity",
         ]}
         itemClasses={{
           base: "border-0 rounded-none shadow-none px-0 pb-4 last:pb-0",
@@ -1646,9 +1580,129 @@ export const ViewTaskListsPanelContent = ({
           aria-label="Description"
           title="Description"
         >
-          <p className="text-base leading-7 text-[#4B5563]">
-            {displayedDescription}
-          </p>
+          {selectedTask ? (
+            <div className="space-y-3">
+              <RichTextEditor
+                placeholder="Add a description for this task…"
+                taskId={selectedTask.id}
+                value={selectedTaskDescriptionValue}
+                onChange={(json) => {
+                  setDescriptionDraft(json);
+                  setDescriptionDirty(true);
+                }}
+                onFetchUrlPreview={async (url) => {
+                  const accessToken = await getValidAccessToken();
+
+                  return clientsApi.getUrlPreview(accessToken, url);
+                }}
+                onUploadError={(message) => {
+                  toast.danger("Image upload failed", {
+                    description: message,
+                  });
+                }}
+                onUploadImage={async (file) => {
+                  const accessToken = await getValidAccessToken();
+                  const attachment = await clientsApi.uploadTaskAttachment(
+                    accessToken,
+                    selectedTask.id,
+                    file,
+                  );
+
+                  return {
+                    url:
+                      resolveServerAssetUrl(attachment.url) ?? attachment.url,
+                  };
+                }}
+                onUploadStateChange={setIsUploadingDescriptionImage}
+              />
+              <div className="flex items-center justify-end gap-2">
+                {isUploadingDescriptionImage ? (
+                  <span className="text-xs text-default-500">Uploading…</span>
+                ) : null}
+                {descriptionDirty ? (
+                  <Button
+                    isDisabled={isSavingDescription}
+                    radius="sm"
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      setDescriptionDirty(false);
+                      setDescriptionDraft(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
+                <Button
+                  className="bg-[#022279] text-white"
+                  isDisabled={
+                    !descriptionDirty || isUploadingDescriptionImage
+                  }
+                  isLoading={isSavingDescription}
+                  radius="sm"
+                  size="sm"
+                  onPress={() => {
+                    void handleSaveTaskDescription();
+                  }}
+                >
+                  Save description
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <RichTextEditor
+                placeholder="Describe this project…"
+                value={projectDescriptionValue}
+                onChange={(json) => {
+                  setProjectDescriptionDraft(json);
+                  setProjectDescriptionDirty(true);
+                }}
+                onFetchUrlPreview={async (url) => {
+                  const accessToken = await getValidAccessToken();
+                  return clientsApi.getUrlPreview(accessToken, url);
+                }}
+                onUploadError={(message) =>
+                  toast.danger("Image upload failed", { description: message })
+                }
+                onUploadStateChange={setIsUploadingProjectDescriptionImage}
+              />
+              <div className="flex items-center justify-end gap-2">
+                {isUploadingProjectDescriptionImage ? (
+                  <span className="text-xs text-default-500">Uploading…</span>
+                ) : null}
+                {projectDescriptionDirty ? (
+                  <Button
+                    isDisabled={isSavingProjectDescription}
+                    radius="sm"
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      setProjectDescriptionDirty(false);
+                      setProjectDescriptionDraft(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
+                <Button
+                  className="bg-[#022279] text-white"
+                  isDisabled={
+                    !projectDescriptionDirty ||
+                    isUploadingProjectDescriptionImage
+                  }
+                  isLoading={isSavingProjectDescription}
+                  radius="sm"
+                  size="sm"
+                  onPress={() => {
+                    void handleSaveProjectDescription();
+                  }}
+                >
+                  Save description
+                </Button>
+              </div>
+            </div>
+          )}
         </AccordionItem>
 
         <AccordionItem
@@ -1658,15 +1712,15 @@ export const ViewTaskListsPanelContent = ({
         >
           <div className="overflow-hidden rounded-lg border border-default-200 bg-white">
             {displayedTasks.map(({ depth, isSubtask, task }) => (
-              <div
-                key={task.id}
-                className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
-              >
-                <div className="flex min-w-0 items-center gap-3 px-3 py-2">
-                  <div
-                    className="flex min-w-0 items-center gap-2"
-                    style={{ paddingLeft: `${depth * 18}px` }}
-                  >
+                <div
+                  key={task.id}
+                  className="grid min-h-[54px] grid-cols-[minmax(300px,1fr)_88px_170px_120px] items-center border-b border-default-200 text-sm last:border-b-0"
+                >
+                  <div className="flex min-w-0 items-center gap-3 px-3 py-2">
+                    <div
+                      className="flex min-w-0 items-center gap-2"
+                      style={{ paddingLeft: `${depth * 18}px` }}
+                    >
                     {parentTaskIds.has(task.id) ? (
                       <button
                         className="rounded p-0.5 text-[#6B7280] hover:bg-default-100"
@@ -1747,310 +1801,31 @@ export const ViewTaskListsPanelContent = ({
           </div>
         </AccordionItem>
 
-        <AccordionItem key="comment" aria-label="Comment" title="Comment">
-          <div className="space-y-4">
-            {isCommentsLoading ? (
-              <p className="text-sm text-[#6B7280]">Loading comments...</p>
-            ) : comments.length === 0 ? (
-              <p className="text-sm text-[#6B7280]">No comments yet.</p>
-            ) : (
-              comments.map((comment) => {
-                const parsedComment = parseCommentAttachments(comment.comment);
-                const isOwnComment =
-                  String(comment.createdBy ?? "") ===
-                  String(session?.user?.id ?? "");
+        {selectedTask ? (
+          <AccordionItem
+            key="checklists"
+            aria-label="Checklists"
+            title="Checklists"
+          >
+            <TaskPanelChecklists taskId={selectedTask.id} />
+          </AccordionItem>
+        ) : null}
 
-                return (
-                  <div
-                    key={String(comment.id)}
-                    className="space-y-2 border-b border-default-200 pb-3"
-                  >
-                    {parsedComment.richHtml ? (
-                      <div
-                        dangerouslySetInnerHTML={{
-                          __html: sanitizeCommentHtml(parsedComment.richHtml),
-                        }}
-                        className="text-base leading-7 text-[#374151] [&_a]:text-[#2563EB] [&_a]:underline [&_li]:ml-5 [&_li]:list-disc [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"
-                      />
-                    ) : (
-                      <p className="whitespace-pre-line text-base leading-7 text-[#374151]">
-                        {renderCommentWithMentions(parsedComment.body)}
-                      </p>
-                    )}
-                    {parsedComment.attachments.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {parsedComment.attachments.map((attachment, index) => (
-                          <button
-                            key={`${attachment.id ?? attachment.name}-${index}`}
-                            className="inline-flex items-center gap-1 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
-                            type="button"
-                            onClick={() => {
-                              handleOpenAttachment(attachment);
-                            }}
-                          >
-                            {attachment.name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="flex items-center justify-between gap-2 text-sm text-[#6B7280]">
-                      <div className="flex items-center gap-2">
-                        <Avatar
-                          showFallback
-                          className="h-5 w-5"
-                          fallback={
-                            <span className="text-[10px] font-semibold text-[#111827]">
-                              {getInitials(formatCommentAuthor(comment))}
-                            </span>
-                          }
-                          name={formatCommentAuthor(comment)}
-                          size="sm"
-                          src={resolveServerAssetUrl(comment.author?.avatar)}
-                        />
-                        <span className="font-medium">
-                          {formatCommentAuthor(comment)}
-                        </span>
-                        <span>•</span>
-                        <span>{formatCommentTime(comment.createdAt)}</span>
-                      </div>
-                      {isOwnComment ? (
-                        <Button
-                          isIconOnly
-                          className="text-danger"
-                          isLoading={isDeletingCommentId === String(comment.id)}
-                          radius="full"
-                          size="sm"
-                          variant="light"
-                          onPress={() => {
-                            void handleDeleteComment(String(comment.id));
-                          }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+        {selectedTask ? (
+          <AccordionItem
+            key="attachments"
+            aria-label="Attachments"
+            title="Attachments"
+          >
+            <TaskPanelAttachments taskId={selectedTask.id} />
+          </AccordionItem>
+        ) : null}
 
-          <div className="mt-3 overflow-visible rounded-xl border border-default-200">
-            <div className="relative">
-              <div
-                ref={commentEditorRef}
-                contentEditable
-                suppressContentEditableWarning
-                className="min-h-14 w-full whitespace-pre-wrap px-3 py-2 text-sm text-[#111827] outline-none [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5"
-                role="textbox"
-                tabIndex={0}
-                onInput={(event) => {
-                  setCommentInput(event.currentTarget.innerText || "");
-                  setCaretPosition(
-                    getCaretCharacterOffset(event.currentTarget),
-                  );
-                  refreshFormatState();
-                }}
-                onKeyUp={(event) => {
-                  setCaretPosition(
-                    getCaretCharacterOffset(event.currentTarget),
-                  );
-                  refreshFormatState();
-                }}
-                onMouseUp={(event) => {
-                  setCaretPosition(
-                    getCaretCharacterOffset(event.currentTarget),
-                  );
-                  refreshFormatState();
-                }}
-              />
-              {!commentInput.trim() ? (
-                <span className="pointer-events-none absolute left-3 top-2 text-sm text-[#9CA3AF]">
-                  Write a comment... Use @ to mention
-                </span>
-              ) : null}
-              {mentionOptions.length > 0 ? (
-                <div className="absolute left-3 top-[calc(100%-6px)] z-10 w-[280px] overflow-hidden rounded-md border border-default-200 bg-white shadow-md">
-                  {mentionOptions.map((user) => (
-                    <button
-                      key={user.id}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[#111827] hover:bg-default-100"
-                      type="button"
-                      onClick={() => {
-                        handleInsertMention(user.name);
-                      }}
-                    >
-                      <Avatar
-                        className="h-5 w-5"
-                        name={user.name}
-                        size="sm"
-                        src={user.avatar ?? undefined}
-                      />
-                      <span>{user.name}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            {pendingAttachments.length > 0 ? (
-              <div className="border-t border-default-200 px-3 py-2">
-                <div className="flex flex-wrap gap-2">
-                  {pendingAttachments.map((attachment, index) => (
-                    <button
-                      key={`${attachment.name}-${index}`}
-                      className="inline-flex items-center gap-1 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
-                      type="button"
-                      onClick={() => {
-                        handleRemovePendingAttachment(index);
-                      }}
-                    >
-                      {attachment.isImage && attachment.previewUrl ? (
-                        <Avatar
-                          className="h-5 w-5"
-                          name={attachment.name}
-                          size="sm"
-                          src={attachment.previewUrl}
-                        />
-                      ) : null}
-                      {attachment.name}
-                      <X size={12} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between border-t border-default-200 bg-white px-3 py-2">
-              <div className="flex items-center gap-1 text-[#6B7280]">
-                <Button
-                  isIconOnly
-                  className={
-                    formatState.bold ? "bg-default-100 text-[#111827]" : ""
-                  }
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    applyEditorCommand("bold");
-                  }}
-                >
-                  <span className="font-semibold">B</span>
-                </Button>
-                <Button
-                  isIconOnly
-                  className={
-                    formatState.italic ? "bg-default-100 text-[#111827]" : ""
-                  }
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    applyEditorCommand("italic");
-                  }}
-                >
-                  <span className="italic">I</span>
-                </Button>
-                <Button
-                  isIconOnly
-                  className={
-                    formatState.underline ? "bg-default-100 text-[#111827]" : ""
-                  }
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    applyEditorCommand("underline");
-                  }}
-                >
-                  <span className="underline">U</span>
-                </Button>
-                <Button
-                  isIconOnly
-                  className={
-                    formatState.strikeThrough
-                      ? "bg-default-100 text-[#111827]"
-                      : ""
-                  }
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    applyEditorCommand("strikeThrough");
-                  }}
-                >
-                  <span className="line-through">S</span>
-                </Button>
-                <Button
-                  isIconOnly
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    applyListFromSelection();
-                  }}
-                >
-                  <List size={16} />
-                </Button>
-                <Button
-                  isIconOnly
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    attachmentInputRef.current?.click();
-                  }}
-                >
-                  <Paperclip size={16} />
-                </Button>
-                <Button
-                  isIconOnly
-                  radius="sm"
-                  size="sm"
-                  variant="light"
-                  onPress={() => {
-                    imageInputRef.current?.click();
-                  }}
-                >
-                  <ImageIcon size={16} />
-                </Button>
-              </div>
-              <Button
-                className="bg-[#022279] text-white"
-                isDisabled={!projectId || !commentInput.trim()}
-                isLoading={isSendingComment}
-                size="sm"
-                onPress={() => {
-                  void handleAddComment();
-                }}
-              >
-                <SendHorizontal size={14} />
-                Send
-              </Button>
-            </div>
-            <input
-              ref={attachmentInputRef}
-              multiple
-              className="hidden"
-              type="file"
-              onChange={(event) => {
-                void handleAddPendingFiles(event.target.files);
-                event.target.value = "";
-              }}
-            />
-            <input
-              ref={imageInputRef}
-              multiple
-              accept="image/*"
-              className="hidden"
-              type="file"
-              onChange={(event) => {
-                void handleAddPendingFiles(event.target.files, {
-                  imageOnly: true,
-                });
-                event.target.value = "";
-              }}
-            />
-          </div>
-        </AccordionItem>
+        {selectedTask ? (
+          <AccordionItem key="activity" aria-label="Activity" title="Activity">
+            <TaskActivityFeed taskId={selectedTask.id} />
+          </AccordionItem>
+        ) : null}
       </Accordion>
 
       <Modal

@@ -53,6 +53,7 @@ type TaskListRow = {
   blockedTaskId?: string;
   comment: string;
   description: string;
+  descriptionJson?: Record<string, unknown> | null;
   dueDate: string;
   dueDateRuleType?: string | null;
   parentTaskId?: string;
@@ -430,6 +431,10 @@ const toTaskListRow = (task: ProjectTask): TaskListRow => {
         : undefined,
     comment: "-",
     description: task.description ?? "",
+    descriptionJson:
+      task.descriptionJson && typeof task.descriptionJson === "object"
+        ? (task.descriptionJson as Record<string, unknown>)
+        : null,
     dueDate: task.dueDate ?? "",
     dueDateRuleType: task.dueDateRuleType ?? null,
     parentTaskId:
@@ -691,6 +696,7 @@ export const ClientTaskListsTable = ({
           assigneeName: row.assignee.name,
           blockedTaskId: row.blockedTaskId ?? null,
           description: row.description,
+          descriptionJson: row.descriptionJson ?? null,
           dueDate: row.dueDate || "-",
           dueDateRuleType: row.dueDateRuleType ?? null,
           id: row.id,

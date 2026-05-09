@@ -13,7 +13,7 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
-import { Input, Textarea } from "@heroui/input";
+import { Input } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -34,15 +34,24 @@ import {
   X,
 } from "lucide-react";
 
+import { clientsApi } from "@/apis/clients";
 import {
   type ProjectTemplate,
   projectTemplatesApi,
 } from "@/apis/project-templates";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
+import { resolveServerAssetUrl } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
+import {
+  RichTextEditor,
+  buildDocFromPlainText,
+  type JSONContent,
+} from "@/components/dashboard/client-details/task-panel/editor/rich-text-editor";
 import {
   AddProjectTemplateTaskModal,
   type AddProjectTemplateTaskFormValues,
+  type AddProjectTemplateTaskRichValues,
+  type AddProjectTemplateTaskSubmitPayload,
 } from "@/components/dashboard/settings/add-project-template-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
 import {
@@ -65,9 +74,12 @@ type ProjectTemplateTaskRow = {
   assigneeAvatar?: string | null;
   assigneeId?: string;
   assigneeName?: string;
+  attachments?: import("@/apis/project-templates").ProjectTemplateTaskAttachment[];
   blockedTaskId?: string;
+  checklists?: import("@/apis/project-templates").ProjectTemplateTaskChecklist[];
   dependency: string;
   dependencyType?: string;
+  descriptionJson?: Record<string, unknown> | null;
   dueDateTrigger: string;
   enableDependency?: boolean;
   id: string;
@@ -387,6 +399,9 @@ export const NewProjectTemplateModal = ({
     },
     mode: "onBlur",
   });
+  const [descriptionJson, setDescriptionJson] = useState<JSONContent | null>(
+    null,
+  );
   const isEditing = Boolean(initialTemplate);
 
   useEffect(() => {
@@ -466,14 +481,23 @@ export const NewProjectTemplateModal = ({
         initialTemplate?.status ?? defaultProjectTemplateStatusOptions[0],
       ),
     });
+    setDescriptionJson(
+      (initialTemplate?.descriptionJson as JSONContent | undefined) ??
+        (initialTemplate?.description
+          ? buildDocFromPlainText(initialTemplate.description)
+          : null),
+    );
     setTaskRows(
       initialTemplate?.tasks?.map((task) => ({
         assigneeId: task.assigneeId,
         assigneeName: task.assigneeName,
         assigneeAvatar: task.assigneeAvatar,
+        attachments: task.attachments,
         blockedTaskId: task.blockedTaskId,
+        checklists: task.checklists,
         dependency: task.dependency,
         dependencyType: task.dependencyType,
+        descriptionJson: task.descriptionJson,
         dueDateTrigger: task.dueDateTrigger,
         enableDependency: task.enableDependency,
         id: task.id,
@@ -517,7 +541,7 @@ export const NewProjectTemplateModal = ({
                 .filter(Boolean)
                 .join(" ")
                 .trim() || user.email,
-            avatarUrl: user.avatarUrl,
+            avatarUrl: resolveServerAssetUrl(user.avatarUrl) ?? null,
           })),
         );
       } catch {
@@ -548,6 +572,7 @@ export const NewProjectTemplateModal = ({
       projectName: "",
       status: projectStatusOptions[0] ?? "",
     });
+    setDescriptionJson(null);
   };
 
   const handleClose = () => {
@@ -588,7 +613,7 @@ export const NewProjectTemplateModal = ({
     }
   };
 
-  const addTask = (payload: AddProjectTemplateTaskFormValues) => {
+  const addTask = (payload: AddProjectTemplateTaskSubmitPayload) => {
     setTaskRows((current) => {
       const assignee = taskUsers.find((user) => user.id === payload.assigneeId);
       const dependencyType = payload.dependencyType ?? "After trigger date";
@@ -601,13 +626,19 @@ export const NewProjectTemplateModal = ({
         assigneeId: payload.assigneeId,
         assigneeAvatar: assignee?.avatarUrl ?? null,
         assigneeName: assignee?.name ?? "",
+        attachments: payload.attachments,
         blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
+        checklists: payload.checklists,
         dependency:
           isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((row) => row.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
         dependencyType,
+        descriptionJson: payload.descriptionJson as
+          | Record<string, unknown>
+          | null
+          | undefined,
         dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
         enableDependency: isBlockedTaskRule,
         id: `task-${Date.now()}`,
@@ -683,7 +714,7 @@ export const NewProjectTemplateModal = ({
 
   const updateTask = (
     taskId: string,
-    payload: AddProjectTemplateTaskFormValues,
+    payload: AddProjectTemplateTaskSubmitPayload,
   ) => {
     setTaskRows((current) => {
       const dependencyType = payload.dependencyType ?? "After trigger date";
@@ -706,13 +737,19 @@ export const NewProjectTemplateModal = ({
         assigneeId: payload.assigneeId,
         assigneeAvatar: assignee?.avatarUrl ?? null,
         assigneeName: assignee?.name ?? "",
+        attachments: payload.attachments,
         blockedTaskId: isBlockedTaskRule ? payload.blockedTaskId : undefined,
+        checklists: payload.checklists,
         dependency:
           isBlockedTaskRule && payload.blockedTaskId
             ? (current.find((item) => item.id === payload.blockedTaskId)
                 ?.taskName ?? "-")
             : "-",
         dependencyType,
+        descriptionJson: payload.descriptionJson as
+          | Record<string, unknown>
+          | null
+          | undefined,
         dueDateTrigger: `${payload.remapDays} Days ${dependencyType.toLowerCase()}`,
         enableDependency: isBlockedTaskRule,
         labels: payload.labels,
@@ -812,6 +849,20 @@ export const NewProjectTemplateModal = ({
     () => getVisibleTaskRows(taskRows),
     [taskRows],
   );
+  const taskNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of taskRows) {
+      map.set(row.id, row.taskName ?? "-");
+    }
+    return map;
+  }, [taskRows]);
+  const taskUserAvatarById = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const user of taskUsers) {
+      map.set(user.id, user.avatarUrl ?? null);
+    }
+    return map;
+  }, [taskUsers]);
   const taskOptionRows = useMemo(
     () => taskRows.filter((row) => row.level === 0),
     [taskRows],
@@ -946,7 +997,7 @@ export const NewProjectTemplateModal = ({
         }
       >
         <div>
-          <div className="grid min-h-[42px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_72px] items-center border-b border-default-200 bg-[#F9FAFB] text-xs font-medium text-[#111827]">
+          <div className="grid min-h-[42px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_minmax(120px,160px)_72px] items-center border-b border-default-200 bg-[#F9FAFB] text-xs font-medium text-[#111827]">
             <div className="px-4">
               <Checkbox
                 isSelected={
@@ -964,6 +1015,7 @@ export const NewProjectTemplateModal = ({
             <div className="border-l border-default-100 px-2">Status</div>
             <div className="border-l border-default-100 px-2">Assignee</div>
             <div className="border-l border-default-100 px-2">Due rule</div>
+            <div className="border-l border-default-100 px-2">Blocked task</div>
             <div className="border-l border-default-100 px-3 text-right">
               Action
             </div>
@@ -983,7 +1035,7 @@ export const NewProjectTemplateModal = ({
                 <div
                   key={item.id}
                   draggable
-                  className={`grid min-h-[54px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_72px] items-center border-b border-default-200 text-sm last:border-b-0 ${
+                  className={`grid min-h-[54px] grid-cols-[44px_minmax(320px,1fr)_110px_180px_minmax(150px,210px)_minmax(120px,160px)_72px] items-center border-b border-default-200 text-sm last:border-b-0 ${
                     dragOverTaskId === item.id ? "bg-[#EEF2FF]" : "bg-white"
                   }`}
                   onDragEnd={() => {
@@ -1090,7 +1142,13 @@ export const NewProjectTemplateModal = ({
                       className="h-5 w-5 flex-none"
                       name={item.assigneeName || "-"}
                       size="sm"
-                      src={item.assigneeAvatar ?? undefined}
+                      src={
+                        (item.assigneeId
+                          ? taskUserAvatarById.get(item.assigneeId)
+                          : null) ??
+                        item.assigneeAvatar ??
+                        undefined
+                      }
                     />
                     <span className="truncate">{item.assigneeName || "-"}</span>
                   </div>
@@ -1098,6 +1156,13 @@ export const NewProjectTemplateModal = ({
                     <span className="inline-flex min-w-0 items-center gap-1">
                       <Calendar className="flex-none" size={13} />
                       <span className="truncate">{getTaskRuleLabel(item)}</span>
+                    </span>
+                  </div>
+                  <div className="border-l border-default-100 px-2 py-2 text-xs text-[#374151]">
+                    <span className="block truncate">
+                      {item.blockedTaskId
+                        ? (taskNameById.get(item.blockedTaskId) ?? "-")
+                        : "-"}
                     </span>
                   </div>
                   <div className="flex justify-end border-l border-default-100 px-3 py-2">
@@ -1164,14 +1229,18 @@ export const NewProjectTemplateModal = ({
 
         const payload = {
           description: getValues("description") ?? "",
+          descriptionJson,
           projectName: getValues("projectName") ?? "",
           status: getValues("status") ?? "",
           tasks: taskRows.map((task) => ({
             assigneeId: task.assigneeId,
             assigneeName: task.assigneeName,
+            attachments: task.attachments,
             blockedTaskId: task.blockedTaskId,
+            checklists: task.checklists,
             dependency: task.dependency,
             dependencyType: task.dependencyType,
+            descriptionJson: task.descriptionJson,
             dueDateTrigger: task.dueDateTrigger,
             enableDependency: task.enableDependency,
             id: task.id,
@@ -1309,18 +1378,33 @@ export const NewProjectTemplateModal = ({
 
               <div>
                 <p className={labelClassName}>Project Description</p>
-                <Controller
-                  control={control}
-                  name="description"
-                  render={({ field }) => (
-                    <Textarea
-                      minRows={currentStep === 1 ? 10 : 6}
-                      placeholder=""
-                      value={field.value ?? ""}
-                      onBlur={field.onBlur}
-                      onValueChange={field.onChange}
-                    />
-                  )}
+                <RichTextEditor
+                  placeholder="Describe the template…"
+                  value={descriptionJson}
+                  onChange={(json) => {
+                    setDescriptionJson(json);
+                  }}
+                  onFetchUrlPreview={async (url) => {
+                    const accessToken = await getValidAccessToken();
+                    return clientsApi.getUrlPreview(accessToken, url);
+                  }}
+                  onUploadError={(message) =>
+                    toast.danger("Image upload failed", {
+                      description: message,
+                    })
+                  }
+                  onUploadImage={async (file) => {
+                    const accessToken = await getValidAccessToken();
+                    const attachment =
+                      await projectTemplatesApi.uploadAttachment(
+                        accessToken,
+                        file,
+                      );
+                    return {
+                      url:
+                        resolveServerAssetUrl(attachment.url) ?? attachment.url,
+                    };
+                  }}
                 />
               </div>
             </>
@@ -1377,6 +1461,18 @@ export const NewProjectTemplateModal = ({
       </ModalContent>
       <AddProjectTemplateTaskModal
         blockedTaskOptions={editableBlockedTaskOptions}
+        initialRich={
+          editingTask
+            ? ({
+                attachments: editingTask.attachments ?? [],
+                checklists: editingTask.checklists ?? [],
+                descriptionJson:
+                  (editingTask.descriptionJson as
+                    | AddProjectTemplateTaskRichValues["descriptionJson"]
+                    | undefined) ?? null,
+              } satisfies AddProjectTemplateTaskRichValues)
+            : null
+        }
         initialValues={editingTaskInitialValues}
         isOpen={isAddTaskModalOpen}
         mode={editingTaskId ? "edit" : "add"}

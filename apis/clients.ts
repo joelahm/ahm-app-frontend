@@ -58,6 +58,7 @@ export interface AddProjectTaskRequestBody {
   assigneeId: number | string;
   blockedTaskId?: number | string;
   description: string;
+  descriptionJson?: Record<string, unknown> | null;
   dependencyType?: string;
   dueDate: string;
   dueDateOffsetDays?: number;
@@ -277,6 +278,7 @@ export interface ProjectTask {
   createdAt: string | null;
   createdBy: number | string | null;
   description: string | null;
+  descriptionJson?: Record<string, unknown> | null;
   dueDate: string | null;
   blockedTaskId?: number | string | null;
   dueDateManualOverride?: boolean;
@@ -298,6 +300,80 @@ export interface ProjectTasksResponse {
   tasks: ProjectTask[];
 }
 
+export interface TaskChecklistItem {
+  checklistId: number | string;
+  completedAt: string | null;
+  completedBy: number | string | null;
+  createdAt: string | null;
+  id: number | string;
+  isComplete: boolean;
+  position: number;
+  text: string;
+  updatedAt: string | null;
+}
+
+export interface TaskChecklist {
+  createdAt: string | null;
+  createdBy: number | string | null;
+  id: number | string;
+  items: TaskChecklistItem[];
+  position: number;
+  taskId: number | string;
+  title: string;
+  updatedAt: string | null;
+}
+
+export interface TaskChecklistsResponse {
+  checklists: TaskChecklist[];
+}
+
+export type TaskActivityType =
+  | "ASSIGNEE_CHANGED"
+  | "ATTACHMENT_ADDED"
+  | "ATTACHMENT_REMOVED"
+  | "CHECKLIST_CREATED"
+  | "CHECKLIST_DELETED"
+  | "CHECKLIST_ITEM_COMPLETED"
+  | "CHECKLIST_ITEM_REOPENED"
+  | "DUE_DATE_CHANGED"
+  | "PARENT_CHANGED"
+  | "PRIORITY_CHANGED"
+  | "STATUS_CHANGED"
+  | "SUBTASK_ADDED";
+
+export interface TaskActivityUser {
+  avatarUrl: string | null;
+  id: number | string;
+  name: string;
+}
+
+export interface TaskActivityCommentItem {
+  body: string;
+  bodyJson: Record<string, unknown> | null;
+  createdAt: string;
+  createdBy: TaskActivityUser | null;
+  id: number | string;
+  kind: "comment";
+}
+
+export interface TaskActivityEventItem {
+  actor: TaskActivityUser | null;
+  createdAt: string;
+  id: number | string;
+  kind: "event";
+  metadata: Record<string, unknown>;
+  type: TaskActivityType;
+}
+
+export type TaskActivityItem =
+  | TaskActivityCommentItem
+  | TaskActivityEventItem;
+
+export interface TaskActivityResponse {
+  cursor: string | null;
+  items: TaskActivityItem[];
+}
+
 export interface TaskComment {
   author: {
     avatar: string | null;
@@ -305,6 +381,8 @@ export interface TaskComment {
     id: number | string | null;
     lastName: string | null;
   } | null;
+  body: string;
+  bodyJson?: Record<string, unknown> | null;
   comment: string;
   createdAt: string | null;
   createdBy: number | string | null;
@@ -316,6 +394,31 @@ export interface TaskComment {
 export interface TaskCommentsResponse {
   comments: TaskComment[];
   total: number;
+}
+
+export interface TaskAttachment {
+  createdAt: string | null;
+  filename: string;
+  id: number | string;
+  mimeType: string;
+  sizeBytes: number;
+  taskId: number | string;
+  uploadedBy: number | string | null;
+  url: string;
+}
+
+export interface TaskAttachmentsResponse {
+  attachments: TaskAttachment[];
+  total: number;
+}
+
+export interface UrlPreview {
+  description: string | null;
+  fetchedAt: string | null;
+  image: string | null;
+  siteName: string | null;
+  title: string | null;
+  url: string;
 }
 
 export interface ProjectComment {
@@ -356,6 +459,8 @@ export interface ClientProject {
   clientSuccessManagerId: number | string | null;
   createdAt: string | null;
   createdBy: number | string | null;
+  description: string | null;
+  descriptionJson?: Record<string, unknown> | null;
   dueDate: string | null;
   id: number | string;
   phase: string | null;
@@ -1686,6 +1791,11 @@ const parseClientProjectResponse = (value: unknown): ClientProject => {
     clientSuccessManagerId: asId(source.clientSuccessManagerId),
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
+    description: asString(source.description),
+    descriptionJson:
+      source.descriptionJson && typeof source.descriptionJson === "object"
+        ? (source.descriptionJson as Record<string, unknown>)
+        : null,
     dueDate: asString(source.dueDate),
     id,
     phase: asString(source.phase),
@@ -1724,6 +1834,10 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
     description: asString(source.description),
+    descriptionJson:
+      source.descriptionJson && typeof source.descriptionJson === "object"
+        ? (source.descriptionJson as Record<string, unknown>)
+        : null,
     dueDate: asString(source.dueDate),
     blockedTaskId: asId(source.blockedTaskId) ?? asId(source.blocked_task_id),
     dueDateManualOverride:
@@ -1802,6 +1916,92 @@ const parseProjectTasksResponse = (value: unknown): ProjectTasksResponse => {
   return { tasks };
 };
 
+
+const parseTaskChecklistItemResponse = (value: unknown): TaskChecklistItem => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const itemRecord = asObject(payload.item);
+  const source =
+    Object.keys(itemRecord).length > 0 ? itemRecord : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid checklist item response.");
+  }
+
+  return {
+    checklistId: asId(source.checklistId) ?? "",
+    completedAt: asString(source.completedAt),
+    completedBy: asId(source.completedBy),
+    createdAt: asString(source.createdAt),
+    id,
+    isComplete: Boolean(source.isComplete),
+    position: asNumber(source.position) ?? 0,
+    text: asString(source.text) ?? "",
+    updatedAt: asString(source.updatedAt),
+  };
+};
+
+const parseTaskChecklistResponse = (value: unknown): TaskChecklist => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const checklistRecord = asObject(payload.checklist);
+  const source =
+    Object.keys(checklistRecord).length > 0
+      ? checklistRecord
+      : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid checklist response.");
+  }
+
+  return {
+    createdAt: asString(source.createdAt),
+    createdBy: asId(source.createdBy),
+    id,
+    items: asArray(source.items)
+      .map((item) => {
+        try {
+          return parseTaskChecklistItemResponse({ item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is TaskChecklistItem => item !== null),
+    position: asNumber(source.position) ?? 0,
+    taskId: asId(source.taskId) ?? "",
+    title: asString(source.title) ?? "Checklist",
+    updatedAt: asString(source.updatedAt),
+  };
+};
+
+const parseTaskChecklistsResponse = (
+  value: unknown,
+): TaskChecklistsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawChecklists =
+    asArray(payload.checklists).length > 0
+      ? asArray(payload.checklists)
+      : asArray(root.checklists);
+
+  return {
+    checklists: rawChecklists
+      .map((item) => {
+        try {
+          return parseTaskChecklistResponse({ checklist: item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is TaskChecklist => item !== null),
+  };
+};
+
 const parseTaskCommentResponse = (value: unknown): TaskComment => {
   const root = asObject(value);
   const nested = asObject(root.data);
@@ -1829,11 +2029,80 @@ const parseTaskCommentResponse = (value: unknown): TaskComment => {
           }
         : null,
     comment: asString(source.comment) ?? "",
+    body: asString(source.body) ?? asString(source.comment) ?? "",
+    bodyJson:
+      source.bodyJson && typeof source.bodyJson === "object"
+        ? (source.bodyJson as Record<string, unknown>)
+        : null,
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
     id,
     taskId: asId(source.taskId),
     updatedAt: asString(source.updatedAt),
+  };
+};
+
+const parseActivityUser = (value: unknown): TaskActivityUser | null => {
+  const source = asObject(value);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") return null;
+
+  return {
+    avatarUrl: asString(source.avatarUrl),
+    id,
+    name: asString(source.name) ?? "User",
+  };
+};
+
+const parseTaskActivityResponse = (value: unknown): TaskActivityResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawItems = asArray(payload.items);
+
+  return {
+    cursor: asString(payload.cursor),
+    items: rawItems
+      .map((item): TaskActivityItem | null => {
+        const source = asObject(item);
+        const kind = asString(source.kind);
+        const id = source.id;
+
+        if (
+          (typeof id !== "number" && typeof id !== "string") ||
+          (kind !== "comment" && kind !== "event")
+        ) {
+          return null;
+        }
+
+        if (kind === "comment") {
+          return {
+            body: asString(source.body) ?? "",
+            bodyJson:
+              source.bodyJson && typeof source.bodyJson === "object"
+                ? (source.bodyJson as Record<string, unknown>)
+                : null,
+            createdAt: asString(source.createdAt) ?? "",
+            createdBy: parseActivityUser(source.createdBy),
+            id,
+            kind,
+          };
+        }
+
+        return {
+          actor: parseActivityUser(source.actor),
+          createdAt: asString(source.createdAt) ?? "",
+          id,
+          kind,
+          metadata:
+            source.metadata && typeof source.metadata === "object"
+              ? (source.metadata as Record<string, unknown>)
+              : {},
+          type: (asString(source.type) ?? "STATUS_CHANGED") as TaskActivityType,
+        };
+      })
+      .filter((item): item is TaskActivityItem => item !== null),
   };
 };
 
@@ -1858,6 +2127,76 @@ const parseTaskCommentsResponse = (value: unknown): TaskCommentsResponse => {
       .filter((item): item is TaskComment => item !== null),
     total:
       asNumber(payload.total) ?? asNumber(root.total) ?? rawComments.length,
+  };
+};
+
+const parseTaskAttachmentResponse = (value: unknown): TaskAttachment => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const attachmentRecord = asObject(payload.attachment);
+  const source =
+    Object.keys(attachmentRecord).length > 0
+      ? attachmentRecord
+      : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid task attachment response.");
+  }
+
+  return {
+    createdAt: asString(source.createdAt),
+    filename: asString(source.filename) ?? "",
+    id,
+    mimeType: asString(source.mimeType) ?? "",
+    sizeBytes: asNumber(source.sizeBytes) ?? 0,
+    taskId: asId(source.taskId) ?? "",
+    uploadedBy: asId(source.uploadedBy),
+    url: asString(source.url) ?? "",
+  };
+};
+
+const parseTaskAttachmentsResponse = (
+  value: unknown,
+): TaskAttachmentsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawAttachments =
+    asArray(payload.attachments).length > 0
+      ? asArray(payload.attachments)
+      : asArray(root.attachments);
+
+  return {
+    attachments: rawAttachments
+      .map((item) => {
+        try {
+          return parseTaskAttachmentResponse({ attachment: item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is TaskAttachment => item !== null),
+    total:
+      asNumber(payload.total) ??
+      asNumber(root.total) ??
+      rawAttachments.length,
+  };
+};
+
+const parseUrlPreviewResponse = (value: unknown): UrlPreview => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const source = Object.keys(nested).length > 0 ? nested : root;
+
+  return {
+    description: asString(source.description),
+    fetchedAt: asString(source.fetchedAt),
+    image: asString(source.image),
+    siteName: asString(source.siteName),
+    title: asString(source.title),
+    url: asString(source.url) ?? "",
   };
 };
 
@@ -2063,6 +2402,7 @@ export const clientsApi = {
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
           },
         },
       );
@@ -2532,6 +2872,147 @@ export const clientsApi = {
       throw new Error(parseError(error));
     }
   },
+  listTaskChecklists: async (
+    accessToken: string,
+    taskId: string | number,
+  ): Promise<TaskChecklistsResponse> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/tasks/${taskId}/checklists`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskChecklistsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createTaskChecklist: async (
+    accessToken: string,
+    taskId: string | number,
+    payload: { position?: number; title: string },
+  ): Promise<TaskChecklist> => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/projects/tasks/${taskId}/checklists`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskChecklistResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateTaskChecklist: async (
+    accessToken: string,
+    checklistId: string | number,
+    payload: Partial<{ position: number; title: string }>,
+  ): Promise<TaskChecklist> => {
+    try {
+      const response = await clientsApiClient.patch<unknown>(
+        `/api/v1/projects/tasks/checklists/${checklistId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskChecklistResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteTaskChecklist: async (
+    accessToken: string,
+    checklistId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/projects/tasks/checklists/${checklistId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  createChecklistItem: async (
+    accessToken: string,
+    checklistId: string | number,
+    payload: { position?: number; text: string },
+  ): Promise<TaskChecklistItem> => {
+    try {
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/projects/tasks/checklists/${checklistId}/items`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskChecklistItemResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateChecklistItem: async (
+    accessToken: string,
+    itemId: string | number,
+    payload: Partial<{ isComplete: boolean; position: number; text: string }>,
+  ): Promise<TaskChecklistItem> => {
+    try {
+      const response = await clientsApiClient.patch<unknown>(
+        `/api/v1/projects/tasks/checklists/items/${itemId}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskChecklistItemResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteChecklistItem: async (
+    accessToken: string,
+    itemId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.delete(
+        `/api/v1/projects/tasks/checklists/items/${itemId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getTaskComments: async (accessToken: string, taskId: string | number) => {
     try {
       const response = await clientsApiClient.get<unknown>(
@@ -2551,7 +3032,7 @@ export const clientsApi = {
   createTaskComment: async (
     accessToken: string,
     taskId: string | number,
-    payload: { comment: string },
+    payload: { bodyJson?: Record<string, unknown> | null; comment: string },
   ) => {
     try {
       const response = await clientsApiClient.post(
@@ -2584,6 +3065,112 @@ export const clientsApi = {
       );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listTaskActivity: async (
+    accessToken: string,
+    taskId: string | number,
+    params?: { before?: string | null; limit?: number },
+  ): Promise<TaskActivityResponse> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/tasks/${taskId}/activity`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          params: {
+            before: params?.before || undefined,
+            limit: params?.limit,
+          },
+        },
+      );
+
+      return parseTaskActivityResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  uploadTaskAttachment: async (
+    accessToken: string,
+    taskId: string | number,
+    file: File,
+  ): Promise<TaskAttachment> => {
+    try {
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/projects/tasks/${taskId}/attachments`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      return parseTaskAttachmentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listTaskAttachments: async (
+    accessToken: string,
+    taskId: string | number,
+  ): Promise<TaskAttachmentsResponse> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/tasks/${taskId}/attachments`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseTaskAttachmentsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteTaskAttachment: async (
+    accessToken: string,
+    attachmentId: string | number,
+  ) => {
+    try {
+      await clientsApiClient.delete(
+        `/api/v1/projects/tasks/attachments/${attachmentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getUrlPreview: async (
+    accessToken: string,
+    url: string,
+  ): Promise<UrlPreview> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        "/api/v1/url-preview",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          params: { url },
+        },
+      );
+
+      return parseUrlPreviewResponse(response.data);
     } catch (error) {
       throw new Error(parseError(error));
     }

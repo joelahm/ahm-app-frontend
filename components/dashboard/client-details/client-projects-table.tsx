@@ -45,6 +45,8 @@ import {
 
 type ClientProjectsRow = {
   accountManagerId: string;
+  description: string | null;
+  descriptionJson: Record<string, unknown> | null;
   dueDate: string | null;
   id: string;
   project: string;
@@ -244,6 +246,10 @@ const mapProjectTaskToPanelTask = (task: ProjectTask) => ({
       task.assignedTo?.lastName ?? null,
     ) || "-",
   description: task.description,
+  descriptionJson:
+    task.descriptionJson && typeof task.descriptionJson === "object"
+      ? (task.descriptionJson as Record<string, unknown>)
+      : null,
   blockedTaskId: task.blockedTaskId ? String(task.blockedTaskId) : null,
   dueDate: task.dueDate ?? "-",
   dueDateOffsetDays: task.dueDateOffsetDays,
@@ -548,6 +554,12 @@ export const ClientProjectsTable = ({
           return {
             accountManagerId: String(project.accountManagerId ?? ""),
             csmId: String(project.clientSuccessManagerId ?? ""),
+            description: project.description ?? null,
+            descriptionJson:
+              project.descriptionJson &&
+              typeof project.descriptionJson === "object"
+                ? (project.descriptionJson as Record<string, unknown>)
+                : null,
             dueDate: project.dueDate ?? null,
             id: String(project.id),
             project: project.project ?? "-",
@@ -759,6 +771,8 @@ export const ClientProjectsTable = ({
   const handleProjectMetaChange = async (payload: {
     accountManagerId?: string;
     csmId?: string;
+    description?: string | null;
+    descriptionJson?: Record<string, unknown> | null;
     dueDate?: string | null;
     startDate?: string | null;
     status?: string;
@@ -772,7 +786,7 @@ export const ClientProjectsTable = ({
     }
     const accessToken = await getValidAccessToken();
 
-    const apiPayload = {
+    const apiPayload: Record<string, unknown> = {
       accountManagerId:
         payload.accountManagerId ?? selectedProject.accountManagerId,
       clientSuccessManagerId: payload.csmId ?? selectedProject.csmId,
@@ -786,6 +800,13 @@ export const ClientProjectsTable = ({
           ? payload.startDate
           : selectedProject.startDate,
     };
+
+    if (payload.description !== undefined) {
+      apiPayload.description = payload.description;
+    }
+    if (payload.descriptionJson !== undefined) {
+      apiPayload.descriptionJson = payload.descriptionJson;
+    }
 
     const updatedProject = await clientsApi.updateClientProject(
       accessToken,
@@ -813,15 +834,21 @@ export const ClientProjectsTable = ({
           apiPayload.clientSuccessManagerId ??
           "",
       ),
+      description: updatedProject.description ?? selectedProject.description,
+      descriptionJson:
+        (updatedProject.descriptionJson as Record<string, unknown> | null) ??
+        selectedProject.descriptionJson,
       dueDate:
-        updatedProject.dueDate ?? apiPayload.dueDate ?? selectedProject.dueDate,
+        updatedProject.dueDate ??
+        (apiPayload.dueDate as string | null | undefined) ??
+        selectedProject.dueDate,
       status:
         updatedProject.progress ??
-        apiPayload.progress ??
+        (apiPayload.progress as string | undefined) ??
         selectedProject.status,
       startDate:
         updatedProject.startDate ??
-        apiPayload.startDate ??
+        (apiPayload.startDate as string | null | undefined) ??
         selectedProject.startDate,
       accountManager:
         accountManager !== undefined
@@ -1219,7 +1246,11 @@ export const ClientProjectsTable = ({
               csmAvatar={selectedProject?.clientSuccessManager.avatar}
               csmId={selectedProject?.csmId ?? ""}
               csmName={selectedProject?.clientSuccessManager.name ?? "-"}
-              description={selectedProject?.templateDescription}
+              description={
+                selectedProject?.description ??
+                selectedProject?.templateDescription
+              }
+              descriptionJson={selectedProject?.descriptionJson ?? null}
               projectDueDate={selectedProject?.dueDate ?? null}
               projectId={selectedProject?.id ?? ""}
               projectName={selectedProject?.project ?? "Local SEO"}

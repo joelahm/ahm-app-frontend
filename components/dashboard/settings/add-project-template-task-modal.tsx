@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
-import { Input, Textarea } from "@heroui/input";
+import { Input } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -14,9 +14,31 @@ import {
   ModalHeader,
 } from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
-import { X } from "lucide-react";
+import {
+  CheckSquare,
+  FileText,
+  Paperclip,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 
+import { clientsApi } from "@/apis/clients";
+import {
+  projectTemplatesApi,
+  type ProjectTemplateTaskAttachment,
+  type ProjectTemplateTaskChecklist,
+} from "@/apis/project-templates";
+import { useAuth } from "@/components/auth/auth-context";
+import {
+  RichTextEditor,
+  buildDocFromPlainText,
+  type JSONContent,
+} from "@/components/dashboard/client-details/task-panel/editor/rich-text-editor";
+import { resolveServerAssetUrl } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
 import { TokenInputField } from "@/components/form/token-input-field";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { TASK_STATUS_OPTIONS } from "@/lib/task-statuses";
 
 const dependencyRemapOptions = ["After Blocked Task", "After trigger date"];
@@ -53,13 +75,25 @@ export type AddProjectTemplateTaskFormValues = yup.InferType<
   typeof addProjectTemplateTaskSchema
 >;
 
+export interface AddProjectTemplateTaskRichValues {
+  attachments: ProjectTemplateTaskAttachment[];
+  checklists: ProjectTemplateTaskChecklist[];
+  descriptionJson: JSONContent | null;
+}
+
+export type AddProjectTemplateTaskSubmitPayload =
+  AddProjectTemplateTaskFormValues & AddProjectTemplateTaskRichValues;
+
 interface AddProjectTemplateTaskModalProps {
   blockedTaskOptions: Array<{ id: string; label: string }>;
+  initialRich?: Partial<AddProjectTemplateTaskRichValues> | null;
   initialValues?: Partial<AddProjectTemplateTaskFormValues> | null;
   isOpen: boolean;
   mode?: "add" | "edit";
   onOpenChange: (open: boolean) => void;
-  onSubmit: (payload: AddProjectTemplateTaskFormValues) => void | Promise<void>;
+  onSubmit: (
+    payload: AddProjectTemplateTaskSubmitPayload,
+  ) => void | Promise<void>;
   parentTaskOptions: Array<{ id: string; label: string }>;
   users: Array<{ id: string; name: string }>;
 }
@@ -68,6 +102,7 @@ const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
 
 export const AddProjectTemplateTaskModal = ({
   blockedTaskOptions,
+  initialRich,
   initialValues,
   isOpen,
   mode = "add",
@@ -76,8 +111,21 @@ export const AddProjectTemplateTaskModal = ({
   parentTaskOptions,
   users,
 }: AddProjectTemplateTaskModalProps) => {
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [descriptionJson, setDescriptionJson] = useState<JSONContent | null>(
+    null,
+  );
+  const [checklists, setChecklists] = useState<ProjectTemplateTaskChecklist[]>(
+    [],
+  );
+  const [attachments, setAttachments] = useState<
+    ProjectTemplateTaskAttachment[]
+  >([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const {
     control,
     clearErrors,
@@ -133,7 +181,16 @@ export const AddProjectTemplateTaskModal = ({
       status: initialValues?.status ?? TASK_STATUS_OPTIONS[0],
       taskTitle: initialValues?.taskTitle ?? "",
     });
-  }, [initialValues, isOpen, reset]);
+
+    setDescriptionJson(
+      initialRich?.descriptionJson ??
+        (initialValues?.description && initialValues.description !== "-"
+          ? buildDocFromPlainText(initialValues.description)
+          : null),
+    );
+    setChecklists(initialRich?.checklists ?? []);
+    setAttachments(initialRich?.attachments ?? []);
+  }, [initialRich, initialValues, isOpen, reset]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -161,6 +218,92 @@ export const AddProjectTemplateTaskModal = ({
     setAssigneeSearch("");
   };
 
+  const updateChecklist = (
+    checklistId: string | undefined,
+    updater: (
+      checklist: ProjectTemplateTaskChecklist,
+    ) => ProjectTemplateTaskChecklist,
+  ) => {
+    setChecklists((current) =>
+      current.map((checklist) =>
+        checklist.id === checklistId ? updater(checklist) : checklist,
+      ),
+    );
+  };
+
+  const handleAddChecklist = () => {
+    setChecklists((current) => [
+      ...current,
+      {
+        id: `checklist-${Date.now()}`,
+        title: `Checklist ${current.length + 1}`,
+        items: [],
+      },
+    ]);
+  };
+
+  const handleRemoveChecklist = (checklistId?: string) => {
+    setChecklists((current) =>
+      current.filter((checklist) => checklist.id !== checklistId),
+    );
+  };
+
+  const handleAddChecklistItem = (
+    checklistId: string | undefined,
+    text: string,
+  ) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    updateChecklist(checklistId, (checklist) => ({
+      ...checklist,
+      items: [
+        ...checklist.items,
+        { id: `item-${Date.now()}`, text: trimmed, isComplete: false },
+      ],
+    }));
+  };
+
+  const handleRemoveChecklistItem = (
+    checklistId: string | undefined,
+    itemId: string | undefined,
+  ) => {
+    updateChecklist(checklistId, (checklist) => ({
+      ...checklist,
+      items: checklist.items.filter((item) => item.id !== itemId),
+    }));
+  };
+
+  const handleUploadAttachment = async (file: File) => {
+    if (!session?.accessToken) {
+      toast.danger("You must be signed in to upload attachments.");
+      return;
+    }
+
+    try {
+      setIsUploadingAttachment(true);
+      const accessToken = await getValidAccessToken();
+      const attachment = await projectTemplatesApi.uploadAttachment(
+        accessToken,
+        file,
+      );
+
+      setAttachments((current) => [...current, attachment]);
+    } catch (error) {
+      toast.danger("Failed to upload attachment.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handleRemoveAttachment = (attachmentId?: string) => {
+    setAttachments((current) =>
+      current.filter((item) => item.id !== attachmentId),
+    );
+  };
+
   const submitTask = async (values: AddProjectTemplateTaskFormValues) => {
     clearErrors();
     setSubmitError("");
@@ -173,7 +316,12 @@ export const AddProjectTemplateTaskModal = ({
         },
       );
 
-      await onSubmit(validatedValues);
+      await onSubmit({
+        ...validatedValues,
+        attachments,
+        checklists,
+        descriptionJson,
+      });
       closeModal();
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -247,20 +395,175 @@ export const AddProjectTemplateTaskModal = ({
 
           <div>
             <p className={labelClassName}>Description</p>
-            <Controller
-              control={control}
-              name="description"
-              render={({ field }) => (
-                <Textarea
-                  minRows={4}
-                  radius="sm"
-                  size="sm"
-                  value={field.value}
-                  onBlur={field.onBlur}
-                  onValueChange={field.onChange}
-                />
-              )}
+            <RichTextEditor
+              placeholder="Describe the task…"
+              value={descriptionJson}
+              onChange={(json) => setDescriptionJson(json)}
+              onFetchUrlPreview={async (url) => {
+                const accessToken = await getValidAccessToken();
+                return clientsApi.getUrlPreview(accessToken, url);
+              }}
+              onUploadError={(message) =>
+                toast.danger("Image upload failed", { description: message })
+              }
+              onUploadImage={async (file) => {
+                const accessToken = await getValidAccessToken();
+                const attachment = await projectTemplatesApi.uploadAttachment(
+                  accessToken,
+                  file,
+                );
+                return {
+                  url:
+                    resolveServerAssetUrl(attachment.url) ?? attachment.url,
+                };
+              }}
             />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className={labelClassName}>Checklists</p>
+              <Button
+                radius="sm"
+                size="sm"
+                startContent={<Plus size={14} />}
+                variant="bordered"
+                onPress={handleAddChecklist}
+              >
+                Add checklist
+              </Button>
+            </div>
+            {checklists.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-default-200 px-3 py-4 text-center text-xs text-default-500">
+                No checklists yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {checklists.map((checklist) => (
+                  <div
+                    key={checklist.id ?? checklist.title}
+                    className="rounded-lg border border-default-200 p-3"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <CheckSquare className="text-[#022279]" size={14} />
+                      <Input
+                        placeholder="Checklist title"
+                        radius="sm"
+                        size="sm"
+                        value={checklist.title}
+                        onValueChange={(value) =>
+                          updateChecklist(checklist.id, (item) => ({
+                            ...item,
+                            title: value,
+                          }))
+                        }
+                      />
+                      <Button
+                        isIconOnly
+                        radius="sm"
+                        size="sm"
+                        variant="light"
+                        onPress={() => handleRemoveChecklist(checklist.id)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {checklist.items.map((item) => (
+                        <div
+                          key={item.id ?? item.text}
+                          className="flex items-center gap-2"
+                        >
+                          <span className="h-3 w-3 flex-none rounded-sm border border-default-300" />
+                          <span className="flex-1 text-sm text-default-700">
+                            {item.text}
+                          </span>
+                          <button
+                            aria-label="Remove item"
+                            className="text-default-400 hover:text-default-700"
+                            type="button"
+                            onClick={() =>
+                              handleRemoveChecklistItem(checklist.id, item.id)
+                            }
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      <ChecklistItemInput
+                        onAdd={(value) =>
+                          handleAddChecklistItem(checklist.id, value)
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className={labelClassName}>Attachments</p>
+              <Button
+                isLoading={isUploadingAttachment}
+                radius="sm"
+                size="sm"
+                startContent={<Upload size={14} />}
+                variant="bordered"
+                onPress={() => fileInputRef.current?.click()}
+              >
+                Upload
+              </Button>
+              <input
+                ref={fileInputRef}
+                className="hidden"
+                type="file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    void handleUploadAttachment(file);
+                  }
+                  event.target.value = "";
+                }}
+              />
+            </div>
+            {attachments.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-default-200 px-3 py-4 text-center text-xs text-default-500">
+                No attachments yet.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {attachments.map((attachment) => (
+                  <div
+                    key={attachment.id ?? attachment.url}
+                    className="flex items-center gap-3 rounded-lg border border-default-200 px-3 py-2 text-sm"
+                  >
+                    {attachment.mimeType?.startsWith("image/") ? (
+                      <Paperclip size={14} />
+                    ) : (
+                      <FileText size={14} />
+                    )}
+                    <a
+                      className="flex-1 truncate text-[#022279] hover:underline"
+                      href={attachment.url}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      {attachment.filename}
+                    </a>
+                    <button
+                      aria-label="Remove attachment"
+                      className="text-default-400 hover:text-default-700"
+                      type="button"
+                      onClick={() => handleRemoveAttachment(attachment.id)}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -463,5 +766,36 @@ export const AddProjectTemplateTaskModal = ({
         </ModalFooter>
       </ModalContent>
     </Modal>
+  );
+};
+
+
+interface ChecklistItemInputProps {
+  onAdd: (value: string) => void;
+}
+
+const ChecklistItemInput = ({ onAdd }: ChecklistItemInputProps) => {
+  const [value, setValue] = useState("");
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-3 w-3 flex-none rounded-sm border border-default-300" />
+      <Input
+        placeholder="Add an item — Enter to confirm"
+        radius="sm"
+        size="sm"
+        value={value}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (value.trim()) {
+              onAdd(value);
+              setValue("");
+            }
+          }
+        }}
+        onValueChange={setValue}
+      />
+    </div>
   );
 };

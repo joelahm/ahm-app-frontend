@@ -22,13 +22,36 @@ const parseError = (error: unknown) => {
   return "Something went wrong.";
 };
 
+export interface ProjectTemplateTaskChecklistItem {
+  id?: string;
+  isComplete?: boolean;
+  text: string;
+}
+
+export interface ProjectTemplateTaskChecklist {
+  id?: string;
+  items: ProjectTemplateTaskChecklistItem[];
+  title: string;
+}
+
+export interface ProjectTemplateTaskAttachment {
+  filename: string;
+  id?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  url: string;
+}
+
 export interface ProjectTemplateTask {
   assigneeAvatar?: string | null;
   assigneeId?: string;
   assigneeName?: string;
+  attachments?: ProjectTemplateTaskAttachment[];
   blockedTaskId?: string;
+  checklists?: ProjectTemplateTaskChecklist[];
   dependency: string;
   dependencyType?: string;
+  descriptionJson?: Record<string, unknown> | null;
   dueDateTrigger: string;
   enableDependency?: boolean;
   id: string;
@@ -51,6 +74,7 @@ export interface ProjectTemplate {
     name: string;
   };
   description: string;
+  descriptionJson?: Record<string, unknown> | null;
   id: string;
   projectName: string;
   status: string;
@@ -61,6 +85,7 @@ export interface ProjectTemplate {
 
 export interface CreateProjectTemplateRequestBody {
   description: string;
+  descriptionJson?: Record<string, unknown> | null;
   projectName: string;
   status: string;
   tasks: ProjectTemplateTask[];
@@ -138,6 +163,28 @@ export const projectTemplatesApi = {
         );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  uploadAttachment: async (
+    accessToken: string,
+    file: File,
+  ): Promise<ProjectTemplateTaskAttachment> => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await projectTemplatesApiClient.post<{
+        attachment: ProjectTemplateTaskAttachment;
+      }>("/api/v1/project-templates/attachments", formData, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      return response.data.attachment;
     } catch (error) {
       throw new Error(parseError(error));
     }

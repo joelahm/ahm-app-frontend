@@ -48,6 +48,8 @@ type MyProjectRow = {
   progressPercent: number;
   project: string;
   status: string;
+  description: string | null;
+  descriptionJson: Record<string, unknown> | null;
   templateDescription: string;
   tasks: Array<{
     assigneeAvatar?: string;
@@ -381,6 +383,12 @@ export const MyProjectsTable = () => {
                 ),
                 project: project.project ?? "-",
                 status: "Active",
+                description: project.description ?? null,
+                descriptionJson:
+                  project.descriptionJson &&
+                  typeof project.descriptionJson === "object"
+                    ? (project.descriptionJson as Record<string, unknown>)
+                    : null,
                 templateDescription:
                   templateDescriptionByProject[
                     normalizeTemplateProjectName(project.project)
@@ -399,6 +407,11 @@ export const MyProjectsTable = () => {
                         task.assignedTo?.lastName ?? null,
                       ) || "-",
                     description: task.description,
+                    descriptionJson:
+                      task.descriptionJson &&
+                      typeof task.descriptionJson === "object"
+                        ? (task.descriptionJson as Record<string, unknown>)
+                        : null,
                     dueDate: task.dueDate ?? "-",
                     id: String(task.id),
                     name: task.taskName ?? task.task ?? "-",
@@ -480,6 +493,11 @@ export const MyProjectsTable = () => {
                 task.assignedTo?.lastName ?? null,
               ) || "-",
             description: task.description,
+            descriptionJson:
+              task.descriptionJson &&
+              typeof task.descriptionJson === "object"
+                ? (task.descriptionJson as Record<string, unknown>)
+                : null,
             dueDate: task.dueDate ?? "-",
             id: String(task.id),
             name: task.taskName ?? task.task ?? "-",
@@ -585,7 +603,10 @@ export const MyProjectsTable = () => {
               clientName={activeProject?.clientName ?? "-"}
               csmAvatar={activeProject?.clientSuccessManager.avatar}
               csmName={activeProject?.clientSuccessManager.name ?? "-"}
-              description={activeProject?.templateDescription}
+              description={
+                activeProject?.description ?? activeProject?.templateDescription
+              }
+              descriptionJson={activeProject?.descriptionJson ?? null}
               projectId={activeProject?.id ?? ""}
               projectName={activeProject?.project ?? "Local SEO"}
               tasks={activeProject?.tasks ?? []}
