@@ -312,7 +312,6 @@ export const GbpPostingReviewScreen = ({
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- toast is unstable; only re-run when session/token changes
   }, [reviewSessionToken, token]);
 
   const handleSendOtp = async () => {

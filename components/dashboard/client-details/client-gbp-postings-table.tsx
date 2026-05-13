@@ -41,6 +41,8 @@ import {
   Zap,
   Siren,
 } from "lucide-react";
+import { Tab, Tabs } from "@heroui/tabs";
+import ReactDiffViewer from "react-diff-viewer-continued";
 
 import {
   DashboardDataTable,
@@ -60,8 +62,6 @@ import {
   type GbpPostingReviewDashboardState,
   type PublicGbpPosting,
 } from "@/apis/gbp-posting-reviews";
-import { Tab, Tabs } from "@heroui/tabs";
-import ReactDiffViewer from "react-diff-viewer-continued";
 import { useAppToast } from "@/hooks/use-app-toast";
 import {
   buildCommentMessage,
@@ -648,7 +648,9 @@ export const ClientGbpPostingsTable = ({
     const postContent =
       typeof source.postContent === "string" ? source.postContent : "";
     const images = Array.isArray(source.images)
-      ? source.images.filter((value): value is string => typeof value === "string")
+      ? source.images.filter(
+          (value): value is string => typeof value === "string",
+        )
       : [];
 
     return { images, postContent };
@@ -754,8 +756,7 @@ export const ClientGbpPostingsTable = ({
     }
 
     sortedVersions.slice(1).forEach((version) => {
-      const author =
-        version.createdByName || version.createdByEmail || "User";
+      const author = version.createdByName || version.createdByEmail || "User";
 
       options.push({
         key: `version:${version.id}`,
@@ -1416,559 +1417,581 @@ export const ClientGbpPostingsTable = ({
             >
               <Tab key="content" title="Content">
                 <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="space-y-5">
-              <div className="space-y-3 rounded-lg border border-default-200 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    {reviewLink?.enabled ? (
-                      <ShieldCheck className="text-success" size={16} />
-                    ) : (
-                      <ShieldOff className="text-[#9CA3AF]" size={16} />
-                    )}
-                    <h4 className="text-sm font-semibold text-[#111827]">
-                      Public Review Link
-                    </h4>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    {reviewLink?.enabled && reviewLink?.expiresAt ? (
-                      <p className="text-xs text-[#6B7280]">
-                        Expires {formatReviewExpiry(reviewLink.expiresAt)}
-                      </p>
-                    ) : null}
-                    {isReviewLinkLoading ? <Spinner size="sm" /> : null}
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                  <Input
-                    isReadOnly
-                    aria-label="Public review URL"
-                    className="min-w-0 flex-1"
-                    placeholder="Enable public link to generate URL"
-                    size="sm"
-                    value={reviewLinkUrl}
-                    variant="bordered"
-                  />
-                  <div className="flex flex-wrap gap-2 lg:flex-nowrap">
-                    <Button
-                      isIconOnly
-                      isDisabled={!reviewLinkUrl}
-                      size="sm"
-                      variant="bordered"
-                      onPress={() => {
-                        void handleCopyReviewLink();
-                      }}
-                    >
-                      <Copy size={15} />
-                    </Button>
-                    <Button
-                      className={
-                        reviewLink?.enabled
-                          ? "text-danger"
-                          : "bg-[#022279] text-white"
-                      }
-                      isLoading={isReviewLinkMutating}
-                      size="sm"
-                      variant={reviewLink?.enabled ? "bordered" : "solid"}
-                      onPress={() => {
-                        void handleToggleReviewLink();
-                      }}
-                    >
-                      {reviewLink?.enabled
-                        ? "Disable Public Link"
-                        : "Enable Public Link"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="relative h-[250px] overflow-hidden rounded-xl">
-                {editForm.images[0] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    alt="GBP post preview"
-                    className="h-full w-full object-cover"
-                    src={editForm.images[0]}
-                  />
-                ) : (
-                  <button
-                    className="flex h-full w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 text-center"
-                    type="button"
-                    onClick={() => imageInputRef.current?.click()}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      void handleImageUpload(event.dataTransfer.files);
-                    }}
-                  >
-                    <ImageIcon className="text-[#022279]" size={34} />
-                    <span className="mt-4 text-sm text-[#98A2B3]">
-                      PNG or JPG, smaller than 3MB
-                    </span>
-                    <span className="mt-4 text-base text-[#111827]">
-                      Drag and Drop your file here or
-                    </span>
-                    <span className="mt-3 rounded-full bg-[#022279] px-5 py-2 text-sm font-medium text-white">
-                      Choose File
-                    </span>
-                  </button>
-                )}
-                {editForm.images[0] ? (
-                  <Button
-                    isIconOnly
-                    className="absolute right-4 top-4 bg-[#FFE8E8] text-danger"
-                    radius="full"
-                    onPress={() =>
-                      setEditForm((current) => ({
-                        ...current,
-                        images: current.images.slice(1),
-                      }))
-                    }
-                  >
-                    <Trash2 size={18} />
-                  </Button>
-                ) : null}
-                <input
-                  ref={imageInputRef}
-                  accept="image/*"
-                  className="hidden"
-                  type="file"
-                  onChange={(event) => {
-                    void handleImageUpload(event.target.files);
-                    event.target.value = "";
-                  }}
-                />
-              </div>
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <Select
-                  label="Button"
-                  labelPlacement="outside"
-                  placeholder="+ Book more"
-                  radius="sm"
-                  selectedKeys={
-                    editForm.buttonType ? [editForm.buttonType] : []
-                  }
-                  onSelectionChange={(keys) => {
-                    const key = keys === "all" ? null : keys.currentKey;
-
-                    setEditForm((current) => ({
-                      ...current,
-                      buttonType: key ? String(key) : "",
-                    }));
-                  }}
-                >
-                  {BUTTON_OPTIONS.map((option) => (
-                    <SelectItem key={option}>{option}</SelectItem>
-                  ))}
-                </Select>
-                <Select
-                  isRequired
-                  label="Select Post Type"
-                  labelPlacement="outside"
-                  placeholder="Select Post Type"
-                  radius="sm"
-                  selectedKeys={editForm.type ? [editForm.type] : []}
-                  onSelectionChange={(keys) => {
-                    const key = keys === "all" ? null : keys.currentKey;
-
-                    setEditForm((current) => ({
-                      ...current,
-                      type: key ? String(key) : "Update",
-                    }));
-                  }}
-                >
-                  {POST_TYPE_OPTIONS.map((option) => (
-                    <SelectItem key={option}>{option}</SelectItem>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-medium text-[#111827]">
-                  Description <span className="text-danger">*</span>
-                </p>
-                <div className="rounded-md border border-default-200 bg-white p-4">
-                  <Textarea
-                    classNames={{
-                      input: "min-h-[112px] resize-none text-sm leading-6",
-                      inputWrapper:
-                        "bg-transparent p-0 shadow-none data-[hover=true]:bg-transparent group-data-[focus=true]:bg-transparent",
-                    }}
-                    maxLength={DESCRIPTION_MAX_LENGTH}
-                    minRows={5}
-                    placeholder="Write the post description..."
-                    value={editForm.description}
-                    variant="flat"
-                    onValueChange={(value) =>
-                      setEditForm((current) => ({
-                        ...current,
-                        description: value.slice(0, DESCRIPTION_MAX_LENGTH),
-                      }))
-                    }
-                  />
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <Button
-                      className="border-[#8B73FF] bg-[#F4F0FF] text-[#111827]"
-                      isLoading={isGeneratingPostContent}
-                      radius="full"
-                      size="sm"
-                      startContent={
-                        <Zap className="text-[#6D5DF5]" size={16} />
-                      }
-                      variant="bordered"
-                      onPress={() => void handleGeneratePostContent()}
-                    >
-                      Generate with AI
-                    </Button>
-                    <span className="text-xs text-[#667085]">
-                      {editForm.description.length}/{DESCRIPTION_MAX_LENGTH}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <aside className="space-y-6">
-              <div className="rounded-xl bg-[#EEF2FF] p-4">
-                <h3 className="font-semibold text-[#111827]">
-                  {editingRow?.keyword || "GBP Post"}
-                </h3>
-                <div className="mt-2 flex items-center gap-2 text-sm text-[#667085]">
-                  <MapPin className="text-[#4F46E5]" size={18} />
-                  <span>2B Bedford Avenue. Barnet EN5 2EP</span>
-                </div>
-                <div className="mt-5 grid gap-4 text-sm">
-                  <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-2">
-                    <span className="flex items-center gap-2 text-[#667085]">
-                      <UserCircle className="text-[#4F46E5]" size={18} />
-                      Assignee:
-                    </span>
-                    <Select
-                      aria-label="Assignee"
-                      classNames={{
-                        trigger: "bg-white",
-                      }}
-                      selectedKeys={
-                        editForm.assigneeId ? [editForm.assigneeId] : []
-                      }
-                      size="sm"
-                      onSelectionChange={(keys) => {
-                        const key = keys === "all" ? null : keys.currentKey;
-
-                        setEditForm((current) => ({
-                          ...current,
-                          assigneeId: key ? String(key) : "",
-                        }));
-                      }}
-                    >
-                      {users.map((user) => (
-                        <SelectItem key={String(user.id)}>
-                          {getUserName(user)}
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-2">
-                    <span className="flex items-center gap-2 text-[#667085]">
-                      <Siren className="text-[#4F46E5]" size={18} />
-                      Status:
-                    </span>
-                    <Select
-                      aria-label="Status"
-                      classNames={{
-                        trigger: "bg-white",
-                      }}
-                      selectedKeys={editForm.status ? [editForm.status] : []}
-                      size="sm"
-                      onSelectionChange={(keys) => {
-                        const key = keys === "all" ? null : keys.currentKey;
-
-                        setEditForm((current) => ({
-                          ...current,
-                          status: key ? String(key) : "Draft",
-                        }));
-                      }}
-                    >
-                      {STATUS_OPTIONS.map((option) => (
-                        <SelectItem key={option}>{option}</SelectItem>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-[#111827]">
-                  Comments
-                </h3>
-                <div className="mt-4 space-y-4">
-                  {isCommentsLoading ? (
-                    <p className="text-sm text-[#6B7280]">
-                      Loading comments...
-                    </p>
-                  ) : comments.length ? (
-                    comments.map((comment) => {
-                      const parsedComment = parseCommentAttachments(
-                        comment.comment,
-                      );
-                      const isOwnComment =
-                        String(comment.createdBy ?? "") ===
-                        String(session?.user?.id ?? "");
-
-                      return (
-                        <div
-                          key={String(comment.id)}
-                          className="space-y-2 border-b border-default-200 pb-3"
-                        >
-                          {parsedComment.richHtml ? (
-                            <div
-                              dangerouslySetInnerHTML={{
-                                __html: sanitizeCommentHtml(
-                                  parsedComment.richHtml,
-                                ),
-                              }}
-                              className="text-base leading-7 text-[#374151] [&_a]:text-[#2563EB] [&_a]:underline [&_li]:ml-5 [&_li]:list-disc [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"
-                            />
+                  <div className="space-y-5">
+                    <div className="space-y-3 rounded-lg border border-default-200 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {reviewLink?.enabled ? (
+                            <ShieldCheck className="text-success" size={16} />
                           ) : (
-                            <p className="whitespace-pre-line text-base leading-7 text-[#374151]">
-                              {parsedComment.body}
-                            </p>
+                            <ShieldOff className="text-[#9CA3AF]" size={16} />
                           )}
-                          {parsedComment.attachments.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {parsedComment.attachments.map(
-                                (attachment, index) => (
-                                  <button
-                                    key={`${attachment.id ?? attachment.name}-${index}`}
-                                    className="inline-flex max-w-full items-center gap-2 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
-                                    type="button"
-                                    onClick={() =>
-                                      handleOpenAttachment(attachment)
-                                    }
-                                  >
-                                    {attachment.isImage &&
-                                    attachment.dataUrl ? (
-                                      <Avatar
-                                        className="h-6 w-6"
-                                        name={attachment.name}
-                                        size="sm"
-                                        src={attachment.dataUrl}
-                                      />
-                                    ) : (
-                                      <Paperclip size={14} />
-                                    )}
-                                    <span className="max-w-[180px] truncate">
-                                      {attachment.name}
-                                    </span>
-                                  </button>
-                                ),
-                              )}
-                            </div>
-                          ) : null}
-                          <div className="flex items-center justify-between gap-2 text-sm text-[#6B7280]">
-                            <div className="flex items-center gap-2">
-                              <Avatar
-                                showFallback
-                                className="h-7 w-7"
-                                name={formatCommentAuthor(comment)}
-                                size="sm"
-                                src={comment.author?.avatar ?? undefined}
-                              />
-                              <span className="font-medium">
-                                {formatCommentAuthor(comment)}
-                              </span>
-                              <span>-</span>
-                              <span>
-                                {formatCommentTime(comment.createdAt)}
-                              </span>
-                            </div>
-                            {isOwnComment ? (
-                              <Button
-                                isIconOnly
-                                className="text-danger"
-                                isLoading={
-                                  isDeletingCommentId === String(comment.id)
-                                }
-                                radius="full"
-                                size="sm"
-                                variant="light"
-                                onPress={() =>
-                                  void handleDeleteComment(String(comment.id))
-                                }
-                              >
-                                <Trash2 size={14} />
-                              </Button>
-                            ) : null}
-                          </div>
+                          <h4 className="text-sm font-semibold text-[#111827]">
+                            Public Review Link
+                          </h4>
                         </div>
-                      );
-                    })
-                  ) : (
-                    <p className="py-4 text-sm text-[#667085]">
-                      No comments yet.
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-4 overflow-visible rounded-xl border border-default-200">
-                  <div className="relative">
-                    <div
-                      ref={commentEditorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      className="min-h-14 w-full whitespace-pre-wrap px-3 py-2 text-sm text-[#111827] outline-none [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5"
-                      role="textbox"
-                      tabIndex={0}
-                      onInput={(event) => {
-                        setCommentInput(event.currentTarget.innerText || "");
-                      }}
-                    />
-                    {!commentInput.trim() ? (
-                      <span className="pointer-events-none absolute left-3 top-2 text-sm text-[#9CA3AF]">
-                        Write a comment... Use @ to mention
-                      </span>
-                    ) : null}
-                  </div>
-                  {pendingAttachments.length > 0 ? (
-                    <div className="border-t border-default-200 px-3 py-2">
-                      <div className="flex flex-wrap gap-2">
-                        {pendingAttachments.map((attachment, index) => (
-                          <button
-                            key={`${attachment.id}-${index}`}
-                            className="inline-flex max-w-full items-center gap-2 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
-                            type="button"
-                            onClick={() => handleRemovePendingAttachment(index)}
+                        <div className="flex items-center gap-4">
+                          {reviewLink?.enabled && reviewLink?.expiresAt ? (
+                            <p className="text-xs text-[#6B7280]">
+                              Expires {formatReviewExpiry(reviewLink.expiresAt)}
+                            </p>
+                          ) : null}
+                          {isReviewLinkLoading ? <Spinner size="sm" /> : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                        <Input
+                          isReadOnly
+                          aria-label="Public review URL"
+                          className="min-w-0 flex-1"
+                          placeholder="Enable public link to generate URL"
+                          size="sm"
+                          value={reviewLinkUrl}
+                          variant="bordered"
+                        />
+                        <div className="flex flex-wrap gap-2 lg:flex-nowrap">
+                          <Button
+                            isIconOnly
+                            isDisabled={!reviewLinkUrl}
+                            size="sm"
+                            variant="bordered"
+                            onPress={() => {
+                              void handleCopyReviewLink();
+                            }}
                           >
-                            {attachment.isImage && attachment.previewUrl ? (
-                              <Avatar
-                                className="h-6 w-6"
-                                name={attachment.name}
-                                size="sm"
-                                src={attachment.previewUrl}
-                              />
-                            ) : (
-                              <Paperclip size={14} />
-                            )}
-                            <span className="max-w-[180px] truncate">
-                              {attachment.name}
-                            </span>
-                            <X size={12} />
-                          </button>
-                        ))}
+                            <Copy size={15} />
+                          </Button>
+                          <Button
+                            className={
+                              reviewLink?.enabled
+                                ? "text-danger"
+                                : "bg-[#022279] text-white"
+                            }
+                            isLoading={isReviewLinkMutating}
+                            size="sm"
+                            variant={reviewLink?.enabled ? "bordered" : "solid"}
+                            onPress={() => {
+                              void handleToggleReviewLink();
+                            }}
+                          >
+                            {reviewLink?.enabled
+                              ? "Disable Public Link"
+                              : "Enable Public Link"}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  ) : null}
-                  <div className="flex items-center justify-between border-t border-default-200 bg-white px-3 py-2">
-                    <div className="flex items-center gap-1 text-[#6B7280]">
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() => document.execCommand("bold")}
-                      >
-                        <span className="font-semibold">B</span>
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() => document.execCommand("italic")}
-                      >
-                        <span className="italic">I</span>
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() => document.execCommand("underline")}
-                      >
-                        <span className="underline">U</span>
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() => document.execCommand("strikeThrough")}
-                      >
-                        <span className="line-through">S</span>
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() =>
-                          document.execCommand("insertUnorderedList")
-                        }
-                      >
-                        <List size={16} />
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() =>
-                          commentAttachmentInputRef.current?.click()
-                        }
-                      >
-                        <Paperclip size={16} />
-                      </Button>
-                      <Button
-                        isIconOnly
-                        radius="sm"
-                        size="sm"
-                        variant="light"
-                        onPress={() => commentImageInputRef.current?.click()}
-                      >
-                        <ImageIcon size={16} />
-                      </Button>
+
+                    <div className="relative h-[250px] overflow-hidden rounded-xl">
+                      {editForm.images[0] ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          alt="GBP post preview"
+                          className="h-full w-full object-cover"
+                          src={editForm.images[0]}
+                        />
+                      ) : (
+                        <button
+                          className="flex h-full w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 text-center"
+                          type="button"
+                          onClick={() => imageInputRef.current?.click()}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            void handleImageUpload(event.dataTransfer.files);
+                          }}
+                        >
+                          <ImageIcon className="text-[#022279]" size={34} />
+                          <span className="mt-4 text-sm text-[#98A2B3]">
+                            PNG or JPG, smaller than 3MB
+                          </span>
+                          <span className="mt-4 text-base text-[#111827]">
+                            Drag and Drop your file here or
+                          </span>
+                          <span className="mt-3 rounded-full bg-[#022279] px-5 py-2 text-sm font-medium text-white">
+                            Choose File
+                          </span>
+                        </button>
+                      )}
+                      {editForm.images[0] ? (
+                        <Button
+                          isIconOnly
+                          className="absolute right-4 top-4 bg-[#FFE8E8] text-danger"
+                          radius="full"
+                          onPress={() =>
+                            setEditForm((current) => ({
+                              ...current,
+                              images: current.images.slice(1),
+                            }))
+                          }
+                        >
+                          <Trash2 size={18} />
+                        </Button>
+                      ) : null}
+                      <input
+                        ref={imageInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        type="file"
+                        onChange={(event) => {
+                          void handleImageUpload(event.target.files);
+                          event.target.value = "";
+                        }}
+                      />
                     </div>
-                    <Button
-                      className="bg-[#022279] text-white"
-                      isDisabled={
-                        !commentInput.trim() && pendingAttachments.length === 0
-                      }
-                      isLoading={isSendingComment}
-                      size="sm"
-                      onPress={() => void handleAddComment()}
-                    >
-                      <SendHorizontal size={14} />
-                      Send
-                    </Button>
+
+                    <div className="grid gap-5 md:grid-cols-2">
+                      <Select
+                        label="Button"
+                        labelPlacement="outside"
+                        placeholder="+ Book more"
+                        radius="sm"
+                        selectedKeys={
+                          editForm.buttonType ? [editForm.buttonType] : []
+                        }
+                        onSelectionChange={(keys) => {
+                          const key = keys === "all" ? null : keys.currentKey;
+
+                          setEditForm((current) => ({
+                            ...current,
+                            buttonType: key ? String(key) : "",
+                          }));
+                        }}
+                      >
+                        {BUTTON_OPTIONS.map((option) => (
+                          <SelectItem key={option}>{option}</SelectItem>
+                        ))}
+                      </Select>
+                      <Select
+                        isRequired
+                        label="Select Post Type"
+                        labelPlacement="outside"
+                        placeholder="Select Post Type"
+                        radius="sm"
+                        selectedKeys={editForm.type ? [editForm.type] : []}
+                        onSelectionChange={(keys) => {
+                          const key = keys === "all" ? null : keys.currentKey;
+
+                          setEditForm((current) => ({
+                            ...current,
+                            type: key ? String(key) : "Update",
+                          }));
+                        }}
+                      >
+                        {POST_TYPE_OPTIONS.map((option) => (
+                          <SelectItem key={option}>{option}</SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-sm font-medium text-[#111827]">
+                        Description <span className="text-danger">*</span>
+                      </p>
+                      <div className="rounded-md border border-default-200 bg-white p-4">
+                        <Textarea
+                          classNames={{
+                            input:
+                              "min-h-[112px] resize-none text-sm leading-6",
+                            inputWrapper:
+                              "bg-transparent p-0 shadow-none data-[hover=true]:bg-transparent group-data-[focus=true]:bg-transparent",
+                          }}
+                          maxLength={DESCRIPTION_MAX_LENGTH}
+                          minRows={5}
+                          placeholder="Write the post description..."
+                          value={editForm.description}
+                          variant="flat"
+                          onValueChange={(value) =>
+                            setEditForm((current) => ({
+                              ...current,
+                              description: value.slice(
+                                0,
+                                DESCRIPTION_MAX_LENGTH,
+                              ),
+                            }))
+                          }
+                        />
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <Button
+                            className="border-[#8B73FF] bg-[#F4F0FF] text-[#111827]"
+                            isLoading={isGeneratingPostContent}
+                            radius="full"
+                            size="sm"
+                            startContent={
+                              <Zap className="text-[#6D5DF5]" size={16} />
+                            }
+                            variant="bordered"
+                            onPress={() => void handleGeneratePostContent()}
+                          >
+                            Generate with AI
+                          </Button>
+                          <span className="text-xs text-[#667085]">
+                            {editForm.description.length}/
+                            {DESCRIPTION_MAX_LENGTH}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <input
-                    ref={commentAttachmentInputRef}
-                    multiple
-                    className="hidden"
-                    type="file"
-                    onChange={(event) => {
-                      void handleCommentUpload(event.target.files);
-                      event.target.value = "";
-                    }}
-                  />
-                  <input
-                    ref={commentImageInputRef}
-                    multiple
-                    accept="image/*"
-                    className="hidden"
-                    type="file"
-                    onChange={(event) => {
-                      void handleCommentUpload(event.target.files, {
-                        imageOnly: true,
-                      });
-                      event.target.value = "";
-                    }}
-                  />
-                </div>
-              </div>
-            </aside>
+
+                  <aside className="space-y-6">
+                    <div className="rounded-xl bg-[#EEF2FF] p-4">
+                      <h3 className="font-semibold text-[#111827]">
+                        {editingRow?.keyword || "GBP Post"}
+                      </h3>
+                      <div className="mt-2 flex items-center gap-2 text-sm text-[#667085]">
+                        <MapPin className="text-[#4F46E5]" size={18} />
+                        <span>2B Bedford Avenue. Barnet EN5 2EP</span>
+                      </div>
+                      <div className="mt-5 grid gap-4 text-sm">
+                        <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-2">
+                          <span className="flex items-center gap-2 text-[#667085]">
+                            <UserCircle className="text-[#4F46E5]" size={18} />
+                            Assignee:
+                          </span>
+                          <Select
+                            aria-label="Assignee"
+                            classNames={{
+                              trigger: "bg-white",
+                            }}
+                            selectedKeys={
+                              editForm.assigneeId ? [editForm.assigneeId] : []
+                            }
+                            size="sm"
+                            onSelectionChange={(keys) => {
+                              const key =
+                                keys === "all" ? null : keys.currentKey;
+
+                              setEditForm((current) => ({
+                                ...current,
+                                assigneeId: key ? String(key) : "",
+                              }));
+                            }}
+                          >
+                            {users.map((user) => (
+                              <SelectItem key={String(user.id)}>
+                                {getUserName(user)}
+                              </SelectItem>
+                            ))}
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-2">
+                          <span className="flex items-center gap-2 text-[#667085]">
+                            <Siren className="text-[#4F46E5]" size={18} />
+                            Status:
+                          </span>
+                          <Select
+                            aria-label="Status"
+                            classNames={{
+                              trigger: "bg-white",
+                            }}
+                            selectedKeys={
+                              editForm.status ? [editForm.status] : []
+                            }
+                            size="sm"
+                            onSelectionChange={(keys) => {
+                              const key =
+                                keys === "all" ? null : keys.currentKey;
+
+                              setEditForm((current) => ({
+                                ...current,
+                                status: key ? String(key) : "Draft",
+                              }));
+                            }}
+                          >
+                            {STATUS_OPTIONS.map((option) => (
+                              <SelectItem key={option}>{option}</SelectItem>
+                            ))}
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#111827]">
+                        Comments
+                      </h3>
+                      <div className="mt-4 space-y-4">
+                        {isCommentsLoading ? (
+                          <p className="text-sm text-[#6B7280]">
+                            Loading comments...
+                          </p>
+                        ) : comments.length ? (
+                          comments.map((comment) => {
+                            const parsedComment = parseCommentAttachments(
+                              comment.comment,
+                            );
+                            const isOwnComment =
+                              String(comment.createdBy ?? "") ===
+                              String(session?.user?.id ?? "");
+
+                            return (
+                              <div
+                                key={String(comment.id)}
+                                className="space-y-2 border-b border-default-200 pb-3"
+                              >
+                                {parsedComment.richHtml ? (
+                                  <div
+                                    dangerouslySetInnerHTML={{
+                                      __html: sanitizeCommentHtml(
+                                        parsedComment.richHtml,
+                                      ),
+                                    }}
+                                    className="text-base leading-7 text-[#374151] [&_a]:text-[#2563EB] [&_a]:underline [&_li]:ml-5 [&_li]:list-disc [&_ol]:ml-5 [&_ol]:list-decimal [&_ul]:ml-5 [&_ul]:list-disc"
+                                  />
+                                ) : (
+                                  <p className="whitespace-pre-line text-base leading-7 text-[#374151]">
+                                    {parsedComment.body}
+                                  </p>
+                                )}
+                                {parsedComment.attachments.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    {parsedComment.attachments.map(
+                                      (attachment, index) => (
+                                        <button
+                                          key={`${attachment.id ?? attachment.name}-${index}`}
+                                          className="inline-flex max-w-full items-center gap-2 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
+                                          type="button"
+                                          onClick={() =>
+                                            handleOpenAttachment(attachment)
+                                          }
+                                        >
+                                          {attachment.isImage &&
+                                          attachment.dataUrl ? (
+                                            <Avatar
+                                              className="h-6 w-6"
+                                              name={attachment.name}
+                                              size="sm"
+                                              src={attachment.dataUrl}
+                                            />
+                                          ) : (
+                                            <Paperclip size={14} />
+                                          )}
+                                          <span className="max-w-[180px] truncate">
+                                            {attachment.name}
+                                          </span>
+                                        </button>
+                                      ),
+                                    )}
+                                  </div>
+                                ) : null}
+                                <div className="flex items-center justify-between gap-2 text-sm text-[#6B7280]">
+                                  <div className="flex items-center gap-2">
+                                    <Avatar
+                                      showFallback
+                                      className="h-7 w-7"
+                                      name={formatCommentAuthor(comment)}
+                                      size="sm"
+                                      src={comment.author?.avatar ?? undefined}
+                                    />
+                                    <span className="font-medium">
+                                      {formatCommentAuthor(comment)}
+                                    </span>
+                                    <span>-</span>
+                                    <span>
+                                      {formatCommentTime(comment.createdAt)}
+                                    </span>
+                                  </div>
+                                  {isOwnComment ? (
+                                    <Button
+                                      isIconOnly
+                                      className="text-danger"
+                                      isLoading={
+                                        isDeletingCommentId ===
+                                        String(comment.id)
+                                      }
+                                      radius="full"
+                                      size="sm"
+                                      variant="light"
+                                      onPress={() =>
+                                        void handleDeleteComment(
+                                          String(comment.id),
+                                        )
+                                      }
+                                    >
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="py-4 text-sm text-[#667085]">
+                            No comments yet.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-4 overflow-visible rounded-xl border border-default-200">
+                        <div className="relative">
+                          <div
+                            ref={commentEditorRef}
+                            contentEditable
+                            suppressContentEditableWarning
+                            className="min-h-14 w-full whitespace-pre-wrap px-3 py-2 text-sm text-[#111827] outline-none [&_li]:list-item [&_ul]:list-disc [&_ul]:pl-5"
+                            role="textbox"
+                            tabIndex={0}
+                            onInput={(event) => {
+                              setCommentInput(
+                                event.currentTarget.innerText || "",
+                              );
+                            }}
+                          />
+                          {!commentInput.trim() ? (
+                            <span className="pointer-events-none absolute left-3 top-2 text-sm text-[#9CA3AF]">
+                              Write a comment... Use @ to mention
+                            </span>
+                          ) : null}
+                        </div>
+                        {pendingAttachments.length > 0 ? (
+                          <div className="border-t border-default-200 px-3 py-2">
+                            <div className="flex flex-wrap gap-2">
+                              {pendingAttachments.map((attachment, index) => (
+                                <button
+                                  key={`${attachment.id}-${index}`}
+                                  className="inline-flex max-w-full items-center gap-2 rounded-full bg-default-100 px-2 py-1 text-xs text-[#111827]"
+                                  type="button"
+                                  onClick={() =>
+                                    handleRemovePendingAttachment(index)
+                                  }
+                                >
+                                  {attachment.isImage &&
+                                  attachment.previewUrl ? (
+                                    <Avatar
+                                      className="h-6 w-6"
+                                      name={attachment.name}
+                                      size="sm"
+                                      src={attachment.previewUrl}
+                                    />
+                                  ) : (
+                                    <Paperclip size={14} />
+                                  )}
+                                  <span className="max-w-[180px] truncate">
+                                    {attachment.name}
+                                  </span>
+                                  <X size={12} />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="flex items-center justify-between border-t border-default-200 bg-white px-3 py-2">
+                          <div className="flex items-center gap-1 text-[#6B7280]">
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() => document.execCommand("bold")}
+                            >
+                              <span className="font-semibold">B</span>
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() => document.execCommand("italic")}
+                            >
+                              <span className="italic">I</span>
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() => document.execCommand("underline")}
+                            >
+                              <span className="underline">U</span>
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() =>
+                                document.execCommand("strikeThrough")
+                              }
+                            >
+                              <span className="line-through">S</span>
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() =>
+                                document.execCommand("insertUnorderedList")
+                              }
+                            >
+                              <List size={16} />
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() =>
+                                commentAttachmentInputRef.current?.click()
+                              }
+                            >
+                              <Paperclip size={16} />
+                            </Button>
+                            <Button
+                              isIconOnly
+                              radius="sm"
+                              size="sm"
+                              variant="light"
+                              onPress={() =>
+                                commentImageInputRef.current?.click()
+                              }
+                            >
+                              <ImageIcon size={16} />
+                            </Button>
+                          </div>
+                          <Button
+                            className="bg-[#022279] text-white"
+                            isDisabled={
+                              !commentInput.trim() &&
+                              pendingAttachments.length === 0
+                            }
+                            isLoading={isSendingComment}
+                            size="sm"
+                            onPress={() => void handleAddComment()}
+                          >
+                            <SendHorizontal size={14} />
+                            Send
+                          </Button>
+                        </div>
+                        <input
+                          ref={commentAttachmentInputRef}
+                          multiple
+                          className="hidden"
+                          type="file"
+                          onChange={(event) => {
+                            void handleCommentUpload(event.target.files);
+                            event.target.value = "";
+                          }}
+                        />
+                        <input
+                          ref={commentImageInputRef}
+                          multiple
+                          accept="image/*"
+                          className="hidden"
+                          type="file"
+                          onChange={(event) => {
+                            void handleCommentUpload(event.target.files, {
+                              imageOnly: true,
+                            });
+                            event.target.value = "";
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </aside>
                 </div>
               </Tab>
               <Tab key="revisions" title="Revisions">
@@ -2077,7 +2100,8 @@ export const ClientGbpPostingsTable = ({
                       <div className="grid gap-3 p-3 md:grid-cols-2">
                         <div>
                           <p className="mb-2 text-xs font-medium text-[#6B7280]">
-                            From ({revisionFromOption?.snapshot.images.length ?? 0})
+                            From (
+                            {revisionFromOption?.snapshot.images.length ?? 0})
                           </p>
                           <div className="grid grid-cols-3 gap-1">
                             {(revisionFromOption?.snapshot.images ?? []).map(
@@ -2085,7 +2109,7 @@ export const ClientGbpPostingsTable = ({
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   key={`from-${index}-${image.slice(0, 24)}`}
-                                  alt="Revision image"
+                                  alt="Revision before"
                                   className="aspect-square w-full rounded object-cover"
                                   src={image}
                                 />
@@ -2103,7 +2127,7 @@ export const ClientGbpPostingsTable = ({
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   key={`to-${index}-${image.slice(0, 24)}`}
-                                  alt="Revision image"
+                                  alt="Revision after"
                                   className="aspect-square w-full rounded object-cover"
                                   src={image}
                                 />

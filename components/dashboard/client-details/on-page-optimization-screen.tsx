@@ -256,10 +256,7 @@ const mapWebsiteQaImage = (image: Record<string, unknown>): WebsiteQaImage => ({
         message: asString(issue.message, ""),
         recommendation: asString(issue.recommendation, ""),
         ruleKey: asString(issue.ruleKey, ""),
-        severity: asString(
-          issue.severity,
-          "suggestion",
-        ) as OnPageIssueSeverity,
+        severity: asString(issue.severity, "suggestion") as OnPageIssueSeverity,
       }))
     : [],
   placement: asString(image.placement, "main_content"),
@@ -402,7 +399,10 @@ const getMetaDescriptionLengthClass = (value: string) => {
   return "bg-[#FEE2E2] text-[#B91C1C]";
 };
 
-const getAnchorStatusClass = (statusCode?: number | null, statusError?: string | null) => {
+const getAnchorStatusClass = (
+  statusCode?: number | null,
+  statusError?: string | null,
+) => {
   if (typeof statusCode === "number" && statusCode >= 200 && statusCode < 300) {
     return "bg-[#DCFCE7] text-[#15803D]";
   }
@@ -603,6 +603,7 @@ const labelFromUrl = (url: string) => {
 const getUrlPathSegments = (url: string) => {
   try {
     const parsed = new URL(url);
+
     return parsed.pathname
       .replace(/\/+$/, "")
       .split("/")
@@ -750,9 +751,15 @@ const getOnPageIssuesWithFallbacks = (
   const seo = page.seo;
   const issues = [...(seo?.onPageIssues ?? [])];
   const hasIssue = (ruleKey: string, rowKey: string) =>
-    issues.some((issue) => issue.ruleKey === ruleKey || issue.rowKey === rowKey);
+    issues.some(
+      (issue) => issue.ruleKey === ruleKey || issue.rowKey === rowKey,
+    );
   const addIssue = (issue: OnPageIssue) => {
-    if (!issue.ruleKey || !issue.rowKey || hasIssue(issue.ruleKey, issue.rowKey)) {
+    if (
+      !issue.ruleKey ||
+      !issue.rowKey ||
+      hasIssue(issue.ruleKey, issue.rowKey)
+    ) {
       return;
     }
 
@@ -768,53 +775,64 @@ const getOnPageIssuesWithFallbacks = (
     (seo.status < 200 || seo.status >= 400)
   ) {
     addIssue({
-      howToFix: "Fix the page response so the final URL returns a valid 2xx status.",
-      recommendation: "Make sure the page is reachable and returns a successful HTTP status.",
+      howToFix:
+        "Fix the page response so the final URL returns a valid 2xx status.",
+      recommendation:
+        "Make sure the page is reachable and returns a successful HTTP status.",
       rowKey: "page-url",
       ruleKey: "HTTP_STATUS_NOT_SUCCESSFUL",
       severity: "critical",
       title: "Page URL is not returning a successful status",
-      whyItMatters: "Search engines need a reachable, successful URL to crawl and index the page.",
+      whyItMatters:
+        "Search engines need a reachable, successful URL to crawl and index the page.",
     });
   }
 
   if (!seo.title) {
     addIssue({
-      howToFix: "Add a unique 50-60 character SEO title with the primary topic near the beginning.",
+      howToFix:
+        "Add a unique 50-60 character SEO title with the primary topic near the beginning.",
       recommendation: "Add a unique title tag for this page.",
       rowKey: "meta-title",
       ruleKey: "MISSING_TITLE",
       severity: "critical",
       title: "Missing title tag",
-      whyItMatters: "The title tag is one of the strongest on-page SEO and click-through signals.",
+      whyItMatters:
+        "The title tag is one of the strongest on-page SEO and click-through signals.",
     });
   }
 
   if (!seo.metaDescription) {
     addIssue({
-      howToFix: "Write 140-160 characters that summarize the page value and include a CTA where relevant.",
+      howToFix:
+        "Write 140-160 characters that summarize the page value and include a CTA where relevant.",
       recommendation: "Add a unique meta description for this page.",
       rowKey: "meta-description",
       ruleKey: "MISSING_META_DESCRIPTION",
       severity: "warning",
       title: "Missing meta description",
-      whyItMatters: "A missing description can cause weak auto-generated search snippets.",
+      whyItMatters:
+        "A missing description can cause weak auto-generated search snippets.",
     });
   }
 
   if (seo.h1Count === 0 || !seo.firstH1) {
     addIssue({
-      howToFix: "Add one H1 near the top of the content using the primary page topic.",
-      recommendation: "Add exactly one H1 that clearly describes the page topic.",
+      howToFix:
+        "Add one H1 near the top of the content using the primary page topic.",
+      recommendation:
+        "Add exactly one H1 that clearly describes the page topic.",
       rowKey: "h1",
       ruleKey: "MISSING_H1",
       severity: "critical",
       title: "Missing H1",
-      whyItMatters: "The H1 is the primary semantic heading for crawlers and accessibility tools.",
+      whyItMatters:
+        "The H1 is the primary semantic heading for crawlers and accessibility tools.",
     });
   } else if (typeof seo.h1Count === "number" && seo.h1Count > 1) {
     addIssue({
-      howToFix: "Keep the main page heading as H1 and demote secondary H1s to H2 or H3.",
+      howToFix:
+        "Keep the main page heading as H1 and demote secondary H1s to H2 or H3.",
       recommendation: "Keep exactly one H1 on the page.",
       rowKey: "h1",
       ruleKey: "MULTIPLE_H1",
@@ -826,37 +844,44 @@ const getOnPageIssuesWithFallbacks = (
 
   if ((seo.headingIssues ?? []).length) {
     addIssue({
-      howToFix: "Open the Header Structure tab and fix the listed H1-H6 hierarchy/content issues.",
+      howToFix:
+        "Open the Header Structure tab and fix the listed H1-H6 hierarchy/content issues.",
       recommendation: "Review and improve the heading structure.",
       rowKey: "headings",
       ruleKey: "HEADING_STRUCTURE_ISSUES",
       severity: "warning",
       title: "Heading structure needs improvement",
-      whyItMatters: "Clear headings improve accessibility, crawlability, and page readability.",
+      whyItMatters:
+        "Clear headings improve accessibility, crawlability, and page readability.",
     });
   }
 
   if (!seo.canonical) {
     addIssue({
-      howToFix: "Use the SEO plugin or page head template to add a canonical URL.",
-      recommendation: "Add a canonical tag that points to the preferred page URL.",
+      howToFix:
+        "Use the SEO plugin or page head template to add a canonical URL.",
+      recommendation:
+        "Add a canonical tag that points to the preferred page URL.",
       rowKey: "canonical",
       ruleKey: "MISSING_CANONICAL",
       severity: "critical",
       title: "Canonical URL is missing",
-      whyItMatters: "Missing canonicals can cause duplicate URL variations to compete.",
+      whyItMatters:
+        "Missing canonicals can cause duplicate URL variations to compete.",
     });
   }
 
   if (!seo.schemaJsonLd) {
     addIssue({
-      howToFix: "Add Organization, LocalBusiness/MedicalClinic, Breadcrumb, FAQ, Article, or Review schema where relevant.",
+      howToFix:
+        "Add Organization, LocalBusiness/MedicalClinic, Breadcrumb, FAQ, Article, or Review schema where relevant.",
       recommendation: "Add valid JSON-LD schema for the page type.",
       rowKey: "schema",
       ruleKey: "MISSING_SCHEMA",
       severity: "warning",
       title: "Structured data is missing",
-      whyItMatters: "Schema helps search engines understand page entities and can support rich results.",
+      whyItMatters:
+        "Schema helps search engines understand page entities and can support rich results.",
     });
   }
 
@@ -1066,16 +1091,12 @@ export const OnPageOptimizationScreen = ({
           .includes(query);
       const matchesStatus =
         pageStatusFilter === "all" || row.status === pageStatusFilter;
-      const matchesType = pageTypeFilter === "all" || row.type === pageTypeFilter;
+      const matchesType =
+        pageTypeFilter === "all" || row.type === pageTypeFilter;
 
       return matchesSearch && matchesStatus && matchesType;
     });
-  }, [
-    hierarchicalPageRows,
-    pageSearchQuery,
-    pageStatusFilter,
-    pageTypeFilter,
-  ]);
+  }, [hierarchicalPageRows, pageSearchQuery, pageStatusFilter, pageTypeFilter]);
 
   useEffect(() => {
     toastRef.current = toast;
@@ -1385,7 +1406,9 @@ export const OnPageOptimizationScreen = ({
                 className="h-8 px-3 text-xs font-medium text-[#022279]"
                 isDisabled={
                   Boolean(loadingPdfRunId && !isPdfLoading) ||
-                  (!item.pdfLink && !item.pdfPath && item.status !== "COMPLETED")
+                  (!item.pdfLink &&
+                    !item.pdfPath &&
+                    item.status !== "COMPLETED")
                 }
                 isLoading={isPdfLoading}
                 size="sm"
@@ -1443,7 +1466,9 @@ export const OnPageOptimizationScreen = ({
                 key="pdf"
                 isDisabled={
                   Boolean(loadingPdfRunId) ||
-                  !item.pdfLink && !item.pdfPath && item.status !== "COMPLETED"
+                  (!item.pdfLink &&
+                    !item.pdfPath &&
+                    item.status !== "COMPLETED")
                 }
                 startContent={<Download size={16} />}
                 onPress={() => {
@@ -1733,9 +1758,7 @@ export const OnPageOptimizationScreen = ({
             </div>
           ) : (
             <div className="rounded-md border border-default-200 bg-[#FAFBFC] p-4">
-              <p className="font-semibold">
-                H1: {seo?.firstH1 ?? "Missing"}
-              </p>
+              <p className="font-semibold">H1: {seo?.firstH1 ?? "Missing"}</p>
               <p className="mt-2 text-sm text-[#6B7280]">
                 This scan only has legacy H1 data. Rerun optimisation to capture
                 the full H1-H6 header structure.
@@ -2022,10 +2045,9 @@ export const OnPageOptimizationScreen = ({
           <div className="overflow-x-auto">
             <div className="min-w-[720px]">
               <DashboardDataTable
-                withShell={false}
+                disableZebraRows
                 ariaLabel="On-page audit table"
                 columns={onPageColumns}
-                disableZebraRows
                 getRowKey={(item) => item.id}
                 getRowProps={(item) => ({
                   className: [
@@ -2051,6 +2073,7 @@ export const OnPageOptimizationScreen = ({
                 })}
                 rows={onPageRows}
                 title="On-Page"
+                withShell={false}
               />
             </div>
           </div>
@@ -2064,14 +2087,14 @@ export const OnPageOptimizationScreen = ({
         ? seo.seoLinks
         : seo?.links?.length
           ? seo.links
-        : (seo?.nav ?? []).map((linkItem, index) => ({
-            accessibleText: linkItem.text,
-            anchorText: linkItem.text,
-            href: linkItem.href,
-            index,
-            isInternal: true,
-            placement: "main_navigation",
-          }));
+          : (seo?.nav ?? []).map((linkItem, index) => ({
+              accessibleText: linkItem.text,
+              anchorText: linkItem.text,
+              href: linkItem.href,
+              index,
+              isInternal: true,
+              placement: "main_navigation",
+            }));
       const getIssuesForAnchor = (linkItem: AnchorLink, id: string) =>
         anchorIssues.filter((issue) => {
           if (
@@ -2209,10 +2232,9 @@ export const OnPageOptimizationScreen = ({
           <div className="overflow-x-auto">
             <div className="min-w-[680px]">
               <DashboardDataTable
-                withShell={false}
+                disableZebraRows
                 ariaLabel="Anchor text audit table"
                 columns={anchorColumns}
-                disableZebraRows
                 emptyContent="No anchor links were captured for this page."
                 getRowKey={(item) => item.id}
                 getRowProps={(item) => ({
@@ -2239,6 +2261,7 @@ export const OnPageOptimizationScreen = ({
                 })}
                 rows={anchorRows}
                 title="Anchor Text"
+                withShell={false}
               />
             </div>
           </div>
@@ -2249,38 +2272,42 @@ export const OnPageOptimizationScreen = ({
     const imageItems = page.images?.items?.length
       ? page.images.items
       : imageFlags;
-    const imageRows = imageItems.map((image, index) => {
-      const eligibility = getWebpEligibility(image);
-      const id = `${image.src ?? "image"}-${index}`;
+    const imageRows = imageItems
+      .map((image, index) => {
+        const eligibility = getWebpEligibility(image);
+        const id = `${image.src ?? "image"}-${index}`;
 
-      return {
-        altText: image.alt?.trim() ? image.alt : "Missing",
-        broken:
-          typeof image.statusCode === "number" && image.statusCode >= 400
-            ? `HTTP ${image.statusCode}`
-            : image.statusError && image.statusError !== "Not checked"
-              ? "Check failed"
-              : "No",
-        disabledReason: eligibility.reason,
-        exportStatus: eligibility.status,
-        id,
-        image: image.src ?? "-",
-        isEligibleForWebpExport: eligibility.isEligible,
-        original: image,
-        placement: formatImagePlacement(image.placement),
-        selected: selectedWebpImageIds.has(id),
-        severity: image.severity ?? (image.flags?.length ? "warning" : "pass"),
-        size: formatImageSize(image.sizeBytes),
-        status: imageSeverityStatus(
-          image.severity ?? (image.flags?.length ? "warning" : "pass"),
-        ),
-      };
-    }).filter((item) => item.isEligibleForWebpExport);
+        return {
+          altText: image.alt?.trim() ? image.alt : "Missing",
+          broken:
+            typeof image.statusCode === "number" && image.statusCode >= 400
+              ? `HTTP ${image.statusCode}`
+              : image.statusError && image.statusError !== "Not checked"
+                ? "Check failed"
+                : "No",
+          disabledReason: eligibility.reason,
+          exportStatus: eligibility.status,
+          id,
+          image: image.src ?? "-",
+          isEligibleForWebpExport: eligibility.isEligible,
+          original: image,
+          placement: formatImagePlacement(image.placement),
+          selected: selectedWebpImageIds.has(id),
+          severity:
+            image.severity ?? (image.flags?.length ? "warning" : "pass"),
+          size: formatImageSize(image.sizeBytes),
+          status: imageSeverityStatus(
+            image.severity ?? (image.flags?.length ? "warning" : "pass"),
+          ),
+        };
+      })
+      .filter((item) => item.isEligibleForWebpExport);
     const eligibleImageRows = imageRows.filter(
       (item) => item.isEligibleForWebpExport,
     );
     const selectedEligibleCount = imageRows.filter(
-      (item) => item.isEligibleForWebpExport && selectedWebpImageIds.has(item.id),
+      (item) =>
+        item.isEligibleForWebpExport && selectedWebpImageIds.has(item.id),
     ).length;
     const allEligibleSelected =
       eligibleImageRows.length > 0 &&
@@ -2461,9 +2488,9 @@ export const OnPageOptimizationScreen = ({
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
             <DashboardDataTable
+              disableZebraRows
               ariaLabel="Image optimization audit table"
               columns={imageColumns}
-              disableZebraRows
               emptyContent="No WebP-export eligible images were captured for this page."
               getRowKey={(item) => item.id}
               getRowProps={(item) => ({
@@ -2705,7 +2732,9 @@ export const OnPageOptimizationScreen = ({
     }
 
     if (activeDetailTab === "image-optimization") {
-      const imageItems = images?.items?.length ? images.items : (images?.flagged ?? []);
+      const imageItems = images?.items?.length
+        ? images.items
+        : (images?.flagged ?? []);
       const visibleImageItems = imageItems
         .map((image, index) => ({ image, index }))
         .filter(({ image }) => getWebpEligibility(image).isEligible);
@@ -2724,19 +2753,27 @@ export const OnPageOptimizationScreen = ({
           imageSrc: image.src ?? "-",
           issue,
           issueIndex,
-          severity: issue.severity === "pass" ? "suggestion" : (issue.severity ?? "suggestion"),
+          severity:
+            issue.severity === "pass"
+              ? "suggestion"
+              : (issue.severity ?? "suggestion"),
           scope: "image",
         }));
       });
-      const pageImageIssues = (images?.pageIssues ?? []).map((issue, index) => ({
-        altText: null,
-        id: `page-image-issue-${index}`,
-        imageSrc: "Page-level image SEO",
-        issue,
-        issueIndex: index,
-        severity: issue.severity === "pass" ? "suggestion" : (issue.severity ?? "suggestion"),
-        scope: "page",
-      }));
+      const pageImageIssues = (images?.pageIssues ?? []).map(
+        (issue, index) => ({
+          altText: null,
+          id: `page-image-issue-${index}`,
+          imageSrc: "Page-level image SEO",
+          issue,
+          issueIndex: index,
+          severity:
+            issue.severity === "pass"
+              ? "suggestion"
+              : (issue.severity ?? "suggestion"),
+          scope: "page",
+        }),
+      );
       const allImageIssues = selectedImageRowId
         ? imageIssues.filter((entry) => entry.id === selectedImageRowId)
         : [...imageIssues, ...pageImageIssues];
@@ -2878,7 +2915,8 @@ export const OnPageOptimizationScreen = ({
                       >
                         {severity}
                       </Chip>
-                      {!issue.headingText && typeof issue.headingIndex !== "number" ? (
+                      {!issue.headingText &&
+                      typeof issue.headingIndex !== "number" ? (
                         <Chip
                           className="bg-[#EEF2FF] text-xs font-semibold text-[#3730A3]"
                           radius="full"
@@ -3111,6 +3149,7 @@ export const OnPageOptimizationScreen = ({
       pageStatusFilter !== "all" ||
       pageTypeFilter !== "all",
   );
+
   function resetPageFilters() {
     setPageSearchQuery("");
     setPageStatusFilter("all");
@@ -3202,7 +3241,10 @@ export const OnPageOptimizationScreen = ({
                 </Dropdown>
                 <Dropdown>
                   <DropdownTrigger>
-                    <Button startContent={<List size={14} />} variant="bordered">
+                    <Button
+                      startContent={<List size={14} />}
+                      variant="bordered"
+                    >
                       Show {pagePageSize}
                     </Button>
                   </DropdownTrigger>
@@ -3225,7 +3267,10 @@ export const OnPageOptimizationScreen = ({
                 </Dropdown>
                 <Dropdown closeOnSelect={false}>
                   <DropdownTrigger>
-                    <Button startContent={<Columns3 size={14} />} variant="bordered">
+                    <Button
+                      startContent={<Columns3 size={14} />}
+                      variant="bordered"
+                    >
                       Columns
                     </Button>
                   </DropdownTrigger>
@@ -3267,7 +3312,9 @@ export const OnPageOptimizationScreen = ({
                   aria-label="Search pages found"
                   className="w-64"
                   placeholder="Search here"
-                  startContent={<Search className="text-default-400" size={16} />}
+                  startContent={
+                    <Search className="text-default-400" size={16} />
+                  }
                   value={pageSearchQuery}
                   onValueChange={setPageSearchQuery}
                 />
