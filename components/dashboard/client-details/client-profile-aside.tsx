@@ -19,6 +19,7 @@ import {
   FolderKanban,
   Globe,
   ListChecks,
+  PanelsTopLeft,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -30,6 +31,7 @@ type ClientMenuKey =
   | "local-rankings"
   | "gbp"
   | "content"
+  | "on-page-optimization"
   | "gbp-posting"
   | "reviews"
   | "citations";
@@ -70,6 +72,12 @@ const CLIENT_MENU: ClientMenuItem[] = [
     label: "Website Content",
     icon: ClipboardPen,
     path: "/website-content",
+  },
+  {
+    key: "on-page-optimization",
+    label: "On-Page Optimization",
+    icon: PanelsTopLeft,
+    path: "/on-page-optimization",
   },
   {
     key: "gbp-posting",

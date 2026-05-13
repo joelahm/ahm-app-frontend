@@ -11,7 +11,8 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
-import { Textarea } from "@heroui/input";
+import { Input, Textarea } from "@heroui/input";
+import { Spinner } from "@heroui/spinner";
 import {
   Modal,
   ModalBody,
@@ -23,6 +24,7 @@ import { Select, SelectItem } from "@heroui/select";
 import {
   Image as ImageIcon,
   Columns3,
+  Copy,
   EllipsisVertical,
   List,
   MapPin,
@@ -30,6 +32,8 @@ import {
   ListOrdered,
   Plus,
   SendHorizontal,
+  ShieldCheck,
+  ShieldOff,
   SlidersHorizontal,
   Trash2,
   UserCircle,
@@ -50,6 +54,14 @@ import {
 import { usersApi, type UserListItem } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
 import { AddGbpPostingKeywordsModal } from "@/components/dashboard/client-details/add-gbp-posting-keywords-modal";
+import {
+  gbpPostingReviewsApi,
+  type GbpPostingReviewActivity,
+  type GbpPostingReviewDashboardState,
+  type PublicGbpPosting,
+} from "@/apis/gbp-posting-reviews";
+import { Tab, Tabs } from "@heroui/tabs";
+import ReactDiffViewer from "react-diff-viewer-continued";
 import { useAppToast } from "@/hooks/use-app-toast";
 import {
   buildCommentMessage,
@@ -147,7 +159,7 @@ const mapPostingToRow = (posting: ClientGbpPosting): GbpPostingRow => ({
   assigneeName: posting.assignee?.name ?? "-",
   buttonType: posting.buttonType,
   datePublished: formatDateTime(posting.publishedAt),
-  description: posting.description ?? posting.postContent ?? "-",
+  description: posting.postContent ?? posting.description ?? "-",
   id: String(posting.id),
   images: posting.images,
   isSelected: false,
@@ -157,6 +169,37 @@ const mapPostingToRow = (posting: ClientGbpPosting): GbpPostingRow => ({
   status: posting.status,
   type: posting.contentType,
 });
+
+const applyReviewPostingToRow = (
+  row: GbpPostingRow,
+  posting: PublicGbpPosting,
+): GbpPostingRow => ({
+  ...row,
+  buttonType: posting.buttonType,
+  description: posting.postContent ?? posting.description ?? "-",
+  images: posting.images,
+  status: posting.status ?? row.status,
+  type: posting.contentType ?? row.type,
+});
+
+type GbpPostingEditFormState = {
+  assigneeId: string;
+  buttonType: string;
+  description: string;
+  images: string[];
+  status: string;
+  type: string;
+};
+
+const serializeEditForm = (form: GbpPostingEditFormState) =>
+  JSON.stringify({
+    assigneeId: form.assigneeId,
+    buttonType: form.buttonType,
+    description: form.description,
+    images: form.images,
+    status: form.status,
+    type: form.type,
+  });
 
 const getUserName = (user: UserListItem) =>
   [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
@@ -217,12 +260,20 @@ export const ClientGbpPostingsTable = ({
   const toast = useAppToast();
   const toastRef = useRef(toast);
   const openedPostIdRef = useRef<string | null>(null);
+  const lastHydratedEditFormRef = useRef<string | null>(null);
   const commentEditorRef = useRef<HTMLDivElement | null>(null);
   const commentAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const commentImageInputRef = useRef<HTMLInputElement | null>(null);
   const [rows, setRows] = useState<GbpPostingRow[]>([]);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [isAddKeywordsModalOpen, setIsAddKeywordsModalOpen] = useState(false);
+  const [reviewState, setReviewState] =
+    useState<GbpPostingReviewDashboardState | null>(null);
+  const [isReviewLinkLoading, setIsReviewLinkLoading] = useState(false);
+  const [isReviewLinkMutating, setIsReviewLinkMutating] = useState(false);
+  const [editTab, setEditTab] = useState("content");
+  const [revisionFromKey, setRevisionFromKey] = useState("");
+  const [revisionToKey, setRevisionToKey] = useState("current");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [editingRow, setEditingRow] = useState<GbpPostingRow | null>(null);
@@ -323,15 +374,18 @@ export const ClientGbpPostingsTable = ({
 
   const openEditModal = useCallback(
     async (row: GbpPostingRow) => {
-      setEditingRow(row);
-      setEditForm({
+      const nextForm = {
         assigneeId: row.assigneeId ?? "",
         buttonType: row.buttonType ?? "",
         description: row.description === "-" ? "" : row.description,
         images: row.images,
         status: row.status,
         type: row.type,
-      });
+      };
+
+      setEditingRow(row);
+      setEditForm(nextForm);
+      lastHydratedEditFormRef.current = serializeEditForm(nextForm);
       setCommentInput("");
       setPendingAttachments([]);
       setComments([]);
@@ -343,15 +397,35 @@ export const ClientGbpPostingsTable = ({
       try {
         setIsCommentsLoading(true);
         const accessToken = await getValidAccessToken();
-        const response = await clientsApi.getClientGbpPostingComments(
-          accessToken,
-          clientId,
-          row.id,
-        );
+        const [commentsResponse, postingsResponse] = await Promise.all([
+          clientsApi.getClientGbpPostingComments(accessToken, clientId, row.id),
+          clientsApi.listClientGbpPostings(accessToken, clientId),
+        ]);
 
-        setComments(response.comments);
+        setComments(commentsResponse.comments);
+
+        const freshPostings = postingsResponse.postings.map(mapPostingToRow);
+        const freshRow = freshPostings.find((item) => item.id === row.id);
+
+        setRows(freshPostings);
+
+        if (freshRow) {
+          const freshForm = {
+            assigneeId: freshRow.assigneeId ?? "",
+            buttonType: freshRow.buttonType ?? "",
+            description:
+              freshRow.description === "-" ? "" : freshRow.description,
+            images: freshRow.images,
+            status: freshRow.status,
+            type: freshRow.type,
+          };
+
+          setEditingRow(freshRow);
+          setEditForm(freshForm);
+          lastHydratedEditFormRef.current = serializeEditForm(freshForm);
+        }
       } catch (error) {
-        toastRef.current.danger("Failed to load comments.", {
+        toastRef.current.danger("Failed to load latest content.", {
           description:
             error instanceof Error ? error.message : "Please try again.",
         });
@@ -379,6 +453,7 @@ export const ClientGbpPostingsTable = ({
 
   const closeEditModal = useCallback(() => {
     setEditingRow(null);
+    lastHydratedEditFormRef.current = null;
     setComments([]);
     setCommentInput("");
     pendingAttachments.forEach((attachment) => {
@@ -388,10 +463,363 @@ export const ClientGbpPostingsTable = ({
     });
     setPendingAttachments([]);
     setIsCommentsLoading(false);
+    setReviewState(null);
+    setEditTab("content");
+    setRevisionFromKey("");
+    setRevisionToKey("current");
     if (commentEditorRef.current) {
       commentEditorRef.current.innerText = "";
     }
   }, [pendingAttachments]);
+
+  const loadReviewLink = useCallback(
+    async (postingId: string) => {
+      if (!session?.accessToken) {
+        return;
+      }
+
+      setIsReviewLinkLoading(true);
+
+      try {
+        const accessToken = await getValidAccessToken();
+        const response = await gbpPostingReviewsApi.getDashboardState(
+          accessToken,
+          { postingId },
+        );
+
+        setReviewState(response);
+
+        if (response.posting) {
+          setRows((current) =>
+            current.map((row) =>
+              row.id === postingId
+                ? applyReviewPostingToRow(row, response.posting!)
+                : row,
+            ),
+          );
+          setEditingRow((current) =>
+            current?.id === postingId
+              ? applyReviewPostingToRow(current, response.posting!)
+              : current,
+          );
+          setEditForm((current) => {
+            const currentSerialized = serializeEditForm(current);
+
+            if (
+              lastHydratedEditFormRef.current &&
+              currentSerialized !== lastHydratedEditFormRef.current
+            ) {
+              return current;
+            }
+
+            const nextForm = {
+              ...current,
+              buttonType: response.posting?.buttonType ?? "",
+              description:
+                response.posting?.description ??
+                response.posting?.postContent ??
+                "",
+              images: response.posting?.images ?? current.images,
+              status: response.posting?.status ?? current.status,
+              type: response.posting?.contentType ?? current.type,
+            };
+
+            lastHydratedEditFormRef.current = serializeEditForm(nextForm);
+
+            return nextForm;
+          });
+        }
+      } catch (error) {
+        toastRef.current.danger("Failed to load public link.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setIsReviewLinkLoading(false);
+      }
+    },
+    [getValidAccessToken, session?.accessToken],
+  );
+
+  useEffect(() => {
+    if (!editingRow?.id) {
+      return;
+    }
+
+    void loadReviewLink(editingRow.id);
+  }, [editingRow?.id, loadReviewLink]);
+
+  const reviewLink = reviewState?.link ?? null;
+  const reviewLinkUrl = useMemo(() => {
+    if (!reviewLink?.publicPath) {
+      return "";
+    }
+
+    if (typeof window === "undefined") {
+      return reviewLink.publicPath;
+    }
+
+    return `${window.location.origin}${reviewLink.publicPath}`;
+  }, [reviewLink?.publicPath]);
+
+  const formatReviewExpiry = (value?: string | null) => {
+    if (!value) {
+      return "";
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+
+    return date.toLocaleString();
+  };
+
+  const handleToggleReviewLink = useCallback(async () => {
+    if (!editingRow?.id || !session?.accessToken) {
+      toastRef.current.danger("Session expired. Please login again.");
+
+      return;
+    }
+
+    setIsReviewLinkMutating(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+
+      if (reviewLink?.enabled) {
+        await gbpPostingReviewsApi.disableLink(accessToken, {
+          postingId: editingRow.id,
+        });
+        toastRef.current.success("Public link disabled.");
+      } else {
+        await gbpPostingReviewsApi.enableLink(accessToken, {
+          postingId: editingRow.id,
+        });
+        toastRef.current.success("Public link enabled.");
+      }
+
+      await loadReviewLink(editingRow.id);
+    } catch (error) {
+      toastRef.current.danger("Failed to update public link.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsReviewLinkMutating(false);
+    }
+  }, [
+    editingRow?.id,
+    getValidAccessToken,
+    loadReviewLink,
+    reviewLink?.enabled,
+    session?.accessToken,
+  ]);
+
+  const handleCopyReviewLink = useCallback(async () => {
+    if (!reviewLinkUrl) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(reviewLinkUrl);
+      toastRef.current.success("Public link copied.");
+    } catch {
+      toastRef.current.danger("Unable to copy public link.");
+    }
+  }, [reviewLinkUrl]);
+
+  type GbpRevisionSnapshot = {
+    postContent: string;
+    images: string[];
+  };
+
+  type GbpRevisionOption = {
+    key: string;
+    label: string;
+    snapshot: GbpRevisionSnapshot;
+  };
+
+  const normalizeGbpSnapshot = (
+    snapshot?: Record<string, unknown> | null,
+  ): GbpRevisionSnapshot => {
+    const source = snapshot ?? {};
+    const postContent =
+      typeof source.postContent === "string" ? source.postContent : "";
+    const images = Array.isArray(source.images)
+      ? source.images.filter((value): value is string => typeof value === "string")
+      : [];
+
+    return { images, postContent };
+  };
+
+  const formatRevisionDate = (value?: string | null) => {
+    if (!value) {
+      return "-";
+    }
+
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleString([], {
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      month: "short",
+    });
+  };
+
+  const formatRevisionSource = (source: string) =>
+    source
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(" ");
+
+  const formatActivityTime = (value?: string | null) => {
+    if (!value) {
+      return "-";
+    }
+
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleString();
+  };
+
+  const formatActivityActor = (activity: GbpPostingReviewActivity) =>
+    activity.actorName ||
+    activity.actorEmail ||
+    (activity.actorType === "PUBLIC_REVIEWER" ? "Client reviewer" : "User");
+
+  const formatActivity = (activity: GbpPostingReviewActivity) => {
+    const actor = formatActivityActor(activity);
+
+    if (activity.action === "FIELD_UPDATED" && activity.fieldName) {
+      return `${actor} changed ${activity.fieldName}`;
+    }
+
+    if (activity.action === "COMMENT_ADDED") {
+      return `${actor} added a comment`;
+    }
+
+    if (activity.action === "COMMENT_DELETED") {
+      return `${actor} deleted a comment`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_ENABLED") {
+      return `${actor} enabled the public link`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_DISABLED") {
+      return `${actor} disabled the public link`;
+    }
+
+    if (activity.action === "PUBLIC_LINK_SENT_TO_CLIENT") {
+      return `${actor} sent the link to client`;
+    }
+
+    return `${actor} updated this posting`;
+  };
+
+  const currentGbpSnapshot = useMemo<GbpRevisionSnapshot>(
+    () => ({
+      images: editForm.images,
+      postContent: editForm.description,
+    }),
+    [editForm.description, editForm.images],
+  );
+
+  const revisionOptions = useMemo<GbpRevisionOption[]>(() => {
+    const sortedVersions = [...(reviewState?.versions ?? [])].sort(
+      (left, right) =>
+        new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime(),
+    );
+    const options: GbpRevisionOption[] = [];
+    const originalVersion = sortedVersions[0];
+
+    if (originalVersion) {
+      options.push({
+        key: `version:${originalVersion.id}`,
+        label: "Original",
+        snapshot: normalizeGbpSnapshot(originalVersion.snapshot),
+      });
+    }
+
+    sortedVersions.slice(1).forEach((version) => {
+      const author =
+        version.createdByName || version.createdByEmail || "User";
+
+      options.push({
+        key: `version:${version.id}`,
+        label: `${formatRevisionDate(version.createdAt)} - ${formatRevisionSource(
+          version.source,
+        )} - ${author}`,
+        snapshot: normalizeGbpSnapshot(version.snapshot),
+      });
+    });
+
+    options.push({
+      key: "current",
+      label: "Current",
+      snapshot: currentGbpSnapshot,
+    });
+
+    return options;
+  }, [currentGbpSnapshot, reviewState?.versions]);
+
+  const revisionFromOption =
+    revisionOptions.find((option) => option.key === revisionFromKey) ??
+    revisionOptions[0];
+  const revisionToOption =
+    revisionOptions.find((option) => option.key === revisionToKey) ??
+    revisionOptions[revisionOptions.length - 1];
+  const restoreRevisionLabel =
+    revisionFromOption && revisionFromOption.key !== "current"
+      ? `Restore to ${revisionFromOption.label}`
+      : "Restore This Version";
+
+  useEffect(() => {
+    if (!editingRow || revisionOptions.length === 0) {
+      return;
+    }
+
+    const optionKeys = new Set(revisionOptions.map((option) => option.key));
+    const originalKey = revisionOptions[0]?.key;
+
+    if (!revisionFromKey || !optionKeys.has(revisionFromKey)) {
+      setRevisionFromKey(originalKey ?? "");
+    }
+
+    if (!revisionToKey || !optionKeys.has(revisionToKey)) {
+      setRevisionToKey("current");
+    }
+  }, [editingRow, revisionFromKey, revisionOptions, revisionToKey]);
+
+  const handleRestoreRevision = () => {
+    if (!revisionFromOption || revisionFromOption.key === "current") {
+      return;
+    }
+
+    const snapshot = revisionFromOption.snapshot;
+
+    setEditForm((current) => ({
+      ...current,
+      description: snapshot.postContent,
+      images: snapshot.images,
+    }));
+    setEditTab("content");
+    toastRef.current.success("Revision restored to editor.", {
+      description: "Click Save to keep the changes.",
+    });
+  };
 
   const handleCreateFromKeywords = async (payload: {
     audience: string;
@@ -973,8 +1401,86 @@ export const ClientGbpPostingsTable = ({
           <ModalHeader>
             <h2 className="text-lg font-semibold text-[#111827]">Edit Post</h2>
           </ModalHeader>
-          <ModalBody className="grid gap-8 overflow-y-auto pb-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <ModalBody className="overflow-y-auto pb-7">
+            <Tabs
+              aria-label="Edit GBP posting sections"
+              classNames={{
+                panel: "px-0 pb-0 pt-4",
+                tabList: "w-full",
+              }}
+              selectedKey={editTab}
+              size="sm"
+              onSelectionChange={(key) => {
+                setEditTab(String(key));
+              }}
+            >
+              <Tab key="content" title="Content">
+                <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="space-y-5">
+              <div className="space-y-3 rounded-lg border border-default-200 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    {reviewLink?.enabled ? (
+                      <ShieldCheck className="text-success" size={16} />
+                    ) : (
+                      <ShieldOff className="text-[#9CA3AF]" size={16} />
+                    )}
+                    <h4 className="text-sm font-semibold text-[#111827]">
+                      Public Review Link
+                    </h4>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {reviewLink?.enabled && reviewLink?.expiresAt ? (
+                      <p className="text-xs text-[#6B7280]">
+                        Expires {formatReviewExpiry(reviewLink.expiresAt)}
+                      </p>
+                    ) : null}
+                    {isReviewLinkLoading ? <Spinner size="sm" /> : null}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                  <Input
+                    isReadOnly
+                    aria-label="Public review URL"
+                    className="min-w-0 flex-1"
+                    placeholder="Enable public link to generate URL"
+                    size="sm"
+                    value={reviewLinkUrl}
+                    variant="bordered"
+                  />
+                  <div className="flex flex-wrap gap-2 lg:flex-nowrap">
+                    <Button
+                      isIconOnly
+                      isDisabled={!reviewLinkUrl}
+                      size="sm"
+                      variant="bordered"
+                      onPress={() => {
+                        void handleCopyReviewLink();
+                      }}
+                    >
+                      <Copy size={15} />
+                    </Button>
+                    <Button
+                      className={
+                        reviewLink?.enabled
+                          ? "text-danger"
+                          : "bg-[#022279] text-white"
+                      }
+                      isLoading={isReviewLinkMutating}
+                      size="sm"
+                      variant={reviewLink?.enabled ? "bordered" : "solid"}
+                      onPress={() => {
+                        void handleToggleReviewLink();
+                      }}
+                    >
+                      {reviewLink?.enabled
+                        ? "Disable Public Link"
+                        : "Enable Public Link"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div className="relative h-[250px] overflow-hidden rounded-xl">
                 {editForm.images[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1463,6 +1969,188 @@ export const ClientGbpPostingsTable = ({
                 </div>
               </div>
             </aside>
+                </div>
+              </Tab>
+              <Tab key="revisions" title="Revisions">
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Select
+                      aria-label="Compare from"
+                      label="Compare from"
+                      selectedKeys={
+                        revisionFromOption ? [revisionFromOption.key] : []
+                      }
+                      size="sm"
+                      variant="bordered"
+                      onSelectionChange={(keys) => {
+                        if (keys === "all") {
+                          return;
+                        }
+
+                        const selectedKey = Array.from(keys)[0];
+
+                        if (selectedKey) {
+                          setRevisionFromKey(String(selectedKey));
+                        }
+                      }}
+                    >
+                      {revisionOptions.map((option) => (
+                        <SelectItem key={option.key}>{option.label}</SelectItem>
+                      ))}
+                    </Select>
+                    <Select
+                      aria-label="Compare to"
+                      label="Compare to"
+                      selectedKeys={
+                        revisionToOption ? [revisionToOption.key] : []
+                      }
+                      size="sm"
+                      variant="bordered"
+                      onSelectionChange={(keys) => {
+                        if (keys === "all") {
+                          return;
+                        }
+
+                        const selectedKey = Array.from(keys)[0];
+
+                        if (selectedKey) {
+                          setRevisionToKey(String(selectedKey));
+                        }
+                      }}
+                    >
+                      {revisionOptions.map((option) => (
+                        <SelectItem key={option.key}>{option.label}</SelectItem>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      className="bg-[#022279] text-white"
+                      isDisabled={
+                        !revisionFromOption ||
+                        revisionFromOption.key === "current"
+                      }
+                      size="sm"
+                      onPress={handleRestoreRevision}
+                    >
+                      {restoreRevisionLabel}
+                    </Button>
+                  </div>
+                  <div className="max-h-[560px] space-y-4 overflow-y-auto pr-1">
+                    <div className="overflow-hidden rounded-lg border border-default-200">
+                      <div className="border-b border-default-200 bg-[#F9FAFB] px-3 py-2 text-sm font-semibold text-[#111827]">
+                        Post Content
+                      </div>
+                      {(revisionFromOption?.snapshot.postContent ?? "") ===
+                      (revisionToOption?.snapshot.postContent ?? "") ? (
+                        <p className="px-3 py-3 text-sm text-[#6B7280]">
+                          No changes.
+                        </p>
+                      ) : (
+                        <ReactDiffViewer
+                          disableWorker
+                          hideLineNumbers
+                          splitView
+                          newValue={
+                            revisionToOption?.snapshot.postContent ?? ""
+                          }
+                          oldValue={
+                            revisionFromOption?.snapshot.postContent ?? ""
+                          }
+                          showDiffOnly={false}
+                          styles={{
+                            contentText: { fontSize: "12px" },
+                            variables: {
+                              light: {
+                                addedBackground: "#ECFDF3",
+                                removedBackground: "#FEF2F2",
+                              },
+                            },
+                          }}
+                        />
+                      )}
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-default-200">
+                      <div className="border-b border-default-200 bg-[#F9FAFB] px-3 py-2 text-sm font-semibold text-[#111827]">
+                        Images
+                      </div>
+                      <div className="grid gap-3 p-3 md:grid-cols-2">
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-[#6B7280]">
+                            From ({revisionFromOption?.snapshot.images.length ?? 0})
+                          </p>
+                          <div className="grid grid-cols-3 gap-1">
+                            {(revisionFromOption?.snapshot.images ?? []).map(
+                              (image, index) => (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  key={`from-${index}-${image.slice(0, 24)}`}
+                                  alt="Revision image"
+                                  className="aspect-square w-full rounded object-cover"
+                                  src={image}
+                                />
+                              ),
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="mb-2 text-xs font-medium text-[#6B7280]">
+                            To ({revisionToOption?.snapshot.images.length ?? 0})
+                          </p>
+                          <div className="grid grid-cols-3 gap-1">
+                            {(revisionToOption?.snapshot.images ?? []).map(
+                              (image, index) => (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  key={`to-${index}-${image.slice(0, 24)}`}
+                                  alt="Revision image"
+                                  className="aspect-square w-full rounded object-cover"
+                                  src={image}
+                                />
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Tab>
+              <Tab key="history" title="History Logs">
+                <div className="max-h-[620px] space-y-3 overflow-y-auto text-sm">
+                  {reviewState?.activities.length ? (
+                    reviewState.activities.map((activity) => (
+                      <div
+                        key={activity.id}
+                        className="rounded-lg border border-default-200 p-3 text-[#4B5563]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <p>{formatActivity(activity)}</p>
+                          <span className="shrink-0 text-xs text-[#9CA3AF]">
+                            {formatActivityTime(activity.createdAt)}
+                          </span>
+                        </div>
+                        {activity.action === "FIELD_UPDATED" ? (
+                          <p className="mt-1 line-clamp-3 text-xs text-[#9CA3AF]">
+                            {activity.oldValue
+                              ? `"${activity.oldValue}"`
+                              : "Empty"}{" "}
+                            to{" "}
+                            {activity.newValue
+                              ? `"${activity.newValue}"`
+                              : "Empty"}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="rounded-lg bg-[#F9FAFB] p-3 text-sm text-[#6B7280]">
+                      No activity yet.
+                    </p>
+                  )}
+                </div>
+              </Tab>
+            </Tabs>
           </ModalBody>
           <ModalFooter className="border-t border-default-200">
             <Button radius="sm" variant="bordered" onPress={closeEditModal}>
@@ -1470,6 +2158,7 @@ export const ClientGbpPostingsTable = ({
             </Button>
             <Button
               className="bg-[#022279] text-white"
+              isDisabled={editTab !== "content"}
               isLoading={isSavingPosting}
               radius="sm"
               onPress={() => void handleSavePosting()}

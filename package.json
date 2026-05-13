@@ -72,6 +72,7 @@
     "framer-motion": "11.18.2",
     "intl-messageformat": "10.7.16",
     "intl-tel-input": "^26.8.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
     "next": "15.5.9",
     "next-themes": "0.4.6",

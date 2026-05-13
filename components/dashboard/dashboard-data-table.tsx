@@ -24,6 +24,7 @@ import {
 export interface DashboardDataTableColumn<TItem> {
   key: string;
   label: string;
+  header?: ReactNode;
   className?: string;
   renderCell: (item: TItem) => ReactNode;
 }
@@ -50,6 +51,7 @@ interface DashboardDataTableProps<TItem> {
   currentPage?: number;
   onPageChange?: (page: number) => void;
   withShell?: boolean;
+  disableZebraRows?: boolean;
   getRowProps?: (item: TItem) => HTMLAttributes<HTMLTableRowElement>;
 }
 
@@ -116,6 +118,7 @@ export const DashboardDataTable = <TItem,>({
   currentPage,
   onPageChange,
   withShell = true,
+  disableZebraRows = false,
   getRowProps,
 }: DashboardDataTableProps<TItem>) => {
   const [internalPage, setInternalPage] = useState(1);
@@ -186,8 +189,12 @@ export const DashboardDataTable = <TItem,>({
           classNames={{
             table: "border-collapse border-spacing-0",
             thead: "[&_tr]:rounded-none",
-            tbody:
-              "[&_tr]:rounded-none [&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#F9FAFB]",
+            tbody: [
+              "[&_tr]:rounded-none [&_tr]:border-b [&_tr]:border-default-200",
+              disableZebraRows ? "" : "[&_tr:nth-child(even)]:bg-[#F9FAFB]",
+            ]
+              .filter(Boolean)
+              .join(" "),
             tr: "rounded-none",
             th: enableSelection
               ? "!rounded-none [&:first-child]:text-xs [&:first-child]:font-medium [&:first-child]:text-[#111827] [&:first-child]:bg-[#F9FAFB] [&:first-child]:!rounded-none"
@@ -201,7 +208,7 @@ export const DashboardDataTable = <TItem,>({
           <TableHeader>
             {columns.map((column) => (
               <TableColumn key={column.key} className={column.className}>
-                {column.label}
+                {column.header ?? column.label}
               </TableColumn>
             ))}
           </TableHeader>
