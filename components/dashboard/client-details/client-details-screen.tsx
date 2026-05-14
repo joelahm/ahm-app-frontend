@@ -865,8 +865,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         }
 
         toast.danger("Failed to load client details", {
-          description:
-            error instanceof Error ? error.message : undefined,
+          description: error instanceof Error ? error.message : undefined,
         });
       }
     };
@@ -1143,8 +1142,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
       }
 
       toast.danger("Failed to save client details", {
-        description:
-          error instanceof Error ? error.message : undefined,
+        description: error instanceof Error ? error.message : undefined,
       });
     }
   };

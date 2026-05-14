@@ -1403,20 +1403,12 @@ export const OnPageOptimizationScreen = ({
           return (
             <div className="flex flex-wrap gap-2">
               <Button
+                isDisabled
                 className="h-8 px-3 text-xs font-medium text-[#022279]"
-                isDisabled={
-                  Boolean(loadingPdfRunId && !isPdfLoading) ||
-                  (!item.pdfLink &&
-                    !item.pdfPath &&
-                    item.status !== "COMPLETED")
-                }
                 isLoading={isPdfLoading}
                 size="sm"
                 startContent={!isPdfLoading ? <FileText size={14} /> : null}
                 variant="flat"
-                onPress={() => {
-                  void openPdfReport(item);
-                }}
               >
                 PDF
               </Button>
@@ -1464,16 +1456,8 @@ export const OnPageOptimizationScreen = ({
               </DropdownItem>
               <DropdownItem
                 key="pdf"
-                isDisabled={
-                  Boolean(loadingPdfRunId) ||
-                  (!item.pdfLink &&
-                    !item.pdfPath &&
-                    item.status !== "COMPLETED")
-                }
+                isDisabled
                 startContent={<Download size={16} />}
-                onPress={() => {
-                  void openPdfReport(item);
-                }}
               >
                 Open PDF
               </DropdownItem>
