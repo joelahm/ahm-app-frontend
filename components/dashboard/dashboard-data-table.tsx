@@ -1,6 +1,6 @@
 "use client";
 
-import type { Key, ReactNode, HTMLAttributes } from "react";
+import type { Key, ReactNode, HTMLAttributes, TdHTMLAttributes } from "react";
 import type { Selection } from "@react-types/shared";
 
 import { useEffect, useMemo, useState } from "react";
@@ -52,6 +52,13 @@ interface DashboardDataTableProps<TItem> {
   onPageChange?: (page: number) => void;
   withShell?: boolean;
   disableZebraRows?: boolean;
+  getCellProps?: (
+    item: TItem,
+    column: DashboardDataTableColumn<TItem>,
+    columnIndex: number,
+  ) =>
+    | (TdHTMLAttributes<HTMLTableCellElement> & { hidden?: boolean })
+    | undefined;
   getRowProps?: (item: TItem) => HTMLAttributes<HTMLTableRowElement>;
 }
 
@@ -119,6 +126,7 @@ export const DashboardDataTable = <TItem,>({
   onPageChange,
   withShell = true,
   disableZebraRows = false,
+  getCellProps,
   getRowProps,
 }: DashboardDataTableProps<TItem>) => {
   const [internalPage, setInternalPage] = useState(1);
@@ -223,11 +231,26 @@ export const DashboardDataTable = <TItem,>({
                 key={getRowKey(item)}
                 {...(getRowProps ? getRowProps(item) : undefined)}
               >
-                {columns.map((column) => (
-                  <TableCell key={`${String(getRowKey(item))}-${column.key}`}>
-                    {column.renderCell(item)}
-                  </TableCell>
-                ))}
+                {columns.flatMap((column, columnIndex) => {
+                  const cellProps = getCellProps?.(item, column, columnIndex);
+
+                  if (cellProps?.hidden) {
+                    return [];
+                  }
+
+                  const tableCellProps = { ...(cellProps ?? {}) };
+
+                  delete tableCellProps.hidden;
+
+                  return [
+                    <TableCell
+                      key={`${String(getRowKey(item))}-${column.key}`}
+                      {...tableCellProps}
+                    >
+                      {column.renderCell(item)}
+                    </TableCell>,
+                  ];
+                })}
               </TableRow>
             )}
           </TableBody>

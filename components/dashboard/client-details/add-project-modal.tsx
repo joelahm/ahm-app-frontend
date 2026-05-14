@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
+import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Checkbox } from "@heroui/checkbox";
-import { Chip } from "@heroui/chip";
 import { DatePicker } from "@heroui/date-picker";
 import {
   Dropdown,
@@ -24,6 +24,7 @@ import {
 import { Select, SelectItem } from "@heroui/select";
 import { parseDate } from "@internationalized/date";
 import {
+  Calendar,
   ChevronDown,
   ChevronRight,
   EllipsisVertical,
@@ -34,10 +35,7 @@ import {
   X,
 } from "lucide-react";
 
-import {
-  DashboardDataTable,
-  type DashboardDataTableColumn,
-} from "@/components/dashboard/dashboard-data-table";
+import { type DashboardDataTableColumn } from "@/components/dashboard/dashboard-data-table";
 import {
   AddProjectTemplateTaskFormValues,
   AddProjectTemplateTaskModal,
@@ -92,6 +90,8 @@ const addProjectSchema = yup.object({
 });
 
 const emptyProjectTasks: TaskTableRow[] = [];
+const taskGridColumns =
+  "grid-cols-[44px_minmax(280px,1.3fr)_minmax(150px,190px)_minmax(160px,220px)_120px_110px_minmax(160px,210px)_72px]";
 
 const defaultProjectTemplates: Record<string, ProjectTemplate> = {
   Custom: {
@@ -459,6 +459,7 @@ export const AddProjectModal = ({
               dueDateTrigger: task.dueDateTrigger,
               enableDependency: task.enableDependency,
               id: task.id,
+              assigneeId: task.assigneeId,
               isExpanded: task.isExpanded,
               isSelected: task.isSelected ?? false,
               labels: task.labels ?? [],
@@ -734,6 +735,10 @@ export const AddProjectModal = ({
       })),
     [taskDueDates, visibleTaskRows],
   );
+  const userById = useMemo(
+    () => new Map(users.map((user) => [user.id, user])),
+    [users],
+  );
   const computedProjectDueDate = useMemo(
     () => getProjectDueDate(taskRows, selectedStartDate),
     [selectedStartDate, taskRows],
@@ -932,35 +937,38 @@ export const AddProjectModal = ({
               ) : (
                 <span className="inline-block w-3 flex-none" />
               )}
-              <span className="line-clamp-2">{item.taskName}</span>
+              <span
+                className={`h-8 w-1 flex-none rounded-full ${
+                  item.level > 0 ? "bg-[#10B981]" : "bg-[#60A5FA]"
+                }`}
+              />
+              <span className="line-clamp-2 text-xs font-medium text-[#111827]">
+                {item.taskName}
+              </span>
             </div>
           );
         },
-      },
-      {
-        key: "taskDescription",
-        label: "Task Description",
-        className:
-          "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
-        renderCell: (item) => (
-          <span className="line-clamp-2">{item.taskDescription}</span>
-        ),
       },
       {
         key: "dependency",
         label: "Dependencies",
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
-        renderCell: (item) => <span>{item.dependency}</span>,
+        renderCell: (item) => (
+          <span className="line-clamp-2 text-xs text-[#374151]">
+            {item.dependency}
+          </span>
+        ),
       },
       {
         key: "dueDateTrigger",
-        label: "Due date trigger",
+        label: "Due rule",
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
         renderCell: (item) => (
-          <span className="line-clamp-2 text-sm text-[#1F2937]">
-            {item.dueDateTrigger}
+          <span className="inline-flex min-w-0 items-center gap-1 text-xs font-semibold text-[#DC2626]">
+            <Calendar className="flex-none" size={13} />
+            <span className="truncate">{item.dueDateTrigger}</span>
           </span>
         ),
       },
@@ -970,7 +978,9 @@ export const AddProjectModal = ({
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
         renderCell: (item) => (
-          <span className="whitespace-nowrap">{item.computedDueDateLabel}</span>
+          <span className="whitespace-nowrap text-xs text-[#374151]">
+            {item.computedDueDateLabel}
+          </span>
         ),
       },
       {
@@ -979,33 +989,36 @@ export const AddProjectModal = ({
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
         renderCell: (item) => (
-          <span className="whitespace-nowrap">{item.status ?? "-"}</span>
+          <span className="whitespace-nowrap text-xs text-[#374151]">
+            {item.status ?? "-"}
+          </span>
         ),
       },
       {
-        key: "labels",
-        label: "Labels",
+        key: "assignee",
+        label: "Assignee",
         className:
           "bg-[#F9FAFB] text-xs font-medium text-[#111827] !rounded-none",
-        renderCell: (item) => (
-          <div className="flex flex-wrap gap-1">
-            {item.labels.length > 0 ? (
-              item.labels.map((label) => (
-                <Chip
-                  key={label}
-                  className="bg-[#EEF2FF] text-[#6366F1]"
-                  radius="sm"
-                  size="sm"
-                  variant="flat"
-                >
-                  {label}
-                </Chip>
-              ))
-            ) : (
-              <span>-</span>
-            )}
-          </div>
-        ),
+        renderCell: (item) => {
+          const assignee = item.assigneeId
+            ? userById.get(item.assigneeId)
+            : null;
+          const assigneeName = assignee?.name ?? "-";
+
+          return (
+            <div className="flex min-w-0 items-center gap-2">
+              <Avatar
+                className="h-5 w-5 flex-none"
+                name={assigneeName}
+                size="sm"
+                src={assignee?.avatar ?? undefined}
+              />
+              <span className="truncate text-xs text-[#6B7280]">
+                {assigneeName}
+              </span>
+            </div>
+          );
+        },
       },
       {
         key: "action",
@@ -1046,7 +1059,7 @@ export const AddProjectModal = ({
         ),
       },
     ],
-    [childCount],
+    [childCount, userById],
   );
 
   const closeModal = () => {
@@ -1435,59 +1448,105 @@ export const AddProjectModal = ({
             >
               Drag a task here to make it a parent task
             </div>
-            <DashboardDataTable
-              ariaLabel="Project tasks"
-              columns={taskColumns}
-              getRowKey={(item) => item.id}
-              getRowProps={(item) => ({
-                draggable: true,
-                onDragStart: (event) => {
-                  event.dataTransfer?.setData("text/plain", item.id);
-                  event.dataTransfer?.setData(
-                    "application/myapp-task",
-                    item.id,
-                  );
-                  event.dataTransfer!.effectAllowed = "move";
-                  setDraggingTaskId(item.id);
-                },
-                onDragEnd: () => {
-                  setDraggingTaskId(null);
-                  setDragOverTaskId(null);
-                },
-                onDragEnter: (event) => {
-                  event.preventDefault();
-                  if (draggingTaskId && draggingTaskId !== item.id) {
-                    setDragOverTaskId(item.id);
-                  }
-                },
-                onDragLeave: () => {
-                  if (dragOverTaskId === item.id) {
-                    setDragOverTaskId(null);
-                  }
-                },
-                onDragOver: (event) => {
-                  event.preventDefault();
-                },
-                onDrop: (event) => {
-                  event.preventDefault();
-                  const draggedId =
-                    event.dataTransfer?.getData("text/plain") || draggingTaskId;
+            <div className="overflow-x-auto">
+              <div className="min-w-[1280px]">
+                <div
+                  className={`grid ${taskGridColumns} min-h-[42px] items-center border-b border-default-200 bg-[#F9FAFB] text-xs font-medium text-[#111827]`}
+                >
+                  {taskColumns.map((column, index) => (
+                    <div
+                      key={column.key}
+                      className={[
+                        index > 0 ? "border-l border-default-100" : "",
+                        column.key === "action"
+                          ? "px-3 text-right"
+                          : column.key === "select"
+                            ? "px-4"
+                            : "px-2",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                    >
+                      {column.label}
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  {visibleTaskRowsWithDueDates.map((item) => (
+                    <div
+                      key={item.id}
+                      draggable
+                      className={`grid ${taskGridColumns} min-h-[54px] items-center border-b border-default-200 text-xs last:border-b-0 ${
+                        dragOverTaskId === item.id ? "bg-[#EEF2FF]" : "bg-white"
+                      }`}
+                      onDragEnd={() => {
+                        setDraggingTaskId(null);
+                        setDragOverTaskId(null);
+                      }}
+                      onDragEnter={(event) => {
+                        event.preventDefault();
+                        if (draggingTaskId && draggingTaskId !== item.id) {
+                          setDragOverTaskId(item.id);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverTaskId === item.id) {
+                          setDragOverTaskId(null);
+                        }
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                      }}
+                      onDragStart={(event) => {
+                        event.dataTransfer?.setData("text/plain", item.id);
+                        event.dataTransfer?.setData(
+                          "application/myapp-task",
+                          item.id,
+                        );
+                        event.dataTransfer!.effectAllowed = "move";
+                        setDraggingTaskId(item.id);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const draggedId =
+                          event.dataTransfer?.getData("text/plain") ||
+                          draggingTaskId;
 
-                  if (draggedId) {
-                    handleDropOnTask(item, draggedId);
-                  }
-                  setDraggingTaskId(null);
-                  setDragOverTaskId(null);
-                },
-                className: `${
-                  dragOverTaskId === item.id ? "bg-[#EEF2FF]" : ""
-                }`,
-              })}
-              rows={visibleTaskRowsWithDueDates}
-              showPagination={false}
-              title=""
-              withShell={false}
-            />
+                        if (draggedId) {
+                          handleDropOnTask(item, draggedId);
+                        }
+                        setDraggingTaskId(null);
+                        setDragOverTaskId(null);
+                      }}
+                    >
+                      {taskColumns.map((column, index) => (
+                        <div
+                          key={`${item.id}-${column.key}`}
+                          className={[
+                            "min-w-0 py-2",
+                            index > 0 ? "border-l border-default-100" : "",
+                            column.key === "action"
+                              ? "px-3"
+                              : column.key === "select"
+                                ? "px-4"
+                                : "px-2",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {column.renderCell(item)}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {visibleTaskRowsWithDueDates.length === 0 ? (
+                    <div className="border-b border-default-200 bg-white px-4 py-8 text-center text-sm text-[#6B7280]">
+                      No tasks added yet.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
 
           <AddProjectTemplateTaskModal

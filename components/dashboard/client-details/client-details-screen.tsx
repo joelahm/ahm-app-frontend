@@ -37,6 +37,13 @@ import { useDropdownData } from "@/components/dashboard/client-details/dropdown-
 import { useAppToast } from "@/hooks/use-app-toast";
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { TokenInputField } from "@/components/form/token-input-field";
+import { CLIENT_TITLE_OPTIONS } from "@/lib/client-titles";
+import {
+  CLIENT_STATUS_VALUES,
+  DEFAULT_CLIENT_STATUS,
+  normalizeClientStatusLabel,
+  type ClientStatus,
+} from "@/lib/client-statuses";
 
 const days = [
   "Monday",
@@ -50,26 +57,6 @@ const days = [
 
 const sectionCard = "rounded-xl border border-default-200 bg-white";
 const fieldLabel = "mb-1.5 block text-xs text-[#585763]";
-const CLIENT_TITLE_OPTIONS = [
-  "Dr",
-  "Prof",
-  "Mr",
-  "Ms",
-  "Mrs",
-  "Miss",
-  "Mx",
-  "Nurse",
-  "Sister",
-  "Matron",
-  "Midwife",
-  "Pharmacist",
-  "Psychologist",
-  "Physiotherapist",
-  "Occupational Therapist",
-  "Dietitian",
-  "Radiographer",
-  "Paramedic",
-];
 
 type UploadValue = Array<File | string>;
 type PracticeHour = {
@@ -473,6 +460,27 @@ const hasCompletedPracticeHours = (items: PracticeHour[]) =>
       hasTextValue(item.endMeridiem),
   );
 
+const getUniqueClientNameOptions = (
+  clients: Awaited<ReturnType<typeof clientsApi.getClients>>,
+) => {
+  const seenNames = new Set<string>();
+
+  return clients
+    .map((client) => (client.clientName ?? client.businessName ?? "").trim())
+    .filter((name) => {
+      const normalizedName = name.toLowerCase();
+
+      if (!name || seenNames.has(normalizedName)) {
+        return false;
+      }
+
+      seenNames.add(normalizedName);
+
+      return true;
+    })
+    .sort((left, right) => left.localeCompare(right));
+};
+
 export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
@@ -484,12 +492,16 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
   const [isLoadingCountryOptions, setIsLoadingCountryOptions] = useState(false);
   const [clientId, setClientId] = useState<string>(slug);
   const [assignedToId, setAssignedToId] = useState<string>("");
+  const [clientStatus, setClientStatus] = useState<ClientStatus>(
+    DEFAULT_CLIENT_STATUS,
+  );
+  const [rawClientStatus, setRawClientStatus] = useState<string | null>(null);
   const [assignedUserSearch, setAssignedUserSearch] = useState("");
   const [assignedUsers, setAssignedUsers] = useState<
     Array<{ email: string; id: string; label: string }>
   >([]);
   const [countrySearch, setCountrySearch] = useState("");
-  const [detailsError, setDetailsError] = useState("");
+  const [clientNameOptions, setClientNameOptions] = useState<string[]>([]);
   const [isTestingDiscordChannel, setIsTestingDiscordChannel] = useState(false);
   const [fetchedClientName, setFetchedClientName] = useState("");
   const [topMedicalSpecialties, setTopMedicalSpecialties] = useState<string[]>(
@@ -685,6 +697,41 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
 
   useEffect(() => {
     if (!session) {
+      setClientNameOptions([]);
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateClientNames = async () => {
+      try {
+        const accessToken = await getValidAccessToken();
+        const clients = await clientsApi.getClients(accessToken);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setClientNameOptions(getUniqueClientNameOptions(clients));
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setClientNameOptions([]);
+      }
+    };
+
+    void hydrateClientNames();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getValidAccessToken, session]);
+
+  useEffect(() => {
+    if (!session) {
       setCountryOptions([]);
 
       return;
@@ -741,8 +788,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     let isMounted = true;
 
     const hydrateClient = async () => {
-      setDetailsError("");
-
       try {
         const accessToken = await getValidAccessToken();
         const client = await clientsApi.getClientById(accessToken, slug);
@@ -755,6 +800,8 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         setAssignedToId(
           client.assignedTo !== null ? String(client.assignedTo) : "",
         );
+        setRawClientStatus(client.status ?? null);
+        setClientStatus(normalizeClientStatusLabel(client.status));
         setFetchedClientName(client.clientName ?? client.businessName ?? "");
         setCountrySearch(client.country ?? "");
         setTopMedicalSpecialties(client.topMedicalSpecialties);
@@ -817,11 +864,10 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           return;
         }
 
-        setDetailsError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load client details.",
-        );
+        toast.danger("Failed to load client details", {
+          description:
+            error instanceof Error ? error.message : undefined,
+        });
       }
     };
 
@@ -906,7 +952,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
 
   const onSubmit = async (values: ClientDetailsFormValues) => {
     clearErrors();
-    setDetailsError("");
 
     try {
       await clientDetailsSchema.validate(values, { abortEarly: false });
@@ -979,6 +1024,10 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         if (basePayload.assignedTo.trim()) {
           formData.append("assignedTo", basePayload.assignedTo.trim());
         }
+        formData.append(
+          "status",
+          clientStatus.toUpperCase().replace(/\s+/g, "_"),
+        );
         formData.append("addressLine1", basePayload.addressLine1);
         formData.append("addressLine2", basePayload.addressLine2);
         formData.append("buildingName", basePayload.buildingName);
@@ -1074,6 +1123,8 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         updatedClient.clientName ?? updatedClient.businessName ?? "",
       );
       setCountrySearch(updatedClient.country ?? values.country);
+      setRawClientStatus(updatedClient.status ?? null);
+      setClientStatus(normalizeClientStatusLabel(updatedClient.status));
       toast.success("Client details saved.");
     } catch (error) {
       if (error instanceof yup.ValidationError) {
@@ -1091,14 +1142,9 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
         return;
       }
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Failed to save client details.";
-
-      setDetailsError(errorMessage);
       toast.danger("Failed to save client details", {
-        description: errorMessage,
+        description:
+          error instanceof Error ? error.message : undefined,
       });
     }
   };
@@ -1166,9 +1212,6 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
           </Card>
 
           <DetailSection title="Client Information">
-            {detailsError ? (
-              <p className="text-sm text-danger">{detailsError}</p>
-            ) : null}
             <div className="flex flex-row items-center">
               <Briefcase color="#022279" size={20} />
               <p className={fieldLabel + " !mb-0 mr-2 ml-1"}>Client ID</p>
@@ -1223,6 +1266,31 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   )}
                 </Autocomplete>
               </div>
+              <div className="ml-6 flex min-w-[260px] flex-row items-center">
+                <p className={fieldLabel + " !mb-1 flex-none mr-2"}>Status</p>
+                <Select
+                  aria-label="Client status"
+                  isDisabled={
+                    rawClientStatus?.trim().toLowerCase() === "deleted"
+                  }
+                  placeholder="Select status"
+                  radius="sm"
+                  selectedKeys={[clientStatus]}
+                  size="sm"
+                  onSelectionChange={(keys) => {
+                    const [selectedKey] =
+                      keys === "all" ? [] : Array.from(keys).map(String);
+
+                    if (selectedKey) {
+                      setClientStatus(normalizeClientStatusLabel(selectedKey));
+                    }
+                  }}
+                >
+                  {CLIENT_STATUS_VALUES.map((option) => (
+                    <SelectItem key={option}>{option}</SelectItem>
+                  ))}
+                </Select>
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-3 md:grid-cols-5">
@@ -1259,15 +1327,34 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                     control={control}
                     name="clientName"
                     render={({ field }) => (
-                      <Input
+                      <Autocomplete
+                        allowsCustomValue
                         errorMessage={errors.clientName?.message}
+                        inputValue={field.value ?? ""}
                         isInvalid={!!errors.clientName}
+                        items={clientNameOptions.map((name) => ({
+                          id: name,
+                          name,
+                        }))}
+                        menuTrigger="input"
+                        placeholder="Enter or select client name"
                         radius="sm"
+                        selectedKey={null}
                         size="sm"
-                        value={field.value ?? ""}
                         onBlur={field.onBlur}
-                        onChange={field.onChange}
-                      />
+                        onInputChange={field.onChange}
+                        onSelectionChange={(key) => {
+                          if (key) {
+                            field.onChange(String(key));
+                          }
+                        }}
+                      >
+                        {(item) => (
+                          <AutocompleteItem key={item.id} textValue={item.name}>
+                            {item.name}
+                          </AutocompleteItem>
+                        )}
+                      </Autocomplete>
                     )}
                   />
                 </div>

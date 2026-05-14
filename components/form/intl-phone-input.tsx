@@ -60,6 +60,7 @@ export const IntlPhoneInput = ({
   placeholder = "Enter phone number",
   value,
 }: IntlPhoneInputProps) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const itiRef = useRef<ReturnType<typeof intlTelInput> | null>(null);
   const onChangeRef = useRef(onChange);
@@ -76,7 +77,7 @@ export const IntlPhoneInput = ({
     const iti = intlTelInput(input, {
       allowDropdown: true,
       countrySearch: true,
-      dropdownContainer: document.body,
+      dropdownContainer: containerRef.current ?? document.body,
       fixDropdownWidth: true,
       initialCountry: "gb",
       nationalMode: false,
@@ -120,7 +121,7 @@ export const IntlPhoneInput = ({
   }, [value]);
 
   return (
-    <div className="space-y-1">
+    <div ref={containerRef} className="relative space-y-1">
       <input
         ref={inputRef}
         className={[

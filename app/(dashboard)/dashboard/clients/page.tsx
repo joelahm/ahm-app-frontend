@@ -168,6 +168,25 @@ const ClientsPage = () => {
     [],
   );
 
+  const clientNameOptions = useMemo(() => {
+    const seenNames = new Set<string>();
+
+    return rows
+      .map((row) => row.clientName.trim())
+      .filter((name) => {
+        const normalizedName = name.toLowerCase();
+
+        if (!name || name === "-" || seenNames.has(normalizedName)) {
+          return false;
+        }
+
+        seenNames.add(normalizedName);
+
+        return true;
+      })
+      .sort((left, right) => left.localeCompare(right));
+  }, [rows]);
+
   const handleAddClient = async (payload: AddClientFormValues) => {
     if (!session) {
       throw new Error("Your session has expired. Please login again.");
@@ -248,6 +267,7 @@ const ClientsPage = () => {
         onSetStatus={handleSetClientStatus}
       />
       <AddClientModal
+        clientNameOptions={clientNameOptions}
         isOpen={isAddClientOpen}
         onOpenChange={setIsAddClientOpen}
         onSubmit={handleAddClient}

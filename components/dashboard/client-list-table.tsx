@@ -25,6 +25,7 @@ import { Spinner } from "@heroui/spinner";
 import {
   CirclePause,
   CirclePlay,
+  ChevronRight,
   Columns3,
   EllipsisVertical,
   Eye,
@@ -41,6 +42,10 @@ import {
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
 import { DashboardTableAction } from "@/components/dashboard/dashboard-table-shell";
+import {
+  getClientStatusChipClassName,
+  getClientStatusDisplay,
+} from "@/lib/client-statuses";
 
 export interface ClientRecord {
   id: string;
@@ -54,7 +59,12 @@ export interface ClientRecord {
   dateJoined: string;
   lastActivity: string;
   discordStatus?: ClientDiscordStatus | null;
+  childCount?: number;
+  groupKey?: string;
+  groupRows?: ClientRecord[];
+  isGroupedChild?: boolean;
   isDiscordStatusLoading?: boolean;
+  kind?: "client" | "group";
 }
 
 interface ClientListTableProps {
@@ -93,6 +103,12 @@ const defaultHeaderActions: DashboardTableAction[] = [
 
 const defaultRows: ClientRecord[] = [];
 const pageSizeOptions = [5, 10, 15, 20, 25, 50];
+
+const normalizeClientGroupName = (value: string) => {
+  const normalizedValue = value.trim().replace(/\s+/g, " ");
+
+  return normalizedValue ? normalizedValue.toLowerCase() : "unnamed-client";
+};
 
 const formatDiscordMessageDate = (value?: string | null) => {
   if (!value) {
@@ -134,6 +150,9 @@ export const ClientListTable = ({
   const [projectFilter, setProjectFilter] = useState("all");
   const [searchValue, setSearchValue] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [expandedClientGroups, setExpandedClientGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
   const resetFilters = () => {
     setDiscordFilter("all");
     setManagerFilter("all");
@@ -148,72 +167,127 @@ export const ClientListTable = ({
         key: "clientName",
         label: "Client Name",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
-        renderCell: (item) => (
-          <div>
-            <p className="text-sm text-[#111827]">{item.clientName}</p>
-            <p className="text-xs text-[#9CA3AF]">{item.address}</p>
-          </div>
-        ),
+        renderCell: (item) => {
+          if (item.kind === "group" && item.groupKey) {
+            const isExpanded = expandedClientGroups.has(item.groupKey);
+
+            return (
+              <button
+                className="flex w-full items-center gap-3 text-left"
+                type="button"
+                onClick={() => {
+                  setExpandedClientGroups((current) => {
+                    const next = new Set(current);
+
+                    if (next.has(item.groupKey ?? "")) {
+                      next.delete(item.groupKey ?? "");
+                    } else {
+                      next.add(item.groupKey ?? "");
+                    }
+
+                    return next;
+                  });
+                }}
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded border border-[#BFDBFE] bg-[#EFF6FF] text-[#022279]">
+                  <ChevronRight
+                    className={[
+                      "transition-transform duration-200",
+                      isExpanded ? "rotate-90" : "rotate-0",
+                    ].join(" ")}
+                    size={12}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-[#111827]">
+                    {item.clientName}
+                  </span>
+                  <span className="shrink-0 text-xs font-medium text-[#0568C9]">
+                    {item.childCount ?? 0} client records
+                  </span>
+                </span>
+              </button>
+            );
+          }
+
+          return (
+            <div>
+              <p className="text-sm text-[#111827]">{item.clientName}</p>
+              <p className="text-xs text-[#9CA3AF]">{item.address}</p>
+            </div>
+          );
+        },
       },
       {
         key: "projects",
         label: "Projects",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
-        renderCell: (item) => (
-          <div className="flex flex-wrap gap-1">
-            {item.projects.map((project) => (
-              <Chip
-                key={`${item.id}-${project}`}
-                classNames={{
-                  base: "bg-[#EEF2FF]",
-                  content: "text-[#022279]",
-                }}
-                size="sm"
-                variant="flat"
-              >
-                {project}
-              </Chip>
-            ))}
-          </div>
-        ),
+        renderCell: (item) => {
+          if (item.kind === "group") {
+            return null;
+          }
+
+          return (
+            <div className="flex flex-wrap gap-1">
+              {item.projects.map((project) => (
+                <Chip
+                  key={`${item.id}-${project}`}
+                  classNames={{
+                    base: "bg-[#EEF2FF]",
+                    content: "text-[#022279]",
+                  }}
+                  size="sm"
+                  variant="flat"
+                >
+                  {project}
+                </Chip>
+              ))}
+            </div>
+          );
+        },
       },
       {
         key: "niche",
         label: "Niche",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
-        renderCell: (item) => <span className="text-xs">{item.niche}</span>,
+        renderCell: (item) =>
+          item.kind === "group" ? null : (
+            <span className="text-xs">{item.niche}</span>
+          ),
       },
       {
         key: "manager",
         label: "Client Success Manager",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
-        renderCell: (item) => (
-          <div className="flex items-center gap-2">
-            <Avatar
-              className="shrink-0 w-8 h-8"
-              name={item.manager}
-              size="sm"
-              src={item.managerAvatar || undefined}
-            />
-            <span className="text-sm">{item.manager}</span>
-          </div>
-        ),
+        renderCell: (item) =>
+          item.kind === "group" ? null : (
+            <div className="flex items-center gap-2">
+              <Avatar
+                className="h-8 w-8 shrink-0"
+                name={item.manager}
+                size="sm"
+                src={item.managerAvatar || undefined}
+              />
+              <span className="text-sm">{item.manager}</span>
+            </div>
+          ),
       },
       {
         key: "status",
         label: "Status",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
         renderCell: (item) => {
-          const normalizedStatus = item.status.trim().toLowerCase();
-          const isActive = normalizedStatus === "active";
+          if (item.kind === "group") {
+            return null;
+          }
 
           return (
             <Chip
-              color={isActive ? "success" : "default"}
+              className={getClientStatusChipClassName(item.status)}
               size="sm"
               variant="flat"
             >
-              {item.status}
+              {getClientStatusDisplay(item.status)}
             </Chip>
           );
         },
@@ -223,6 +297,10 @@ export const ClientListTable = ({
         label: "Discord Status",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
         renderCell: (item) => {
+          if (item.kind === "group") {
+            return null;
+          }
+
           if (item.isDiscordStatusLoading) {
             return (
               <span className="inline-flex items-center gap-2 text-xs text-[#6B7280]">
@@ -294,7 +372,9 @@ export const ClientListTable = ({
         label: "Date Joined",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
         renderCell: (item) => (
-          <span className="text-xs">{item.dateJoined}</span>
+          <span className="text-xs">
+            {item.kind === "group" ? null : item.dateJoined}
+          </span>
         ),
       },
       {
@@ -302,7 +382,9 @@ export const ClientListTable = ({
         label: "Last Activity",
         className: "text-xs font-medium text-[#111827] bg-[#F9FAFB]",
         renderCell: (item) => (
-          <span className="text-xs">{item.lastActivity}</span>
+          <span className="text-xs">
+            {item.kind === "group" ? null : item.lastActivity}
+          </span>
         ),
       },
       {
@@ -310,76 +392,82 @@ export const ClientListTable = ({
         label: "Action",
         className:
           "text-xs font-medium text-[#111827] bg-[#F9FAFB] !rounded-none",
-        renderCell: (item) => (
-          <div className="flex items-center gap-2">
-            <Link href={`/dashboard/clients/${item.id}`}>
-              <Button isIconOnly radius="sm" size="sm" variant="bordered">
-                <Eye size={14} />
-              </Button>
-            </Link>
-            <Dropdown placement="bottom-end">
-              <DropdownTrigger>
+        renderCell: (item) => {
+          if (item.kind === "group") {
+            return null;
+          }
+
+          return (
+            <div className="flex items-center gap-2">
+              <Link href={`/dashboard/clients/${item.id}`}>
                 <Button isIconOnly radius="sm" size="sm" variant="bordered">
-                  <EllipsisVertical size={14} />
+                  <Eye size={14} />
                 </Button>
-              </DropdownTrigger>
-              <DropdownMenu
-                aria-label={`Client ${item.clientName} actions`}
-                onAction={(actionKey) => {
-                  if (actionKey === "set-inactive") {
-                    onSetStatus?.(item.id, "Inactive");
+              </Link>
+              <Dropdown placement="bottom-end">
+                <DropdownTrigger>
+                  <Button isIconOnly radius="sm" size="sm" variant="bordered">
+                    <EllipsisVertical size={14} />
+                  </Button>
+                </DropdownTrigger>
+                <DropdownMenu
+                  aria-label={`Client ${item.clientName} actions`}
+                  onAction={(actionKey) => {
+                    if (actionKey === "set-inactive") {
+                      onSetStatus?.(item.id, "Inactive");
 
-                    return;
-                  }
-
-                  if (actionKey === "set-active") {
-                    onSetStatus?.(item.id, "Active");
-
-                    return;
-                  }
-
-                  if (actionKey === "remove") {
-                    setPendingRemoveClient({
-                      id: item.id,
-                      name: item.clientName,
-                    });
-                  }
-                }}
-              >
-                {item.status.trim().toLowerCase() === "active" ? (
-                  <DropdownItem
-                    key="set-inactive"
-                    startContent={
-                      <CirclePause className="text-[#0568C9]" size={16} />
+                      return;
                     }
-                  >
-                    Set Inactive
-                  </DropdownItem>
-                ) : (
-                  <DropdownItem
-                    key="set-active"
-                    startContent={
-                      <CirclePlay className="text-[#0568C9]" size={16} />
+
+                    if (actionKey === "set-active") {
+                      onSetStatus?.(item.id, "Active");
+
+                      return;
                     }
-                  >
-                    Set Active
-                  </DropdownItem>
-                )}
-                <DropdownItem
-                  key="remove"
-                  className="text-danger"
-                  color="danger"
-                  startContent={<Trash2 className="text-danger" size={16} />}
+
+                    if (actionKey === "remove") {
+                      setPendingRemoveClient({
+                        id: item.id,
+                        name: item.clientName,
+                      });
+                    }
+                  }}
                 >
-                  Remove
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
-          </div>
-        ),
+                  {item.status.trim().toLowerCase() === "active" ? (
+                    <DropdownItem
+                      key="set-inactive"
+                      startContent={
+                        <CirclePause className="text-[#0568C9]" size={16} />
+                      }
+                    >
+                      Set Inactive
+                    </DropdownItem>
+                  ) : (
+                    <DropdownItem
+                      key="set-active"
+                      startContent={
+                        <CirclePlay className="text-[#0568C9]" size={16} />
+                      }
+                    >
+                      Set Active
+                    </DropdownItem>
+                  )}
+                  <DropdownItem
+                    key="remove"
+                    className="text-danger"
+                    color="danger"
+                    startContent={<Trash2 className="text-danger" size={16} />}
+                  >
+                    Remove
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
+            </div>
+          );
+        },
       },
     ],
-    [onRemove, onSetStatus],
+    [expandedClientGroups, onSetStatus],
   );
   const baseColumns = columns ?? defaultColumns;
   const toggleableColumns = useMemo(
@@ -482,6 +570,56 @@ export const ClientListTable = ({
     searchValue,
     statusFilter,
   ]);
+  const groupedRows = useMemo<ClientRecord[]>(() => {
+    const groups = new Map<string, ClientRecord[]>();
+    const groupOrder: string[] = [];
+
+    filteredRows.forEach((row) => {
+      const groupKey = normalizeClientGroupName(row.clientName);
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, []);
+        groupOrder.push(groupKey);
+      }
+
+      groups.get(groupKey)?.push(row);
+    });
+
+    return groupOrder.flatMap((groupKey) => {
+      const groupRows = groups.get(groupKey) ?? [];
+
+      if (groupRows.length <= 1) {
+        return groupRows.map((row) => ({ ...row, kind: "client" as const }));
+      }
+
+      const firstRow = groupRows[0];
+      const parentRow: ClientRecord = {
+        ...firstRow,
+        address: "Grouped duplicate client name",
+        childCount: groupRows.length,
+        groupKey,
+        groupRows,
+        id: `group:${groupKey}`,
+        kind: "group",
+        lastActivity: "-",
+        status: "Group",
+      };
+
+      if (!expandedClientGroups.has(groupKey)) {
+        return [parentRow];
+      }
+
+      return [
+        parentRow,
+        ...groupRows.map((row) => ({
+          ...row,
+          groupKey,
+          isGroupedChild: true,
+          kind: "client" as const,
+        })),
+      ];
+    });
+  }, [expandedClientGroups, filteredRows]);
   const headerRight = (
     <div className="flex flex-wrap items-center gap-2">
       <Dropdown>
@@ -671,14 +809,36 @@ export const ClientListTable = ({
   return (
     <>
       <DashboardDataTable
-        enableSelection
         showPagination
         ariaLabel="Client list"
         columns={visibleColumns}
+        getCellProps={(item, _column, columnIndex) => {
+          if (item.kind !== "group") {
+            return undefined;
+          }
+
+          if (columnIndex === 0) {
+            return {
+              colSpan: visibleColumns.length,
+            };
+          }
+
+          return {
+            hidden: true,
+          };
+        }}
         getRowKey={(item) => item.id}
+        getRowProps={(item) => ({
+          className:
+            item.kind === "group"
+              ? "bg-[#F8FBFF]"
+              : item.isGroupedChild
+                ? "bg-white"
+                : undefined,
+        })}
         headerRight={headerRight}
         pageSize={pageSize}
-        rows={filteredRows}
+        rows={groupedRows}
         title={title}
       />
 

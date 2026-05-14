@@ -240,7 +240,11 @@ export const onPageOptimizationsApi = {
         src: string;
       }>;
     },
-  ): Promise<{ blob: Blob; filename: string; summary: WebpExportSummary | null }> => {
+  ): Promise<{
+    blob: Blob;
+    filename: string;
+    summary: WebpExportSummary | null;
+  }> => {
     try {
       const response = await onPageOptimizationsApiClient.post<Blob>(
         `/api/v1/clients/${clientId}/on-page-optimizations/webp-export`,
@@ -296,13 +300,12 @@ export const onPageOptimizationsApi = {
   },
   getSettings: async (accessToken: string, clientId: string | number) => {
     try {
-      const response =
-        await onPageOptimizationsApiClient.get<SettingsResponse>(
-          `/api/v1/clients/${clientId}/on-page-optimizations/settings`,
-          {
-            headers: authHeaders(accessToken),
-          },
-        );
+      const response = await onPageOptimizationsApiClient.get<SettingsResponse>(
+        `/api/v1/clients/${clientId}/on-page-optimizations/settings`,
+        {
+          headers: authHeaders(accessToken),
+        },
+      );
 
       return response.data.settings ?? { sitemapUrl: null };
     } catch (error) {
@@ -325,10 +328,7 @@ export const onPageOptimizationsApi = {
 
       return response.data;
     } catch (error) {
-      if (
-        axios.isAxiosError(error) &&
-        error.response?.data instanceof Blob
-      ) {
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
         try {
           const text = await error.response.data.text();
           const parsed = JSON.parse(text) as

@@ -138,10 +138,7 @@ export const gbpPostingReviewsApi = {
       throw new Error(parseError(error));
     }
   },
-  disableLink: async (
-    accessToken: string,
-    params: { postingId: string },
-  ) => {
+  disableLink: async (accessToken: string, params: { postingId: string }) => {
     try {
       const response = await gbpPostingReviewsApiClient.delete(
         "/api/v1/gbp-posting-reviews/links",
@@ -158,10 +155,7 @@ export const gbpPostingReviewsApi = {
       throw new Error(parseError(error));
     }
   },
-  enableLink: async (
-    accessToken: string,
-    payload: { postingId: string },
-  ) => {
+  enableLink: async (accessToken: string, payload: { postingId: string }) => {
     try {
       const response = await gbpPostingReviewsApiClient.post(
         "/api/v1/gbp-posting-reviews/links",

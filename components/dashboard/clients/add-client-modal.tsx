@@ -2,6 +2,7 @@
 
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
+import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import {
@@ -11,10 +12,12 @@ import {
   ModalFooter,
   ModalHeader,
 } from "@heroui/modal";
+import { Select, SelectItem } from "@heroui/select";
 import { X } from "lucide-react";
 
 import { IntlPhoneInput } from "@/components/form/intl-phone-input";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { CLIENT_TITLE_OPTIONS } from "@/lib/client-titles";
 
 const addClientSchema = yup.object({
   businessName: yup.string().trim().required("Business name is required"),
@@ -43,6 +46,7 @@ const addClientSchema = yup.object({
 export type AddClientFormValues = yup.InferType<typeof addClientSchema>;
 
 interface AddClientModalProps {
+  clientNameOptions?: string[];
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit?: (payload: AddClientFormValues) => void | Promise<void>;
@@ -64,6 +68,7 @@ const FieldLabel = ({
 );
 
 export const AddClientModal = ({
+  clientNameOptions = [],
   isOpen,
   onOpenChange,
   onSubmit,
@@ -171,13 +176,24 @@ export const AddClientModal = ({
                 control={control}
                 name="profession"
                 render={({ field }) => (
-                  <Input
+                  <Select
+                    aria-label="Client Title"
+                    placeholder="Select title"
                     radius="sm"
+                    selectedKeys={field.value ? [field.value] : []}
                     size="sm"
-                    value={field.value ?? ""}
                     onBlur={field.onBlur}
-                    onChange={field.onChange}
-                  />
+                    onSelectionChange={(keys) => {
+                      const [selectedKey] =
+                        keys === "all" ? [] : Array.from(keys).map(String);
+
+                      field.onChange(selectedKey ?? "");
+                    }}
+                  >
+                    {CLIENT_TITLE_OPTIONS.map((option) => (
+                      <SelectItem key={option}>{option}</SelectItem>
+                    ))}
+                  </Select>
                 )}
               />
             </div>
@@ -188,15 +204,34 @@ export const AddClientModal = ({
                 control={control}
                 name="clientName"
                 render={({ field }) => (
-                  <Input
+                  <Autocomplete
+                    allowsCustomValue
                     errorMessage={errors.clientName?.message}
+                    inputValue={field.value ?? ""}
                     isInvalid={!!errors.clientName}
+                    items={clientNameOptions.map((name) => ({
+                      id: name,
+                      name,
+                    }))}
+                    menuTrigger="input"
+                    placeholder="Enter or select client name"
                     radius="sm"
+                    selectedKey={null}
                     size="sm"
-                    value={field.value ?? ""}
                     onBlur={field.onBlur}
-                    onChange={field.onChange}
-                  />
+                    onInputChange={field.onChange}
+                    onSelectionChange={(key) => {
+                      if (key) {
+                        field.onChange(String(key));
+                      }
+                    }}
+                  >
+                    {(item) => (
+                      <AutocompleteItem key={item.id} textValue={item.name}>
+                        {item.name}
+                      </AutocompleteItem>
+                    )}
+                  </Autocomplete>
                 )}
               />
             </div>

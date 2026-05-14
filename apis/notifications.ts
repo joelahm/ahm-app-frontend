@@ -118,10 +118,9 @@ export const notificationsApi = {
   },
   getUnreadCount: async (accessToken: string) => {
     try {
-      const response = await notificationsApiClient.get<{ unreadCount: number }>(
-        "/api/v1/notifications/count",
-        withAuth(accessToken),
-      );
+      const response = await notificationsApiClient.get<{
+        unreadCount: number;
+      }>("/api/v1/notifications/count", withAuth(accessToken));
 
       return response.data;
     } catch (error) {
@@ -130,7 +129,10 @@ export const notificationsApi = {
   },
   listNotifications: async (
     accessToken: string,
-    options?: { limit?: number; tab?: "active" | "cleared" | "important" | "other" },
+    options?: {
+      limit?: number;
+      tab?: "active" | "cleared" | "important" | "other";
+    },
   ) => {
     try {
       const response = await notificationsApiClient.get<{

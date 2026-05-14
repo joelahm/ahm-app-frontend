@@ -365,9 +365,7 @@ export interface TaskActivityEventItem {
   type: TaskActivityType;
 }
 
-export type TaskActivityItem =
-  | TaskActivityCommentItem
-  | TaskActivityEventItem;
+export type TaskActivityItem = TaskActivityCommentItem | TaskActivityEventItem;
 
 export interface TaskActivityResponse {
   cursor: string | null;
@@ -620,6 +618,7 @@ export interface ClientDetails {
   websiteLoginLink: string | null;
   websitePassword: string | null;
   websiteUsername: string | null;
+  status: string | null;
   colorGuide: string[];
   conditionsTreated: string[];
   logo: string[];
@@ -1055,6 +1054,7 @@ const parseClientDetailsResponse = (value: unknown): ClientDetails => {
     websiteLoginLink: asString(source.websiteLoginLink),
     websitePassword: asString(source.websitePassword),
     websiteUsername: asString(source.websiteUsername),
+    status: asString(source.status) ?? null,
     colorGuide: asStringArray(source.colorGuide),
     conditionsTreated: asStringArray(source.conditionsTreated),
     logo: asStringArray(source.logo),
@@ -1916,7 +1916,6 @@ const parseProjectTasksResponse = (value: unknown): ProjectTasksResponse => {
   return { tasks };
 };
 
-
 const parseTaskChecklistItemResponse = (value: unknown): TaskChecklistItem => {
   const root = asObject(value);
   const nested = asObject(root.data);
@@ -2179,9 +2178,7 @@ const parseTaskAttachmentsResponse = (
       })
       .filter((item): item is TaskAttachment => item !== null),
     total:
-      asNumber(payload.total) ??
-      asNumber(root.total) ??
-      rawAttachments.length,
+      asNumber(payload.total) ?? asNumber(root.total) ?? rawAttachments.length,
   };
 };
 
@@ -2994,10 +2991,7 @@ export const clientsApi = {
       throw new Error(parseError(error));
     }
   },
-  deleteChecklistItem: async (
-    accessToken: string,
-    itemId: string | number,
-  ) => {
+  deleteChecklistItem: async (accessToken: string, itemId: string | number) => {
     try {
       const response = await clientsApiClient.delete(
         `/api/v1/projects/tasks/checklists/items/${itemId}`,
@@ -3222,6 +3216,35 @@ export const clientsApi = {
     try {
       const response = await clientsApiClient.delete(
         `/api/v1/projects/comments/${commentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  resyncProjectTemplateAssignees: async (
+    accessToken: string,
+    projectId: string | number,
+  ) => {
+    try {
+      const response = await clientsApiClient.post<{
+        status: string;
+        projectId: number;
+        projectName: string;
+        templateId: string | null;
+        updated: number;
+        skipped: number;
+        ambiguous: number;
+        unmatched: number;
+      }>(
+        `/api/v1/projects/${projectId}/resync-template-assignees`,
+        {},
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -3488,7 +3511,7 @@ export const clientsApi = {
       return clients.filter((client) => {
         const normalizedStatus = (client.status ?? "").trim().toLowerCase();
 
-        return normalizedStatus === "active" || normalizedStatus === "inactive";
+        return normalizedStatus !== "deleted";
       });
     } catch (error) {
       throw new Error(parseError(error));

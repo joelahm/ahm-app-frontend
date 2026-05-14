@@ -14,11 +14,19 @@ import {
 import { Drawer, DrawerBody, DrawerContent } from "@heroui/drawer";
 import { Input } from "@heroui/input";
 import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
+import {
   Columns3,
   EllipsisVertical,
   List,
   ListTodo,
   Plus,
+  RefreshCw,
   Search,
   SlidersHorizontal,
   Trash2,
@@ -83,10 +91,14 @@ const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
 const pageSizeOptions = [5, 10, 15, 20, 25, 50];
 
 const buildColumns = ({
+  canResyncAssignees,
   onRemoveProject,
+  onResyncAssignees,
   onViewTaskLists,
 }: {
+  canResyncAssignees: boolean;
   onRemoveProject: (projectId: string) => void;
+  onResyncAssignees: (projectId: string) => void;
   onViewTaskLists: (projectId: string) => void;
 }): DashboardDataTableColumn<ClientProjectsRow>[] => [
   {
@@ -182,26 +194,39 @@ const buildColumns = ({
           </Button>
         </DropdownTrigger>
         <DropdownMenu aria-label={`Project actions ${item.id}`}>
-          <DropdownItem
-            key="view-task-lists"
-            startContent={<ListTodo size={16} />}
-            onPress={() => {
-              onViewTaskLists(item.id);
-            }}
-          >
-            Vew Task Lists
-          </DropdownItem>
-          <DropdownItem
-            key="remove"
-            className="text-danger"
-            color="danger"
-            startContent={<Trash2 size={16} />}
-            onPress={() => {
-              onRemoveProject(item.id);
-            }}
-          >
-            Remove
-          </DropdownItem>
+          {[
+            <DropdownItem
+              key="view-task-lists"
+              startContent={<ListTodo size={16} />}
+              onPress={() => {
+                onViewTaskLists(item.id);
+              }}
+            >
+              Vew Task Lists
+            </DropdownItem>,
+            canResyncAssignees ? (
+              <DropdownItem
+                key="resync-assignees"
+                startContent={<RefreshCw size={16} />}
+                onPress={() => {
+                  onResyncAssignees(item.id);
+                }}
+              >
+                Resync assignees
+              </DropdownItem>
+            ) : null,
+            <DropdownItem
+              key="remove"
+              className="text-danger"
+              color="danger"
+              startContent={<Trash2 size={16} />}
+              onPress={() => {
+                onRemoveProject(item.id);
+              }}
+            >
+              Remove
+            </DropdownItem>,
+          ]}
         </DropdownMenu>
       </Dropdown>
     ),
@@ -336,6 +361,10 @@ export const ClientProjectsTable = ({
     Record<string, string>
   >({});
   const [hasHandledOpenProjectId, setHasHandledOpenProjectId] = useState(false);
+  const [resyncCandidate, setResyncCandidate] =
+    useState<ClientProjectsRow | null>(null);
+  const [isResyncingProject, setIsResyncingProject] = useState(false);
+  const isSuperadmin = Boolean(session?.user?.isSuperadmin);
 
   const resetFilters = () => {
     setAccountManagerFilter("all");
@@ -977,13 +1006,72 @@ export const ClientProjectsTable = ({
     }
   };
 
+  const handleRequestResyncAssignees = useCallback(
+    (projectId: string) => {
+      const project = rows.find((row) => row.id === projectId);
+
+      if (!project) {
+        return;
+      }
+
+      setResyncCandidate(project);
+    },
+    [rows],
+  );
+
+  const handleConfirmResyncAssignees = async () => {
+    if (!resyncCandidate || !session) {
+      return;
+    }
+
+    setIsResyncingProject(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const result = await clientsApi.resyncProjectTemplateAssignees(
+        accessToken,
+        resyncCandidate.id,
+      );
+
+      if (result.status === "TEMPLATE_NOT_FOUND") {
+        toast.danger("No matching template", {
+          description: `Couldn't find a project template named "${resyncCandidate.project}".`,
+        });
+      } else {
+        toast.success("Assignees resynced", {
+          description: `Updated ${result.updated}, unchanged ${result.skipped}, ambiguous ${result.ambiguous}, unmatched ${result.unmatched}.`,
+        });
+
+        if (result.updated > 0) {
+          await loadProjects(currentPage);
+        }
+      }
+
+      setResyncCandidate(null);
+    } catch (error) {
+      toast.danger("Failed to resync assignees", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsResyncingProject(false);
+    }
+  };
+
   const columns = useMemo(
     () =>
       buildColumns({
+        canResyncAssignees: isSuperadmin,
         onRemoveProject: handleRemoveProject,
+        onResyncAssignees: handleRequestResyncAssignees,
         onViewTaskLists: handleViewTaskLists,
       }),
-    [handleRemoveProject, handleViewTaskLists],
+    [
+      handleRemoveProject,
+      handleRequestResyncAssignees,
+      handleViewTaskLists,
+      isSuperadmin,
+    ],
   );
   const toggleableColumns = useMemo(
     () => columns.filter((column) => column.key !== "action"),
@@ -1268,6 +1356,52 @@ export const ClientProjectsTable = ({
           </DrawerBody>
         </DrawerContent>
       </Drawer>
+      <Modal
+        isOpen={Boolean(resyncCandidate)}
+        placement="center"
+        size="sm"
+        onOpenChange={(isOpen) => {
+          if (!isOpen && !isResyncingProject) {
+            setResyncCandidate(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="pb-2 text-base font-semibold text-[#111827]">
+            Resync task assignees?
+          </ModalHeader>
+          <ModalBody className="pt-0 text-sm text-[#4B5563]">
+            <p>
+              This will overwrite the assignee on each task of{" "}
+              <span className="font-medium text-[#111827]">
+                {resyncCandidate?.project ?? "this project"}
+              </span>{" "}
+              with the assignee defined in the matching project template. Other
+              task fields are left unchanged.
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={isResyncingProject}
+              variant="bordered"
+              onPress={() => {
+                setResyncCandidate(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isLoading={isResyncingProject}
+              onPress={() => {
+                void handleConfirmResyncAssignees();
+              }}
+            >
+              Resync
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 };
