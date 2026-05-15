@@ -63,6 +63,7 @@ interface PendingInvitationsResponse {
 }
 
 export interface UserListItem {
+  avatarPath?: string | null;
   avatarUrl?: string | null;
   id: number;
   email: string;

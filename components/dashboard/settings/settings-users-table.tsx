@@ -32,6 +32,7 @@ import { InviteUserModal } from "@/components/dashboard/settings/invite-user-mod
 import { usersApi } from "@/apis/users";
 import { type InviteMember } from "@/components/dashboard/settings/invite-member-row";
 import { clientsApi } from "@/apis/clients";
+import { resolveServerAssetUrl } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
 import { useAppToast } from "@/hooks/use-app-toast";
 
 export interface SettingsUserRecord {
@@ -202,7 +203,10 @@ export const SettingsUsersTable = ({
             : "Active";
 
           return {
-            avatarUrl: user.avatarUrl ?? undefined,
+            avatarUrl:
+              resolveServerAssetUrl(user.avatarPath ?? user.avatarUrl) ??
+              user.avatarUrl ??
+              undefined,
             email: user.email,
             id: String(user.id),
             invitedBy: "-",
