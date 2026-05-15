@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useMemo } from "react";
 import { addToast } from "@heroui/toast";
 
 type ToastTone =
@@ -19,7 +20,7 @@ interface ShowToastOptions {
 const DEFAULT_TIMEOUT = 3000;
 
 export const useAppToast = () => {
-  const showToast = (title: string, options?: ShowToastOptions) => {
+  const showToast = useCallback((title: string, options?: ShowToastOptions) => {
     const tone = options?.tone ?? "default";
 
     addToast({
@@ -29,17 +30,20 @@ export const useAppToast = () => {
       timeout: options?.timeout ?? DEFAULT_TIMEOUT,
       title,
     });
-  };
+  }, []);
 
-  return {
-    danger: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
-      showToast(title, { ...options, tone: "danger" }),
-    info: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
-      showToast(title, { ...options, tone: "primary" }),
-    show: showToast,
-    success: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
-      showToast(title, { ...options, tone: "success" }),
-    warning: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
-      showToast(title, { ...options, tone: "warning" }),
-  };
+  return useMemo(
+    () => ({
+      danger: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
+        showToast(title, { ...options, tone: "danger" }),
+      info: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
+        showToast(title, { ...options, tone: "primary" }),
+      show: showToast,
+      success: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
+        showToast(title, { ...options, tone: "success" }),
+      warning: (title: string, options?: Omit<ShowToastOptions, "tone">) =>
+        showToast(title, { ...options, tone: "warning" }),
+    }),
+    [showToast],
+  );
 };

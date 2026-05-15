@@ -1,15 +1,15 @@
+import {
+  WEB_CONTENT_TYPE_OPTIONS,
+  type WebContentType,
+} from "@/lib/web-content-types";
+
 export type AIPromptPostType =
   | "GBP Update"
   | "GBP Offer"
   | "GBP Event"
-  | "Service Page"
   | "Meta Title"
-  | "Homepage"
-  | "Treatment Page"
-  | "Condition Page"
-  | "Blog Page"
-  | "Press Release"
-  | "Guest Post";
+  | "Guest Post"
+  | WebContentType;
 
 export interface AIPromptDynamicValueOption {
   label: string;
@@ -17,6 +17,12 @@ export interface AIPromptDynamicValueOption {
   source: "Client Details" | "Web Content" | "GBP Postings";
   token: string;
 }
+
+const WEB_CONTENT_PROMPT_POST_TYPES = [
+  ...WEB_CONTENT_TYPE_OPTIONS,
+  "Guest Post",
+  "Meta Title",
+] satisfies AIPromptPostType[];
 
 export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
   {
@@ -225,121 +231,49 @@ export const AI_PROMPT_DYNAMIC_VALUE_OPTIONS: AIPromptDynamicValueOption[] = [
   },
   {
     label: "Content Keyword",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_keyword}}",
   },
   {
     label: "Search Volume",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_search_volume}}",
   },
   {
     label: "Intent",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_intent}}",
   },
   {
     label: "Content Type",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_content_type}}",
   },
   {
     label: "Title",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_title}}",
   },
   {
     label: "Content Length",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_content_length}}",
   },
   {
     label: "Content Audience",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_audience}}",
   },
   {
     label: "Content Topic",
-    postTypes: [
-      "Homepage",
-      "Treatment Page",
-      "Condition Page",
-      "Blog Page",
-      "Press Release",
-      "Guest Post",
-      "Service Page",
-      "Meta Title",
-    ],
+    postTypes: WEB_CONTENT_PROMPT_POST_TYPES,
     source: "Web Content",
     token: "{{webcontent_topic}}",
   },

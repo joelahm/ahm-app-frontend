@@ -2,7 +2,7 @@
 
 import type { ClientDiscordStatus } from "@/apis/clients";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Checkbox } from "@heroui/checkbox";
@@ -104,6 +104,12 @@ const defaultHeaderActions: DashboardTableAction[] = [
 const defaultRows: ClientRecord[] = [];
 const pageSizeOptions = [5, 10, 15, 20, 25, 50];
 
+interface ClientRecordGroup {
+  groupKey: string;
+  parentRow: ClientRecord;
+  rows: ClientRecord[];
+}
+
 const normalizeClientGroupName = (value: string) => {
   const normalizedValue = value.trim().replace(/\s+/g, " ");
 
@@ -146,6 +152,7 @@ export const ClientListTable = ({
   const [discordFilter, setDiscordFilter] = useState("all");
   const [managerFilter, setManagerFilter] = useState("all");
   const [nicheFilter, setNicheFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [projectFilter, setProjectFilter] = useState("all");
   const [searchValue, setSearchValue] = useState("");
@@ -511,10 +518,40 @@ export const ClientListTable = ({
       ),
     [baseColumns, visibleColumnKeys],
   );
+  const alphabeticalRows = useMemo(
+    () =>
+      [...rows].sort((left, right) => {
+        const nameComparison = left.clientName.localeCompare(
+          right.clientName,
+          undefined,
+          { sensitivity: "base" },
+        );
+
+        if (nameComparison !== 0) {
+          return nameComparison;
+        }
+
+        const addressComparison = left.address.localeCompare(
+          right.address,
+          undefined,
+          { sensitivity: "base" },
+        );
+
+        if (addressComparison !== 0) {
+          return addressComparison;
+        }
+
+        return left.id.localeCompare(right.id, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }),
+    [rows],
+  );
   const filteredRows = useMemo(() => {
     const normalizedSearch = searchValue.trim().toLowerCase();
 
-    return rows.filter((row) => {
+    return alphabeticalRows.filter((row) => {
       const normalizedStatus = row.status.trim().toLowerCase();
       const normalizedDiscordStatus = row.discordStatus?.status ?? "unknown";
 
@@ -566,11 +603,11 @@ export const ClientListTable = ({
     managerFilter,
     nicheFilter,
     projectFilter,
-    rows,
+    alphabeticalRows,
     searchValue,
     statusFilter,
   ]);
-  const groupedRows = useMemo<ClientRecord[]>(() => {
+  const clientGroups = useMemo<ClientRecordGroup[]>(() => {
     const groups = new Map<string, ClientRecord[]>();
     const groupOrder: string[] = [];
 
@@ -585,17 +622,15 @@ export const ClientListTable = ({
       groups.get(groupKey)?.push(row);
     });
 
-    return groupOrder.flatMap((groupKey) => {
+    return groupOrder.map((groupKey) => {
       const groupRows = groups.get(groupKey) ?? [];
-
-      if (groupRows.length <= 1) {
-        return groupRows.map((row) => ({ ...row, kind: "client" as const }));
-      }
-
       const firstRow = groupRows[0];
       const parentRow: ClientRecord = {
         ...firstRow,
-        address: "Grouped duplicate client name",
+        address:
+          groupRows.length > 1
+            ? "Grouped duplicate client name"
+            : firstRow.address,
         childCount: groupRows.length,
         groupKey,
         groupRows,
@@ -605,21 +640,59 @@ export const ClientListTable = ({
         status: "Group",
       };
 
-      if (!expandedClientGroups.has(groupKey)) {
-        return [parentRow];
-      }
-
-      return [
+      return {
+        groupKey,
         parentRow,
-        ...groupRows.map((row) => ({
-          ...row,
-          groupKey,
-          isGroupedChild: true,
-          kind: "client" as const,
-        })),
-      ];
+        rows: groupRows,
+      };
     });
-  }, [expandedClientGroups, filteredRows]);
+  }, [filteredRows]);
+  const totalGroupPages = Math.max(
+    1,
+    Math.ceil(clientGroups.length / Math.max(1, pageSize)),
+  );
+  const safePage = Math.min(Math.max(1, page), totalGroupPages);
+  const visibleClientGroups = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+
+    return clientGroups.slice(start, start + pageSize);
+  }, [clientGroups, pageSize, safePage]);
+  const groupedRows = useMemo<ClientRecord[]>(
+    () =>
+      visibleClientGroups.flatMap((group) => {
+        if (!expandedClientGroups.has(group.groupKey)) {
+          return [group.parentRow];
+        }
+
+        return [
+          group.parentRow,
+          ...group.rows.map((row) => ({
+            ...row,
+            groupKey: group.groupKey,
+            isGroupedChild: true,
+            kind: "client" as const,
+          })),
+        ];
+      }),
+    [expandedClientGroups, visibleClientGroups],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    discordFilter,
+    managerFilter,
+    nicheFilter,
+    pageSize,
+    projectFilter,
+    searchValue,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(1, current), totalGroupPages));
+  }, [totalGroupPages]);
+
   const headerRight = (
     <div className="flex flex-wrap items-center gap-2">
       <Dropdown>
@@ -743,6 +816,7 @@ export const ClientListTable = ({
 
             if (selected) {
               setPageSize(Number(selected));
+              setPage(1);
             }
           }}
         >
@@ -809,9 +883,11 @@ export const ClientListTable = ({
   return (
     <>
       <DashboardDataTable
+        serverPagination
         showPagination
         ariaLabel="Client list"
         columns={visibleColumns}
+        currentPage={safePage}
         getCellProps={(item, _column, columnIndex) => {
           if (item.kind !== "group") {
             return undefined;
@@ -840,6 +916,8 @@ export const ClientListTable = ({
         pageSize={pageSize}
         rows={groupedRows}
         title={title}
+        totalPages={totalGroupPages}
+        onPageChange={setPage}
       />
 
       <Modal

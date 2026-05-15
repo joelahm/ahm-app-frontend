@@ -50,7 +50,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return "";
   }
 
-  if (/^https?:\/\//i.test(rawValue)) {
+  if (/^(https?:|data:|blob:)/i.test(rawValue)) {
     return rawValue;
   }
 

@@ -223,7 +223,8 @@ export const GooglePostsScreen = () => {
               <Avatar
                 key={`${item.id}-image-${image}-${index}`}
                 className={`h-8 w-8 border border-white grayscale ${index > 0 ? "-ml-2" : ""}`}
-                src={image}
+                name="Image"
+                src={resolveServerAssetUrl(image) || undefined}
               />
             ))}
           </div>

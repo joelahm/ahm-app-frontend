@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@heroui/button";
+import TiptapImage from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   Bold,
@@ -27,16 +28,137 @@ interface RichTextEditorProps {
   value: string;
   onBlur?: () => void;
   onChange: (value: string) => void;
+  onUploadError?: (message: string) => void;
+  onUploadImage?: (file: File) => Promise<{ url: string }>;
+  onUploadStateChange?: (isUploading: boolean) => void;
 }
+
+const buildPlaceholderImageSrc = () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="Arial, sans-serif" font-size="24">Uploading image...</text></svg>`;
+
+  return `data:image/svg+xml;base64,${window.btoa(svg)}`;
+};
+
+const replaceImageSrc = (
+  editor: Editor,
+  currentSrc: string,
+  nextSrc: string,
+) => {
+  let imagePosition: number | null = null;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "image" && node.attrs.src === currentSrc) {
+      imagePosition = pos;
+
+      return false;
+    }
+
+    return true;
+  });
+
+  if (imagePosition === null) return;
+
+  const transaction = editor.state.tr.setNodeMarkup(imagePosition, undefined, {
+    ...editor.state.doc.nodeAt(imagePosition)?.attrs,
+    src: nextSrc,
+  });
+
+  editor.view.dispatch(transaction);
+};
+
+const removeImageBySrc = (editor: Editor, src: string) => {
+  let imagePosition: number | null = null;
+  let imageSize = 0;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "image" && node.attrs.src === src) {
+      imagePosition = pos;
+      imageSize = node.nodeSize;
+
+      return false;
+    }
+
+    return true;
+  });
+
+  if (imagePosition === null) return;
+
+  editor.view.dispatch(
+    editor.state.tr.delete(imagePosition, imagePosition + imageSize),
+  );
+};
 
 export const RichTextEditor = ({
   editorId,
   minHeightClassName = "min-h-[260px]",
   onBlur,
   onChange,
+  onUploadError,
+  onUploadImage,
+  onUploadStateChange,
   placeholder = "Write content...",
   value,
 }: RichTextEditorProps) => {
+  const editorRef = useRef<Editor | null>(null);
+  const inFlightUploadsRef = useRef(0);
+  const canUploadImages = Boolean(onUploadImage);
+
+  const beginUpload = () => {
+    inFlightUploadsRef.current += 1;
+    if (inFlightUploadsRef.current === 1) onUploadStateChange?.(true);
+  };
+
+  const endUpload = () => {
+    inFlightUploadsRef.current = Math.max(0, inFlightUploadsRef.current - 1);
+    if (inFlightUploadsRef.current === 0) onUploadStateChange?.(false);
+  };
+
+  const uploadImageFile = async (editorInstance: Editor, file: File) => {
+    if (!canUploadImages || !onUploadImage || !file.type.startsWith("image/")) {
+      return false;
+    }
+
+    const placeholderSrc = buildPlaceholderImageSrc();
+
+    editorInstance
+      .chain()
+      .focus()
+      .setImage({ alt: file.name, src: placeholderSrc, title: file.name })
+      .run();
+
+    beginUpload();
+    try {
+      const uploaded = await onUploadImage(file);
+
+      replaceImageSrc(editorInstance, placeholderSrc, uploaded.url);
+      onChange(editorInstance.getHTML());
+    } catch (error) {
+      removeImageBySrc(editorInstance, placeholderSrc);
+      onUploadError?.(
+        error instanceof Error ? error.message : "Please try again.",
+      );
+    } finally {
+      endUpload();
+    }
+
+    return true;
+  };
+
+  const uploadFirstImageFile = (
+    editorInstance: Editor,
+    files: FileList | File[],
+  ) => {
+    const imageFile = Array.from(files).find((file) =>
+      file.type.startsWith("image/"),
+    );
+
+    if (!imageFile) return false;
+
+    void uploadImageFile(editorInstance, imageFile);
+
+    return true;
+  };
+
   const editor = useEditor({
     content: value || "<p></p>",
     editorProps: {
@@ -48,11 +170,57 @@ export const RichTextEditor = ({
         : {
             class: `rich-text-editor__surface px-3 py-3 text-[#111827] focus:outline-none ${minHeightClassName}`,
           },
+      handleDrop: (view, event) => {
+        if (
+          !editorRef.current ||
+          !canUploadImages ||
+          !event.dataTransfer?.files?.length
+        ) {
+          return false;
+        }
+
+        const handled = uploadFirstImageFile(
+          editorRef.current,
+          event.dataTransfer.files,
+        );
+
+        if (handled) {
+          event.preventDefault();
+        }
+
+        return handled;
+      },
+      handlePaste: (view, event) => {
+        if (!editorRef.current || !canUploadImages || !event.clipboardData) {
+          return false;
+        }
+
+        const pastedFiles = event.clipboardData.files.length
+          ? event.clipboardData.files
+          : Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === "file")
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file !== null);
+
+        const handled = uploadFirstImageFile(editorRef.current, pastedFiles);
+
+        if (handled) {
+          event.preventDefault();
+        }
+
+        return handled;
+      },
     },
     extensions: [
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3],
+        },
+      }),
+      TiptapImage.configure({
+        allowBase64: true,
+        HTMLAttributes: {
+          class: "max-w-[500px] rounded-md border border-default-200",
         },
       }),
       Underline,
@@ -72,6 +240,14 @@ export const RichTextEditor = ({
       onChange(currentEditor.getHTML());
     },
   });
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    editorRef.current = editor;
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) {

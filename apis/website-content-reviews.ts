@@ -81,6 +81,7 @@ export interface PublicWebsiteContentArticle {
   keyword: string | null;
   metaDescription: string | null;
   metaTitle: string | null;
+  status: string | null;
   title: string | null;
   urlSlug: string | null;
 }
@@ -243,10 +244,17 @@ export const websiteContentReviewsApi = {
       throw new Error(parseError(error));
     }
   },
-  getPublicStatus: async (token: string) => {
+  getPublicStatus: async (token: string, reviewSessionToken?: string) => {
     try {
       const response = await websiteContentReviewsApiClient.get(
         `/api/v1/website-content-reviews/public/${token}/status`,
+        reviewSessionToken
+          ? {
+              headers: {
+                "x-review-session-token": reviewSessionToken,
+              },
+            }
+          : undefined,
       );
 
       return response.data as {
@@ -254,6 +262,8 @@ export const websiteContentReviewsApi = {
         clientName: string;
         expiresAt: string;
         requiresOtp: boolean;
+        authenticated: boolean;
+        reviewer: { email: string; fullName: string } | null;
       };
     } catch (error) {
       throw new Error(parseError(error));

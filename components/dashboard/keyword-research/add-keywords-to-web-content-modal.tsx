@@ -60,12 +60,26 @@ export const AddKeywordsToWebContentModal = ({
   const clientOptions = useMemo(
     () =>
       clients.map((item) => ({
+        address: item.address?.trim() || "No address added",
         id: String(item.id),
         label:
           item.businessName || item.clientName || `Client ${String(item.id)}`,
       })),
     [clients],
   );
+  const filteredClientOptions = useMemo(() => {
+    const normalizedQuery = clientSearch.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return clientOptions;
+    }
+
+    return clientOptions.filter((item) =>
+      [item.label, item.address].some((value) =>
+        value.toLowerCase().includes(normalizedQuery),
+      ),
+    );
+  }, [clientOptions, clientSearch]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -166,7 +180,7 @@ export const AddKeywordsToWebContentModal = ({
                   errorMessage={errors.clientId?.message}
                   inputValue={clientSearch}
                   isInvalid={!!errors.clientId}
-                  items={clientOptions}
+                  items={filteredClientOptions}
                   placeholder="choose client name"
                   selectedKey={field.value || null}
                   onInputChange={(value) => {
@@ -186,8 +200,18 @@ export const AddKeywordsToWebContentModal = ({
                   }}
                 >
                   {(item) => (
-                    <AutocompleteItem key={item.id} textValue={item.label}>
-                      {item.label}
+                    <AutocompleteItem
+                      key={item.id}
+                      textValue={`${item.label} ${item.address}`}
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium text-[#111827]">
+                          {item.label}
+                        </span>
+                        <span className="text-xs text-default-500">
+                          {item.address}
+                        </span>
+                      </div>
                     </AutocompleteItem>
                   )}
                 </Autocomplete>

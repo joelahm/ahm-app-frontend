@@ -5,11 +5,11 @@ import type {
   ClientCitationVerificationValue,
 } from "@/apis/clients";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Button } from "@heroui/button";
-import { Input, Textarea } from "@heroui/input";
+import { Input } from "@heroui/input";
 import {
   Modal,
   ModalBody,
@@ -20,9 +20,17 @@ import {
 import { Select, SelectItem } from "@heroui/select";
 import { Check, CheckCircle2, Eye, RotateCw, X } from "lucide-react";
 
+import { useAuth } from "@/components/auth/auth-context";
+import { clientsApi } from "@/apis/clients";
+import { CitationAttachments } from "@/components/dashboard/client-details/citation-attachments";
+import { resolveServerAssetUrl } from "@/components/dashboard/client-details/task-panel/task-panel-utils";
+import { RichTextEditor } from "@/components/editor/rich-text-editor";
+import { useAppToast } from "@/hooks/use-app-toast";
+
 const citationStatusOptions = [
   "Complete",
   "Pending",
+  "Submitted",
   "Incomplete",
   "Missing",
   "Error",
@@ -65,6 +73,7 @@ const addCitationSchema = yup.object({
 export type AddCitationFormValues = yup.InferType<typeof addCitationSchema>;
 
 interface AddCitationModalProps {
+  citationId?: string | number | null;
   citationDetails?: {
     address?: string | null;
     businessName?: string | null;
@@ -72,6 +81,7 @@ interface AddCitationModalProps {
     validationLink?: string | null;
     zipCode?: string | null;
   };
+  clientId: string | number;
   initialValues?: Partial<AddCitationFormValues>;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
@@ -120,12 +130,19 @@ const getExternalHref = (value: string) =>
   /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
 
 export const AddCitationModal = ({
+  citationId,
   citationDetails,
+  clientId,
   initialValues,
   isOpen,
   onOpenChange,
   onSubmit,
 }: AddCitationModalProps) => {
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const previousResetKeyRef = useRef<string | null>(null);
+  const [attachmentRefreshKey, setAttachmentRefreshKey] = useState(0);
+  const [isUploadingNoteImage, setIsUploadingNoteImage] = useState(false);
   const [isSyncingProfile, setIsSyncingProfile] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const {
@@ -184,8 +201,18 @@ export const AddCitationModal = ({
 
   useEffect(() => {
     if (!isOpen) {
+      previousResetKeyRef.current = null;
+
       return;
     }
+
+    const resetKey = String(citationId ?? "new");
+
+    if (previousResetKeyRef.current === resetKey) {
+      return;
+    }
+
+    previousResetKeyRef.current = resetKey;
 
     reset({
       notes: initialValues?.notes ?? "",
@@ -200,7 +227,18 @@ export const AddCitationModal = ({
     });
     clearErrors();
     setShowPassword(false);
-  }, [clearErrors, initialValues, isOpen, reset]);
+  }, [
+    citationId,
+    clearErrors,
+    initialValues?.notes,
+    initialValues?.password,
+    initialValues?.profileUrl,
+    initialValues?.status,
+    initialValues?.username,
+    initialValues?.verificationStatus,
+    isOpen,
+    reset,
+  ]);
 
   const closeModal = () => {
     onOpenChange(false);
@@ -549,15 +587,57 @@ export const AddCitationModal = ({
                 control={control}
                 name="notes"
                 render={({ field }) => (
-                  <Textarea
-                    minRows={6}
-                    radius="sm"
-                    size="lg"
+                  <RichTextEditor
+                    minHeightClassName="min-h-[180px]"
+                    placeholder="Add notes for this citation..."
                     value={field.value}
                     onBlur={field.onBlur}
-                    onChange={field.onChange}
+                    onChange={(value) => field.onChange(value)}
+                    onUploadError={(message) => {
+                      toast.danger("Image upload failed.", {
+                        description: message,
+                      });
+                    }}
+                    onUploadImage={async (file) => {
+                      if (!citationId || !session?.accessToken) {
+                        throw new Error(
+                          "Save the citation before pasting images.",
+                        );
+                      }
+
+                      const accessToken = await getValidAccessToken();
+                      const attachment =
+                        await clientsApi.uploadClientCitationAttachment(
+                          accessToken,
+                          clientId,
+                          citationId,
+                          file,
+                        );
+
+                      setAttachmentRefreshKey((value) => value + 1);
+
+                      return {
+                        url:
+                          resolveServerAssetUrl(attachment.url) ??
+                          attachment.url,
+                      };
+                    }}
+                    onUploadStateChange={setIsUploadingNoteImage}
                   />
                 )}
+              />
+              {isUploadingNoteImage ? (
+                <p className="mt-2 text-xs text-default-500">
+                  Uploading pasted image...
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <p className={labelClassName}>Attachments</p>
+              <CitationAttachments
+                citationId={citationId ?? null}
+                clientId={clientId}
+                refreshKey={attachmentRefreshKey}
               />
             </div>
           </div>
@@ -566,6 +646,7 @@ export const AddCitationModal = ({
           <div className="flex w-full items-center justify-end gap-4">
             <Button
               className="min-w-48 bg-[#022279] text-white"
+              isDisabled={isUploadingNoteImage}
               isLoading={isSubmitting}
               radius="sm"
               startContent={

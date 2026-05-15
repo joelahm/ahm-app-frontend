@@ -2,14 +2,16 @@
 
 import type { Selection } from "@react-types/shared";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
+import { Chip } from "@heroui/chip";
 import {
   Dropdown,
   DropdownItem,
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Progress } from "@heroui/progress";
 import {
   ArrowUpToLine,
   EllipsisVertical,
@@ -33,10 +35,9 @@ import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
-import { ScanRunProgressCard } from "@/components/dashboard/client-details/scan-run-progress-card";
 import { ScanKeywordModal } from "@/components/dashboard/client-details/scan-keyword-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
-import { useScanRunSocket } from "@/hooks/use-scan-run-socket";
+import { useClientScanProgress } from "@/hooks/use-client-scan-progress";
 
 type LocalRankingRow = {
   businessName: string;
@@ -47,10 +48,13 @@ type LocalRankingRow = {
   id: string;
   intent: string;
   isProcessing: boolean;
+  isScheduled?: boolean;
   keyword: string;
   latestScan: string;
   nextScanDate: string;
   previousScan: string;
+  runId?: number | null;
+  runStatus?: string | null;
   scansGenerated: string;
   traffic: string;
 };
@@ -200,6 +204,8 @@ const mapRankingRow = (item: LocalRankingKeyword): LocalRankingRow => ({
   latestScan: formatRankMetric(item.latestScan ?? item.averageRank),
   nextScanDate: formatDateDisplay(item.nextSchedule ?? item.nextRunAt),
   previousScan: formatPreviousMetric(item.previousScan),
+  runId: item.runId ?? null,
+  runStatus: item.runStatus ?? null,
   scansGenerated: formatMetric(item.totalScans),
   traffic: "-",
 });
@@ -362,39 +368,114 @@ export const ClientLocalRankingsTable = ({
   const [savedScanLaterKeywords, setSavedScanLaterKeywords] = useState<
     string[]
   >([]);
+  const savedScanLaterKeywordsRef = useRef<string[]>([]);
+  const savedKeywordPersistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [deletingScanId, setDeletingScanId] = useState<string | null>(null);
   const [runningScanId, setRunningScanId] = useState<string | null>(null);
-  const [activeRun, setActiveRun] = useState<{
-    runId: number;
-    scanId: number;
-  } | null>(null);
-  const {
-    completedRun,
-    connectionStatus,
-    failurePayload,
-    latestProgress,
-    progressPercent,
-    startedPayload,
-  } = useScanRunSocket({
-    runId: activeRun?.runId ?? null,
-    scanId: activeRun?.scanId ?? null,
+  const { progressByScanId, registerRun } = useClientScanProgress({
+    clientId: clientId ?? null,
   });
+
+  useEffect(() => {
+    savedScanLaterKeywordsRef.current = savedScanLaterKeywords;
+  }, [savedScanLaterKeywords]);
+  // Saved-for-later keywords get rendered as synthetic Scheduled rows so the
+  // user can see what's queued and run a scan per keyword from the table.
+  const displayedRows = useMemo<LocalRankingRow[]>(() => {
+    const fallbackBusinessName = rows[0]?.businessName || "Client";
+    const existingScanIds = new Set(rows.map((row) => row.id));
+    const rowsWithProgress = rows.map((row) => {
+      const progress = progressByScanId.get(Number(row.id));
+
+      if (
+        !progress ||
+        (progress.status !== "PENDING" && progress.status !== "RUNNING")
+      ) {
+        return row;
+      }
+
+      return {
+        ...row,
+        isProcessing: true,
+        runId: progress.runId,
+        runStatus: progress.status,
+        scansGenerated: progress.totalRequests
+          ? `${progress.completedRequests + progress.failedRequests}/${progress.totalRequests}`
+          : "0",
+      };
+    });
+    const activeRows: LocalRankingRow[] = Array.from(progressByScanId.values())
+      .filter(
+        (entry) => entry.status === "PENDING" || entry.status === "RUNNING",
+      )
+      .filter((entry) => !existingScanIds.has(String(entry.scanId)))
+      .map((entry) => ({
+        businessName: fallbackBusinessName,
+        clientId: String(clientId ?? ""),
+        distance: "-",
+        frequency: "-",
+        gridSize: "-",
+        id: String(entry.scanId),
+        intent: "-",
+        isProcessing: true,
+        keyword: entry.keyword?.trim() || "Keyword",
+        latestScan: "-",
+        nextScanDate: "-",
+        previousScan: "-",
+        runId: entry.runId,
+        runStatus: entry.status,
+        scansGenerated: entry.totalRequests
+          ? `${entry.completedRequests + entry.failedRequests}/${entry.totalRequests}`
+          : "0",
+        traffic: "-",
+      }));
+
+    if (!savedScanLaterKeywords.length) {
+      return [...activeRows, ...rowsWithProgress];
+    }
+
+    const normalizedScheduledKeywords = Array.from(
+      new Map(
+        savedScanLaterKeywords
+          .map((keyword) => keyword.trim())
+          .filter(Boolean)
+          .map((keyword) => [keyword.toLowerCase(), keyword]),
+      ).values(),
+    );
+    const scheduledRows: LocalRankingRow[] = normalizedScheduledKeywords.map(
+      (keyword) => ({
+        businessName: fallbackBusinessName,
+        clientId: String(clientId ?? ""),
+        distance: "-",
+        frequency: "-",
+        gridSize: "-",
+        id: `scheduled-${keyword}`,
+        intent: "-",
+        isProcessing: false,
+        isScheduled: true,
+        keyword,
+        latestScan: "-",
+        nextScanDate: "-",
+        previousScan: "-",
+        scansGenerated: "0",
+        traffic: "-",
+      }),
+    );
+
+    return [...activeRows, ...scheduledRows, ...rowsWithProgress];
+  }, [clientId, progressByScanId, rows, savedScanLaterKeywords]);
   const selectedRowIds = useMemo(() => {
     if (selectedKeys === "all") {
-      return rows.map((row) => row.id);
+      return displayedRows.map((row) => row.id);
     }
 
     return Array.from(selectedKeys).map(String);
-  }, [rows, selectedKeys]);
+  }, [displayedRows, selectedKeys]);
   const selectedExportRows = useMemo(() => {
     const selectedIds = new Set(selectedRowIds);
 
-    return rows.filter((row) => selectedIds.has(row.id));
-  }, [rows, selectedRowIds]);
-  const keywordsInProgressCount = useMemo(
-    () => rows.filter((row) => row.isProcessing).length,
-    [rows],
-  );
+    return displayedRows.filter((row) => selectedIds.has(row.id));
+  }, [displayedRows, selectedRowIds]);
 
   useEffect(() => {
     if (!clientId || typeof window === "undefined") {
@@ -471,6 +552,7 @@ export const ClientLocalRankingsTable = ({
 
   useEffect(() => {
     if (!session?.accessToken || !clientId) {
+      savedScanLaterKeywordsRef.current = [];
       setSavedScanLaterKeywords([]);
 
       return;
@@ -490,12 +572,16 @@ export const ClientLocalRankingsTable = ({
           return;
         }
 
-        setSavedScanLaterKeywords(response.keywords ?? []);
+        const savedKeywords = response.keywords ?? [];
+
+        savedScanLaterKeywordsRef.current = savedKeywords;
+        setSavedScanLaterKeywords(savedKeywords);
       } catch {
         if (!isMounted) {
           return;
         }
 
+        savedScanLaterKeywordsRef.current = [];
         setSavedScanLaterKeywords([]);
       }
     };
@@ -639,19 +725,29 @@ export const ClientLocalRankingsTable = ({
   }, [clientId, getValidAccessToken, reloadTick, session?.accessToken]);
 
   useEffect(() => {
-    if (!completedRun) {
+    // When a scan completes (or fails), drop the optimistic isProcessing flag
+    // and refetch so the table picks up real results.
+    const completedScanIds: number[] = [];
+
+    progressByScanId.forEach((entry) => {
+      if (entry.status === "COMPLETED" || entry.status === "FAILED") {
+        completedScanIds.push(entry.scanId);
+      }
+    });
+
+    if (completedScanIds.length === 0) {
       return;
     }
 
     setRows((currentRows) =>
       currentRows.map((row) =>
-        row.id === String(completedRun.run.scanId)
+        completedScanIds.includes(Number(row.id))
           ? { ...row, isProcessing: false }
           : row,
       ),
     );
     setReloadTick((value) => value + 1);
-  }, [completedRun]);
+  }, [progressByScanId]);
 
   const handleDeleteKeyword = useCallback(
     async (scanId: string, keyword: string) => {
@@ -698,10 +794,7 @@ export const ClientLocalRankingsTable = ({
         const response = await scansApi.runScan(accessToken, scanId);
 
         if (response.run?.id && response.run.scanId) {
-          setActiveRun({
-            runId: response.run.id,
-            scanId: response.run.scanId,
-          });
+          registerRun(response.run.id, response.run.scanId);
         }
 
         setRows((currentRows) =>
@@ -720,7 +813,96 @@ export const ClientLocalRankingsTable = ({
         setRunningScanId(null);
       }
     },
-    [getValidAccessToken, session?.accessToken, toast],
+    [getValidAccessToken, registerRun, session?.accessToken, toast],
+  );
+
+  const handleScanScheduledKeyword = useCallback((keyword: string) => {
+    setPrefilledKeywords([keyword]);
+    setIsScanModalOpen(true);
+  }, []);
+  const persistSavedScheduledKeywords = useCallback(
+    (keywords: string[]) => {
+      if (!clientId) {
+        return Promise.resolve();
+      }
+
+      savedKeywordPersistQueueRef.current = savedKeywordPersistQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          const accessToken = await getValidAccessToken();
+
+          await scansApi.clearSavedLocalRankingKeywords(accessToken, clientId);
+
+          if (keywords.length) {
+            await scansApi.saveLocalRankingKeywords(
+              accessToken,
+              clientId,
+              keywords,
+            );
+          }
+        });
+
+      return savedKeywordPersistQueueRef.current;
+    },
+    [clientId, getValidAccessToken],
+  );
+
+  const handleRemoveScheduledKeyword = useCallback(
+    async (keyword: string) => {
+      if (!clientId || !session?.accessToken) {
+        return;
+      }
+
+      const previousSaved = savedScanLaterKeywordsRef.current;
+      const normalizedKeyword = keyword.trim().toLowerCase();
+      const nextSaved = previousSaved.filter(
+        (item) => item.trim().toLowerCase() !== normalizedKeyword,
+      );
+
+      // Optimistic update
+      savedScanLaterKeywordsRef.current = nextSaved;
+      setSavedScanLaterKeywords(nextSaved);
+
+      try {
+        await persistSavedScheduledKeywords(nextSaved);
+      } catch (error) {
+        // Revert on failure
+        savedScanLaterKeywordsRef.current = previousSaved;
+        setSavedScanLaterKeywords(previousSaved);
+        toast.danger("Failed to remove scheduled keyword.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+    },
+    [clientId, persistSavedScheduledKeywords, session?.accessToken, toast],
+  );
+  const removeSavedScheduledKeyword = useCallback(
+    async (keyword: string) => {
+      if (!clientId || !session?.accessToken) {
+        return;
+      }
+
+      const normalizedKeyword = keyword.trim().toLowerCase();
+
+      if (!normalizedKeyword) {
+        return;
+      }
+
+      const nextSaved = savedScanLaterKeywordsRef.current.filter(
+        (item) => item.trim().toLowerCase() !== normalizedKeyword,
+      );
+
+      savedScanLaterKeywordsRef.current = nextSaved;
+      setSavedScanLaterKeywords(nextSaved);
+
+      try {
+        await persistSavedScheduledKeywords(nextSaved);
+      } catch {
+        setReloadTick((value) => value + 1);
+      }
+    },
+    [clientId, persistSavedScheduledKeywords, session?.accessToken],
   );
 
   const columns = useMemo<DashboardDataTableColumn<LocalRankingRow>[]>(
@@ -740,6 +922,143 @@ export const ClientLocalRankingsTable = ({
         renderCell: (item) => (
           <span className="text-sm text-[#111827]">{item.keyword}</span>
         ),
+      },
+      {
+        key: "status",
+        label: "Status",
+        className: thClassName,
+        renderCell: (item) => {
+          const progress = progressByScanId.get(Number(item.id));
+          const isActiveScan =
+            progress?.status === "PENDING" ||
+            progress?.status === "RUNNING" ||
+            item.runStatus === "PENDING" ||
+            item.runStatus === "RUNNING" ||
+            (item.isProcessing && progress?.status !== "COMPLETED");
+
+          if (isActiveScan) {
+            return (
+              <div className="flex min-w-[140px] flex-col gap-1">
+                <div className="flex items-center justify-between gap-2 text-xs font-medium text-[#022279]">
+                  <span>Scanning...</span>
+                  <span>{progress?.progressPercent ?? 0}%</span>
+                </div>
+                <Progress
+                  aria-label="Scan progress"
+                  classNames={{
+                    base: "max-w-[140px]",
+                    indicator: "bg-[#022279]",
+                    track: "h-1.5 bg-default-100",
+                  }}
+                  radius="sm"
+                  value={progress?.progressPercent ?? 0}
+                />
+              </div>
+            );
+          }
+
+          if (progress && progress.status === "FAILED") {
+            return (
+              <Chip
+                className="bg-[#FEE2E2] text-[#B91C1C]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Failed
+              </Chip>
+            );
+          }
+
+          if (progress && progress.status === "COMPLETED") {
+            return (
+              <Chip
+                className="bg-[#DCFCE7] text-[#059669]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Completed
+              </Chip>
+            );
+          }
+
+          if (item.isProcessing) {
+            return (
+              <Chip
+                className="bg-[#DBEAFE] text-[#1D4ED8]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Pending
+              </Chip>
+            );
+          }
+
+          if (item.runStatus === "STOPPED") {
+            return (
+              <Chip
+                className="bg-[#F3F4F6] text-[#4B5563]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Pending
+              </Chip>
+            );
+          }
+
+          if (item.isScheduled) {
+            return (
+              <Chip
+                className="bg-[#EDE9FE] text-[#6D28D9]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Pending
+              </Chip>
+            );
+          }
+
+          if (item.latestScan && item.latestScan !== "-") {
+            return (
+              <Chip
+                className="bg-[#DCFCE7] text-[#059669]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Completed
+              </Chip>
+            );
+          }
+
+          if (item.nextScanDate && item.nextScanDate !== "-") {
+            return (
+              <Chip
+                className="bg-[#EDE9FE] text-[#6D28D9]"
+                radius="sm"
+                size="sm"
+                variant="flat"
+              >
+                Pending
+              </Chip>
+            );
+          }
+
+          return (
+            <Chip
+              className="bg-[#F3F4F6] text-[#4B5563]"
+              radius="sm"
+              size="sm"
+              variant="flat"
+            >
+              Idle
+            </Chip>
+          );
+        },
       },
       {
         key: "traffic",
@@ -817,68 +1136,151 @@ export const ClientLocalRankingsTable = ({
         key: "action",
         label: "Action",
         className: thClassName,
-        renderCell: (item) => (
-          <div className="flex items-center gap-2">
-            <Button
-              isIconOnly
-              as={Link}
-              href={`/dashboard/clients/${item.clientId}/local-rankings/${encodeURIComponent(item.id)}`}
-              isDisabled={item.isProcessing}
-              radius="lg"
-              size="sm"
-              variant="bordered"
-            >
-              <Eye size={18} />
-            </Button>
-            <Dropdown placement="bottom-end">
-              <DropdownTrigger>
+        renderCell: (item) => {
+          const progress = progressByScanId.get(Number(item.id));
+          const isActiveScan =
+            progress?.status === "PENDING" ||
+            progress?.status === "RUNNING" ||
+            item.runStatus === "PENDING" ||
+            item.runStatus === "RUNNING" ||
+            item.isProcessing;
+          const isPendingQueuedRow =
+            item.isScheduled || item.runStatus === "STOPPED";
+
+          if (isPendingQueuedRow) {
+            return (
+              <div className="flex items-center gap-2">
+                <Button
+                  className="bg-[#022279] text-white"
+                  radius="sm"
+                  size="sm"
+                  startContent={<RotateCcw size={14} />}
+                  onPress={() => {
+                    if (item.isScheduled) {
+                      handleScanScheduledKeyword(item.keyword);
+
+                      return;
+                    }
+
+                    void handleRunScanAgain(item.id);
+                  }}
+                >
+                  Scan now
+                </Button>
                 <Button
                   isIconOnly
-                  isDisabled={
-                    item.isProcessing ||
-                    deletingScanId === item.id ||
-                    runningScanId === item.id
+                  aria-label={
+                    item.isScheduled ? "Remove from schedule" : "Delete keyword"
                   }
+                  className="text-danger"
+                  radius="lg"
+                  size="sm"
+                  variant="bordered"
+                  onPress={() => {
+                    if (item.isScheduled) {
+                      void handleRemoveScheduledKeyword(item.keyword);
+
+                      return;
+                    }
+
+                    void handleDeleteKeyword(item.id, item.keyword);
+                  }}
+                >
+                  <Trash2 size={16} />
+                </Button>
+              </div>
+            );
+          }
+
+          if (isActiveScan) {
+            return (
+              <div className="flex items-center gap-2">
+                <Button
+                  isDisabled
+                  isIconOnly
+                  as={Link}
+                  href={`/dashboard/clients/${item.clientId}/local-rankings/${encodeURIComponent(item.id)}`}
                   radius="lg"
                   size="sm"
                   variant="bordered"
                 >
-                  <EllipsisVertical size={18} />
+                  <Eye size={18} />
                 </Button>
-              </DropdownTrigger>
-              <DropdownMenu
-                aria-label="Local ranking actions"
-                onAction={(key) => {
-                  if (String(key) === "scan-again") {
-                    void handleRunScanAgain(item.id);
-                  }
+              </div>
+            );
+          }
 
-                  if (String(key) === "delete-keyword") {
-                    void handleDeleteKeyword(item.id, item.keyword);
-                  }
-                }}
+          return (
+            <div className="flex items-center gap-2">
+              <Button
+                isIconOnly
+                as={Link}
+                href={`/dashboard/clients/${item.clientId}/local-rankings/${encodeURIComponent(item.id)}`}
+                isDisabled={item.isProcessing}
+                radius="lg"
+                size="sm"
+                variant="bordered"
               >
-                <DropdownItem
-                  key="scan-again"
-                  startContent={<RotateCcw size={16} />}
+                <Eye size={18} />
+              </Button>
+              <Dropdown placement="bottom-end">
+                <DropdownTrigger>
+                  <Button
+                    isIconOnly
+                    isDisabled={
+                      item.isProcessing ||
+                      deletingScanId === item.id ||
+                      runningScanId === item.id
+                    }
+                    radius="lg"
+                    size="sm"
+                    variant="bordered"
+                  >
+                    <EllipsisVertical size={18} />
+                  </Button>
+                </DropdownTrigger>
+                <DropdownMenu
+                  aria-label="Local ranking actions"
+                  onAction={(key) => {
+                    if (String(key) === "scan-again") {
+                      void handleRunScanAgain(item.id);
+                    }
+
+                    if (String(key) === "delete-keyword") {
+                      void handleDeleteKeyword(item.id, item.keyword);
+                    }
+                  }}
                 >
-                  Scan again
-                </DropdownItem>
-                <DropdownItem
-                  key="delete-keyword"
-                  className="text-danger"
-                  color="danger"
-                  startContent={<Trash2 size={16} />}
-                >
-                  Delete Keyword
-                </DropdownItem>
-              </DropdownMenu>
-            </Dropdown>
-          </div>
-        ),
+                  <DropdownItem
+                    key="scan-again"
+                    startContent={<RotateCcw size={16} />}
+                  >
+                    Scan again
+                  </DropdownItem>
+                  <DropdownItem
+                    key="delete-keyword"
+                    className="text-danger"
+                    color="danger"
+                    startContent={<Trash2 size={16} />}
+                  >
+                    Delete Keyword
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
+            </div>
+          );
+        },
       },
     ],
-    [deletingScanId, handleDeleteKeyword, handleRunScanAgain, runningScanId],
+    [
+      deletingScanId,
+      handleDeleteKeyword,
+      handleRemoveScheduledKeyword,
+      handleRunScanAgain,
+      handleScanScheduledKeyword,
+      progressByScanId,
+      runningScanId,
+    ],
   );
 
   const headerActions = useMemo(() => [], []);
@@ -1006,20 +1408,6 @@ export const ClientLocalRankingsTable = ({
 
   return (
     <>
-      {activeRun ? (
-        <ScanRunProgressCard
-          completedRun={completedRun}
-          connectionStatus={connectionStatus}
-          failedRun={failurePayload}
-          keywordsInProgress={Math.max(1, keywordsInProgressCount)}
-          latestProgress={latestProgress}
-          progressPercent={progressPercent}
-          runId={activeRun.runId}
-          scanId={activeRun.scanId}
-          startedRun={startedPayload}
-          onDismiss={() => setActiveRun(null)}
-        />
-      ) : null}
       <DashboardDataTable
         enableSelection
         serverPagination
@@ -1056,25 +1444,21 @@ export const ClientLocalRankingsTable = ({
             <Button
               className="bg-[#022279] text-white"
               startContent={<Plus size={14} />}
-              onPress={() => setIsScanModalOpen(true)}
+              onPress={() => {
+                // If the user has scheduled keywords but no manual prefill,
+                // default the modal to scan them all in one go.
+                if (savedScanLaterKeywords.length) {
+                  setPrefilledKeywords(savedScanLaterKeywords);
+                }
+                setIsScanModalOpen(true);
+              }}
             >
               Add Keywords
             </Button>
-            {savedScanLaterKeywords.length ? (
-              <Button
-                variant="bordered"
-                onPress={() => {
-                  setPrefilledKeywords(savedScanLaterKeywords);
-                  setIsScanModalOpen(true);
-                }}
-              >
-                Saved For Later ({savedScanLaterKeywords.length})
-              </Button>
-            ) : null}
           </div>
         }
         pageSize={PAGE_SIZE}
-        rows={rows}
+        rows={displayedRows}
         selectedKeys={selectedKeys}
         title="Keyword Monitoring"
         totalPages={totalPages}
@@ -1093,23 +1477,9 @@ export const ClientLocalRankingsTable = ({
           }
         }}
         onRunStarted={(payload) => {
-          setActiveRun({
-            runId: payload.runId,
-            scanId: payload.scanId,
-          });
+          registerRun(payload.runId, payload.scanId, payload.keyword);
 
-          if (session?.accessToken && clientId) {
-            void getValidAccessToken()
-              .then((accessToken) =>
-                scansApi.clearSavedLocalRankingKeywords(accessToken, clientId),
-              )
-              .then(() => {
-                setSavedScanLaterKeywords([]);
-              })
-              .catch(() => {
-                // ignore clear failures after successful scan start
-              });
-          }
+          void removeSavedScheduledKeyword(payload.keyword);
 
           setRows((currentRows) => {
             const optimisticRow: LocalRankingRow = {
@@ -1128,6 +1498,7 @@ export const ClientLocalRankingsTable = ({
               latestScan: "-",
               nextScanDate: formatDateDisplay(payload.nextRunAt),
               previousScan: "-",
+              runId: payload.runId,
               scansGenerated: "0",
               traffic: "-",
             };

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
@@ -80,6 +81,7 @@ export const AddClientModal = ({
     handleSubmit,
     reset,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<AddClientFormValues>({
     defaultValues: {
@@ -95,6 +97,18 @@ export const AddClientModal = ({
     },
     mode: "onBlur",
   });
+  const watchedClientName = watch("clientName");
+  const filteredClientNameOptions = useMemo(() => {
+    const normalizedQuery = (watchedClientName ?? "").trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return clientNameOptions;
+    }
+
+    return clientNameOptions.filter((name) =>
+      name.toLowerCase().includes(normalizedQuery),
+    );
+  }, [clientNameOptions, watchedClientName]);
 
   const submitClient = async (values: AddClientFormValues) => {
     clearErrors();
@@ -209,7 +223,7 @@ export const AddClientModal = ({
                     errorMessage={errors.clientName?.message}
                     inputValue={field.value ?? ""}
                     isInvalid={!!errors.clientName}
-                    items={clientNameOptions.map((name) => ({
+                    items={filteredClientNameOptions.map((name) => ({
                       id: name,
                       name,
                     }))}

@@ -208,10 +208,46 @@ export const gbpPostingReviewsApi = {
       throw new Error(parseError(error));
     }
   },
-  getPublicStatus: async (token: string) => {
+  uploadPublicImage: async (
+    token: string,
+    reviewSessionToken: string,
+    file: File,
+  ) => {
+    try {
+      const formData = new FormData();
+
+      formData.append("image", file);
+
+      const response = await gbpPostingReviewsApiClient.post<{
+        image: {
+          mimeType: string;
+          name: string;
+          size: number;
+          url: string;
+        };
+      }>(`/api/v1/gbp-posting-reviews/public/${token}/images`, formData, {
+        headers: {
+          "x-review-session-token": reviewSessionToken,
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      return response.data.image;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getPublicStatus: async (token: string, reviewSessionToken?: string) => {
     try {
       const response = await gbpPostingReviewsApiClient.get(
         `/api/v1/gbp-posting-reviews/public/${token}/status`,
+        reviewSessionToken
+          ? {
+              headers: {
+                "x-review-session-token": reviewSessionToken,
+              },
+            }
+          : undefined,
       );
 
       return response.data as {
@@ -219,6 +255,8 @@ export const gbpPostingReviewsApi = {
         clientName: string;
         expiresAt: string;
         requiresOtp: boolean;
+        authenticated: boolean;
+        reviewer: { email: string; fullName: string } | null;
       };
     } catch (error) {
       throw new Error(parseError(error));
@@ -227,7 +265,12 @@ export const gbpPostingReviewsApi = {
   savePublicContent: async (
     token: string,
     reviewSessionToken: string,
-    payload: { postContent?: string; images?: string[]; buttonType?: string },
+    payload: {
+      postContent?: string;
+      images?: string[];
+      buttonType?: string;
+      status?: string;
+    },
   ) => {
     try {
       const response = await gbpPostingReviewsApiClient.patch(

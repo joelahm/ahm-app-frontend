@@ -77,7 +77,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return undefined;
   }
 
-  if (/^https?:\/\//i.test(value)) {
+  if (/^(https?:|data:|blob:)/i.test(value)) {
     return value;
   }
 

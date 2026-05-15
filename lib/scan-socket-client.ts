@@ -50,11 +50,18 @@ export interface ScanRunFailedEvent {
   scanId: number;
 }
 
+export interface ScanRunStoppedEvent {
+  run?: ScanRunCompletedEvent["run"];
+  runId: number;
+  scanId: number;
+}
+
 interface ServerToClientEvents {
   "scan:run-completed": (payload: ScanRunCompletedEvent) => void;
   "scan:run-failed": (payload: ScanRunFailedEvent) => void;
   "scan:run-progress": (payload: ScanRunProgressEvent) => void;
   "scan:run-started": (payload: ScanRunStartedEvent) => void;
+  "scan:run-stopped": (payload: ScanRunStoppedEvent) => void;
 }
 
 interface ClientToServerEvents {

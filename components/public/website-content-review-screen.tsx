@@ -11,6 +11,7 @@ import {
 import { Button } from "@heroui/button";
 import { InputOtp } from "@heroui/input-otp";
 import { Input, Textarea } from "@heroui/input";
+import { Select, SelectItem } from "@heroui/select";
 import { Spinner } from "@heroui/spinner";
 import {
   Bold,
@@ -40,6 +41,7 @@ import {
   PendingAttachmentItem,
   validateCommentPayloadSize,
 } from "@/lib/comment-attachments";
+import { WEB_CONTENT_STATUS_OPTIONS } from "@/lib/web-content-statuses";
 
 interface WebsiteContentReviewScreenProps {
   token: string;
@@ -62,8 +64,7 @@ const FieldLabel = ({
   </label>
 );
 
-const sessionStorageKey = (token: string) =>
-  `website-content-review-session:${token}`;
+const SESSION_STORAGE_KEY = "client-review-session";
 
 const emptyArticle: PublicWebsiteContentArticle = {
   altDescription: "",
@@ -74,6 +75,7 @@ const emptyArticle: PublicWebsiteContentArticle = {
   keyword: null,
   metaDescription: "",
   metaTitle: "",
+  status: "Draft",
   title: "",
   urlSlug: "",
 };
@@ -212,8 +214,9 @@ export const WebsiteContentReviewScreen = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [isDeletingCommentId, setIsDeletingCommentId] = useState("");
+  const [isCookieAuthenticated, setIsCookieAuthenticated] = useState(false);
 
-  const isVerified = Boolean(reviewSessionToken);
+  const isVerified = Boolean(reviewSessionToken) || isCookieAuthenticated;
   const comments = contentData?.comments ?? [];
   const reviewerEmail = contentData?.reviewer.email?.toLowerCase() ?? "";
 
@@ -249,7 +252,7 @@ export const WebsiteContentReviewScreen = ({
   }, [article.featuredImage]);
 
   useEffect(() => {
-    const savedToken = window.localStorage.getItem(sessionStorageKey(token));
+    const savedToken = window.localStorage.getItem(SESSION_STORAGE_KEY);
 
     if (savedToken) {
       setReviewSessionToken(savedToken);
@@ -278,13 +281,31 @@ export const WebsiteContentReviewScreen = ({
       setError("");
 
       try {
-        const response = await websiteContentReviewsApi.getPublicStatus(token);
+        const savedToken =
+          window.localStorage.getItem(SESSION_STORAGE_KEY) || "";
+        const response = await websiteContentReviewsApi.getPublicStatus(
+          token,
+          savedToken || undefined,
+        );
 
         if (!isMounted) {
           return;
         }
 
         setStatus(response);
+
+        if (response.authenticated) {
+          setIsCookieAuthenticated(true);
+          if (savedToken) {
+            setReviewSessionToken(savedToken);
+          }
+        } else {
+          setIsCookieAuthenticated(false);
+          if (savedToken) {
+            window.localStorage.removeItem(SESSION_STORAGE_KEY);
+            setReviewSessionToken("");
+          }
+        }
       } catch (loadError) {
         if (!isMounted) {
           return;
@@ -310,7 +331,7 @@ export const WebsiteContentReviewScreen = ({
   }, [token]);
 
   useEffect(() => {
-    if (!reviewSessionToken) {
+    if (!isVerified) {
       return;
     }
 
@@ -341,8 +362,9 @@ export const WebsiteContentReviewScreen = ({
           return;
         }
 
-        window.localStorage.removeItem(sessionStorageKey(token));
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
         setReviewSessionToken("");
+        setIsCookieAuthenticated(false);
         toast.warning("Please verify your email to continue.", {
           description:
             loadError instanceof Error ? loadError.message : undefined,
@@ -359,7 +381,7 @@ export const WebsiteContentReviewScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [reviewSessionToken, token]);
+  }, [isVerified, reviewSessionToken, token]);
 
   const handleSendOtp = async () => {
     if (verificationStep === "otp" && resendCooldown > 0) {
@@ -394,10 +416,11 @@ export const WebsiteContentReviewScreen = ({
       });
 
       window.localStorage.setItem(
-        sessionStorageKey(token),
+        SESSION_STORAGE_KEY,
         response.reviewSessionToken,
       );
       setReviewSessionToken(response.reviewSessionToken);
+      setIsCookieAuthenticated(true);
       toast.success("Email verified.");
     } catch (verifyError) {
       toast.danger("Failed to verify code.", {
@@ -807,6 +830,30 @@ export const WebsiteContentReviewScreen = ({
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="space-y-4 rounded-lg border border-default-200 bg-white p-4">
+            <div>
+              <div className="w-full">
+                <FieldLabel htmlFor="review-status">Status</FieldLabel>
+                <Select
+                  aria-label="Status"
+                  id="review-status"
+                  selectedKeys={article.status ? [article.status] : []}
+                  size="sm"
+                  variant="bordered"
+                  onSelectionChange={(keys) => {
+                    const first = Array.from(keys as Set<string>)[0] ?? "";
+
+                    setArticle((current) => ({
+                      ...current,
+                      status: first || current.status || "Draft",
+                    }));
+                  }}
+                >
+                  {WEB_CONTENT_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option}>{option}</SelectItem>
+                  ))}
+                </Select>
+              </div>
+            </div>
             <div>
               <FieldLabel htmlFor="review-article-title">
                 Article Title

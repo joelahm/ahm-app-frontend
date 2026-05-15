@@ -29,11 +29,11 @@ import {
   Search,
   SlidersHorizontal,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 
 import { clientsApi } from "@/apis/clients";
 import { projectsApi, type ProjectsListGroupBy } from "@/apis/projects";
 import { useAuth } from "@/components/auth/auth-context";
+import { ProjectTaskListsDrawer } from "@/components/dashboard/project-task-lists-drawer";
 import { normalizeProjectStatus } from "@/lib/project-statuses";
 
 type GroupByKey = ProjectsListGroupBy;
@@ -110,7 +110,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return undefined;
   }
 
-  if (/^https?:\/\//i.test(value)) {
+  if (/^(https?:|data:|blob:)/i.test(value)) {
     return value;
   }
 
@@ -121,7 +121,6 @@ const resolveServerAssetUrl = (value?: string | null) => {
 };
 
 export const ProjectsListScreen = () => {
-  const router = useRouter();
   const { getValidAccessToken, session } = useAuth();
   const [groups, setGroups] = useState<
     Array<{ label: string; items: ProjectListRow[] }>
@@ -137,6 +136,9 @@ export const ProjectsListScreen = () => {
   const [statusFilter, setStatusFilter] = useState("all");
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
     () => new Set(toggleableProjectColumnKeys),
+  );
+  const [previewProject, setPreviewProject] = useState<ProjectListRow | null>(
+    null,
   );
 
   useEffect(() => {
@@ -336,8 +338,8 @@ export const ProjectsListScreen = () => {
       return (
         <TableCell key={`${item.id}-${columnKey}`}>
           <div className="flex flex-col">
-            <span className="text-[#111827]">{item.clientName}</span>
-            <span className="text-[#9CA3AF]">{item.clientAddress}</span>
+            <p className="text-sm text-[#111827]">{item.clientName}</p>
+            <p className="text-xs text-[#9CA3AF]">{item.clientAddress}</p>
           </div>
         </TableCell>
       );
@@ -436,9 +438,7 @@ export const ProjectsListScreen = () => {
               key="view-task"
               startContent={<ListTodo size={16} />}
               onPress={() => {
-                router.push(
-                  `/dashboard/clients/${item.clientId}/projects?openProjectId=${item.id}`,
-                );
+                setPreviewProject(item);
               }}
             >
               View Task
@@ -450,228 +450,249 @@ export const ProjectsListScreen = () => {
   };
 
   return (
-    <Card className="border border-default-200 shadow-none">
-      <CardHeader className="flex flex-col items-start gap-3 border-b border-default-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
-        <h2 className="text-lg font-semibold text-[#111827]">Projects</h2>
-        <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
-          <Dropdown closeOnSelect={false} placement="bottom-start">
-            <DropdownTrigger>
-              <Button
-                startContent={<ListFilter size={14} />}
-                variant="bordered"
-              >
-                Filter
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu aria-label="Project filters" className="min-w-64">
-              <DropdownItem key="client-filter" textValue="Client filter">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-[#4B5563]">Client</p>
-                  <select
-                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
-                    value={clientFilter}
-                    onChange={(event) => setClientFilter(event.target.value)}
-                  >
-                    {clientOptions.map((option) => (
-                      <option key={option.key} value={option.key}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </DropdownItem>
-              <DropdownItem key="status-filter" textValue="Status filter">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-[#4B5563]">Status</p>
-                  <select
-                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
-                    value={statusFilter}
-                    onChange={(event) => setStatusFilter(event.target.value)}
-                  >
-                    <option value="all">All statuses</option>
-                    {statusOptions.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </DropdownItem>
-              <DropdownItem key="progress-filter" textValue="Progress filter">
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-[#4B5563]">
-                    Progress
-                  </p>
-                  <select
-                    className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
-                    value={progressFilter}
-                    onChange={(event) => setProgressFilter(event.target.value)}
-                  >
-                    <option value="all">All progress states</option>
-                    {progressOptions.map((progress) => (
-                      <option key={progress} value={progress}>
-                        {progress}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </DropdownItem>
-              <DropdownItem key="reset-filters" textValue="Reset filters">
+    <>
+      <Card className="border border-default-200 shadow-none">
+        <CardHeader className="flex flex-col items-start gap-3 border-b border-default-200 px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <h2 className="text-lg font-semibold text-[#111827]">Projects</h2>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto">
+            <Dropdown closeOnSelect={false} placement="bottom-start">
+              <DropdownTrigger>
                 <Button
-                  fullWidth
-                  radius="sm"
+                  startContent={<ListFilter size={14} />}
                   variant="bordered"
-                  onPress={resetFilters}
                 >
-                  Reset
+                  Filter
                 </Button>
-              </DropdownItem>
-            </DropdownMenu>
-          </Dropdown>
-          <Dropdown placement="bottom-start">
-            <DropdownTrigger>
-              <Button
-                startContent={<SlidersHorizontal size={14} />}
-                variant="bordered"
-              >
-                {`Group by: ${GROUP_BY_LABELS[groupBy]}`}
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu
-              aria-label="Group by"
-              selectedKeys={new Set([groupBy])}
-              selectionMode="single"
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0];
-
-                if (
-                  selected === "projects" ||
-                  selected === "client" ||
-                  selected === "status" ||
-                  selected === "phase" ||
-                  selected === "progress"
-                ) {
-                  setGroupBy(selected);
-                }
-              }}
-            >
-              <DropdownItem key="projects">Projects</DropdownItem>
-              <DropdownItem key="client">Client</DropdownItem>
-              <DropdownItem key="status">Status</DropdownItem>
-              <DropdownItem key="phase">Phase</DropdownItem>
-              <DropdownItem key="progress">Progress</DropdownItem>
-            </DropdownMenu>
-          </Dropdown>
-          <Dropdown closeOnSelect={false} placement="bottom-end">
-            <DropdownTrigger>
-              <Button startContent={<Columns3 size={14} />} variant="bordered">
-                Columns
-              </Button>
-            </DropdownTrigger>
-            <DropdownMenu aria-label="Visible project columns">
-              {toggleableProjectColumnKeys.map((columnKey) => (
-                <DropdownItem
-                  key={columnKey}
-                  textValue={projectColumnLabels[columnKey]}
-                  onPress={() => {
-                    setVisibleColumnKeys((current) => {
-                      const next = new Set(current);
-
-                      if (next.has(columnKey)) {
-                        next.delete(columnKey);
-                      } else {
-                        next.add(columnKey);
-                      }
-
-                      return next;
-                    });
-                  }}
-                >
-                  <Checkbox
-                    className="pointer-events-none"
-                    isSelected={visibleColumnKeys.has(columnKey)}
-                  >
-                    {projectColumnLabels[columnKey]}
-                  </Checkbox>
-                </DropdownItem>
-              ))}
-            </DropdownMenu>
-          </Dropdown>
-          <Input
-            className="w-full md:w-[220px]"
-            placeholder="Search here"
-            radius="sm"
-            startContent={<Search className="text-default-400" size={16} />}
-            value={searchValue}
-            onValueChange={setSearchValue}
-          />
-        </div>
-      </CardHeader>
-      <CardBody className="p-0">
-        <Table
-          removeWrapper
-          aria-label="Projects list table"
-          classNames={{
-            table: "border-collapse border-spacing-0",
-            tbody:
-              "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#FCFCFD]",
-            td: "px-3 py-3 text-sm text-[#111827]",
-            th: "px-3 py-3 text-xs font-medium text-[#111827]",
-          }}
-        >
-          <TableHeader>
-            {visibleTableColumnKeys.map((columnKey) => (
-              <TableColumn key={columnKey}>
-                {projectColumnLabels[columnKey]}
-              </TableColumn>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={visibleColumnCount}>
-                  <div className="py-3 text-sm text-[#6B7280]">
-                    Loading projects...
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : groupedRows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={visibleColumnCount}>
-                  <div className="py-3 text-sm text-[#6B7280]">
-                    No projects found.
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              flattenedRows.map((row) =>
-                row.type === "group" ? (
-                  <TableRow key={row.key}>
-                    <TableCell
-                      className="bg-white px-3 py-2"
-                      colSpan={visibleColumnCount}
+              </DropdownTrigger>
+              <DropdownMenu aria-label="Project filters" className="min-w-64">
+                <DropdownItem key="client-filter" textValue="Client filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Client
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={clientFilter}
+                      onChange={(event) => setClientFilter(event.target.value)}
                     >
-                      <Chip
-                        className="bg-[#EEF2FF] text-[#4F46E5]"
-                        radius="full"
-                        size="sm"
+                      {clientOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="status-filter" textValue="Status filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Status
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                    >
+                      <option value="all">All statuses</option>
+                      {statusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="progress-filter" textValue="Progress filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Progress
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={progressFilter}
+                      onChange={(event) =>
+                        setProgressFilter(event.target.value)
+                      }
+                    >
+                      <option value="all">All progress states</option>
+                      {progressOptions.map((progress) => (
+                        <option key={progress} value={progress}>
+                          {progress}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="reset-filters" textValue="Reset filters">
+                  <Button
+                    fullWidth
+                    radius="sm"
+                    variant="bordered"
+                    onPress={resetFilters}
+                  >
+                    Reset
+                  </Button>
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown placement="bottom-start">
+              <DropdownTrigger>
+                <Button
+                  startContent={<SlidersHorizontal size={14} />}
+                  variant="bordered"
+                >
+                  {`Group by: ${GROUP_BY_LABELS[groupBy]}`}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Group by"
+                selectedKeys={new Set([groupBy])}
+                selectionMode="single"
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0];
+
+                  if (
+                    selected === "projects" ||
+                    selected === "client" ||
+                    selected === "status" ||
+                    selected === "phase" ||
+                    selected === "progress"
+                  ) {
+                    setGroupBy(selected);
+                  }
+                }}
+              >
+                <DropdownItem key="projects">Projects</DropdownItem>
+                <DropdownItem key="client">Client</DropdownItem>
+                <DropdownItem key="status">Status</DropdownItem>
+                <DropdownItem key="phase">Phase</DropdownItem>
+                <DropdownItem key="progress">Progress</DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown closeOnSelect={false} placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  startContent={<Columns3 size={14} />}
+                  variant="bordered"
+                >
+                  Columns
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label="Visible project columns">
+                {toggleableProjectColumnKeys.map((columnKey) => (
+                  <DropdownItem
+                    key={columnKey}
+                    textValue={projectColumnLabels[columnKey]}
+                    onPress={() => {
+                      setVisibleColumnKeys((current) => {
+                        const next = new Set(current);
+
+                        if (next.has(columnKey)) {
+                          next.delete(columnKey);
+                        } else {
+                          next.add(columnKey);
+                        }
+
+                        return next;
+                      });
+                    }}
+                  >
+                    <Checkbox
+                      className="pointer-events-none"
+                      isSelected={visibleColumnKeys.has(columnKey)}
+                    >
+                      {projectColumnLabels[columnKey]}
+                    </Checkbox>
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
+            <Input
+              className="w-full md:w-[220px]"
+              placeholder="Search here"
+              radius="sm"
+              startContent={<Search className="text-default-400" size={16} />}
+              value={searchValue}
+              onValueChange={setSearchValue}
+            />
+          </div>
+        </CardHeader>
+        <CardBody className="p-0">
+          <Table
+            removeWrapper
+            aria-label="Projects list table"
+            classNames={{
+              table: "border-collapse border-spacing-0",
+              tbody:
+                "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#FCFCFD]",
+              td: "px-3 py-3 text-sm text-[#111827]",
+              th: "px-3 py-3 text-xs font-medium text-[#111827]",
+            }}
+          >
+            <TableHeader>
+              {visibleTableColumnKeys.map((columnKey) => (
+                <TableColumn key={columnKey}>
+                  {projectColumnLabels[columnKey]}
+                </TableColumn>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={visibleColumnCount}>
+                    <div className="py-3 text-sm text-[#6B7280]">
+                      Loading projects...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : groupedRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={visibleColumnCount}>
+                    <div className="py-3 text-sm text-[#6B7280]">
+                      No projects found.
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                flattenedRows.map((row) =>
+                  row.type === "group" ? (
+                    <TableRow key={row.key}>
+                      <TableCell
+                        className="bg-white px-3 py-2"
+                        colSpan={visibleColumnCount}
                       >
-                        {row.label}
-                      </Chip>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <TableRow key={row.key}>
-                    {visibleTableColumnKeys.map((columnKey) =>
-                      renderProjectCell(row.item, columnKey),
-                    )}
-                  </TableRow>
-                ),
-              )
-            )}
-          </TableBody>
-        </Table>
-      </CardBody>
-    </Card>
+                        <Chip
+                          className="bg-[#EEF2FF] text-[#4F46E5]"
+                          radius="full"
+                          size="sm"
+                        >
+                          {row.label}
+                        </Chip>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow key={row.key}>
+                      {visibleTableColumnKeys.map((columnKey) =>
+                        renderProjectCell(row.item, columnKey),
+                      )}
+                    </TableRow>
+                  ),
+                )
+              )}
+            </TableBody>
+          </Table>
+        </CardBody>
+      </Card>
+      <ProjectTaskListsDrawer
+        clientId={previewProject?.clientId ?? ""}
+        isOpen={Boolean(previewProject)}
+        projectId={previewProject?.id ?? ""}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setPreviewProject(null);
+          }
+        }}
+      />
+    </>
   );
 };

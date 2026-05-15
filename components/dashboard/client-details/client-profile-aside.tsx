@@ -23,6 +23,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { clientsApi } from "@/apis/clients";
+import { useAuth } from "@/components/auth/auth-context";
+import {
+  formatClientSlug,
+  getClientDisplayAddress,
+  getClientDisplayName,
+} from "@/lib/client-display";
+
 type ClientMenuKey =
   | "details"
   | "projects"
@@ -105,7 +113,14 @@ export const ClientProfileAside = ({
   clientName = "",
   slug,
 }: ClientProfileAsideProps) => {
+  const { session } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [resolvedClientAddress, setResolvedClientAddress] = useState("");
+  const [resolvedClientName, setResolvedClientName] = useState("");
+  const fallbackClientName = clientName.trim() || formatClientSlug(slug);
+  const displayClientName = resolvedClientName || fallbackClientName;
+  const displayClientAddress =
+    resolvedClientAddress || clientAddress.trim() || "";
 
   useEffect(() => {
     const storedValue = window.localStorage.getItem("client-menu-collapsed");
@@ -116,6 +131,46 @@ export const ClientProfileAside = ({
       ? "true"
       : "false";
   }, []);
+
+  useEffect(() => {
+    if (!session?.accessToken || !slug) {
+      setResolvedClientAddress("");
+      setResolvedClientName("");
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadClientDetails = async () => {
+      try {
+        const client = await clientsApi.getClientById(
+          session.accessToken,
+          slug,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setResolvedClientName(getClientDisplayName(client, fallbackClientName));
+        setResolvedClientAddress(getClientDisplayAddress(client));
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setResolvedClientAddress("");
+        setResolvedClientName("");
+      }
+    };
+
+    void loadClientDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fallbackClientName, session?.accessToken, slug]);
 
   const toggleCollapsed = () => {
     setIsCollapsed((current) => {
@@ -149,9 +204,13 @@ export const ClientProfileAside = ({
         {!isCollapsed ? (
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold text-[#111827]">
-              {clientName}
+              {displayClientName}
             </h2>
-            <p className="truncate text-xs text-default-500">{clientAddress}</p>
+            {displayClientAddress ? (
+              <p className="truncate text-xs text-default-500">
+                {displayClientAddress}
+              </p>
+            ) : null}
           </div>
         ) : null}
         <Button

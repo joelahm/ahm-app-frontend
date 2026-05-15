@@ -10,6 +10,8 @@ export interface DashboardTableAction {
   key: string;
   label: string;
   color?: ButtonProps["color"];
+  isDisabled?: boolean;
+  isLoading?: boolean;
   variant?: ButtonProps["variant"];
   startContent?: ReactNode;
   onPress?: () => void;
@@ -41,6 +43,8 @@ export const DashboardTableShell = ({
                 key={action.key}
                 className={action.color ? "bg-[#022279] text-white" : undefined}
                 color="default"
+                isDisabled={action.isDisabled}
+                isLoading={action.isLoading}
                 startContent={action.startContent}
                 variant={action.variant ?? "bordered"}
                 onPress={action.onPress}

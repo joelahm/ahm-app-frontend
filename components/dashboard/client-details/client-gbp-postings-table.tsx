@@ -25,6 +25,7 @@ import {
   Image as ImageIcon,
   Columns3,
   Copy,
+  Download,
   EllipsisVertical,
   List,
   MapPin,
@@ -115,7 +116,7 @@ const STATUS_OPTIONS = [
   "Completed",
 ];
 const DESCRIPTION_MAX_LENGTH = 1500;
-const MAX_POST_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_POST_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const formatDateTime = (value: string | null) => {
   if (!value) {
@@ -204,15 +205,6 @@ const serializeEditForm = (form: GbpPostingEditFormState) =>
 const getUserName = (user: UserListItem) =>
   [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
 
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Failed to read image."));
-    reader.readAsDataURL(file);
-  });
-
 const formatCommentAuthor = (comment: ClientGbpPostingComment) => {
   if (!comment.author) {
     return "Unknown";
@@ -249,6 +241,28 @@ const sanitizeCommentHtml = (html: string) =>
     .replace(/\son\w+="[^"]*"/gi, "")
     .replace(/\son\w+='[^']*'/gi, "");
 
+const escapeCsvValue = (value: string | null | undefined) => {
+  const normalizedValue = value ?? "";
+
+  if (/[",\n\r]/.test(normalizedValue)) {
+    return `"${normalizedValue.replace(/"/g, '""')}"`;
+  }
+
+  return normalizedValue;
+};
+
+const buildPublicReviewUrl = (publicPath?: string | null) => {
+  if (!publicPath) {
+    return "";
+  }
+
+  if (typeof window === "undefined") {
+    return publicPath;
+  }
+
+  return `${window.location.origin}${publicPath}`;
+};
+
 export const ClientGbpPostingsTable = ({
   clientId,
   openPostId,
@@ -271,6 +285,16 @@ export const ClientGbpPostingsTable = ({
     useState<GbpPostingReviewDashboardState | null>(null);
   const [isReviewLinkLoading, setIsReviewLinkLoading] = useState(false);
   const [isReviewLinkMutating, setIsReviewLinkMutating] = useState(false);
+  const [isBulkReviewModalOpen, setIsBulkReviewModalOpen] = useState(false);
+  const [isBulkReviewSending, setIsBulkReviewSending] = useState(false);
+  const [bulkReviewEnablingRowId, setBulkReviewEnablingRowId] = useState<
+    string | null
+  >(null);
+  const [bulkReviewMissingRows, setBulkReviewMissingRows] = useState<
+    GbpPostingRow[]
+  >([]);
+  const [bulkAction, setBulkAction] = useState<"send" | "export">("send");
+  const [isBulkExportingCsv, setIsBulkExportingCsv] = useState(false);
   const [editTab, setEditTab] = useState("content");
   const [revisionFromKey, setRevisionFromKey] = useState("");
   const [revisionToKey, setRevisionToKey] = useState("current");
@@ -550,17 +574,14 @@ export const ClientGbpPostingsTable = ({
   }, [editingRow?.id, loadReviewLink]);
 
   const reviewLink = reviewState?.link ?? null;
-  const reviewLinkUrl = useMemo(() => {
-    if (!reviewLink?.publicPath) {
-      return "";
-    }
-
-    if (typeof window === "undefined") {
-      return reviewLink.publicPath;
-    }
-
-    return `${window.location.origin}${reviewLink.publicPath}`;
-  }, [reviewLink?.publicPath]);
+  const reviewLinkUrl = useMemo(
+    () => buildPublicReviewUrl(reviewLink?.publicPath),
+    [reviewLink?.publicPath],
+  );
+  const selectedReviewRows = useMemo(
+    () => rows.filter((row) => row.isSelected),
+    [rows],
+  );
 
   const formatReviewExpiry = (value?: string | null) => {
     if (!value) {
@@ -629,6 +650,245 @@ export const ClientGbpPostingsTable = ({
       toastRef.current.danger("Unable to copy public link.");
     }
   }, [reviewLinkUrl]);
+
+  const fetchReviewStateForRow = useCallback(
+    async (row: GbpPostingRow) => {
+      if (!session?.accessToken) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const accessToken = await getValidAccessToken();
+
+      return gbpPostingReviewsApi.getDashboardState(accessToken, {
+        postingId: row.id,
+      });
+    },
+    [getValidAccessToken, session?.accessToken],
+  );
+
+  const sendSelectedRowsForReview = useCallback(
+    async (
+      entries: Array<{
+        row: GbpPostingRow;
+        state: GbpPostingReviewDashboardState;
+      }>,
+    ) => {
+      if (!session?.accessToken) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const accessToken = await getValidAccessToken();
+
+      await Promise.all(
+        entries.map(({ row, state }) =>
+          gbpPostingReviewsApi.sendLinkToClientReview(accessToken, {
+            postingId: row.id,
+            publicUrl: buildPublicReviewUrl(state.link?.publicPath),
+          }),
+        ),
+      );
+
+      toastRef.current.success("Review links sent to client.");
+      setRows((current) =>
+        current.map((row) =>
+          row.isSelected ? { ...row, isSelected: false } : row,
+        ),
+      );
+
+      if (editingRow?.id) {
+        await loadReviewLink(editingRow.id);
+      }
+    },
+    [editingRow?.id, getValidAccessToken, loadReviewLink, session?.accessToken],
+  );
+
+  const handleBulkSendForReview = useCallback(async () => {
+    if (selectedReviewRows.length === 0 || isBulkReviewSending) {
+      return;
+    }
+
+    try {
+      setIsBulkReviewSending(true);
+      setBulkAction("send");
+      const entries = await Promise.all(
+        selectedReviewRows.map(async (row) => ({
+          row,
+          state: await fetchReviewStateForRow(row),
+        })),
+      );
+      const missingRows = entries
+        .filter(({ state }) => !state.link?.enabled || !state.link.publicPath)
+        .map(({ row }) => row);
+
+      if (missingRows.length > 0) {
+        setBulkReviewMissingRows(missingRows);
+        setIsBulkReviewModalOpen(true);
+
+        return;
+      }
+
+      setBulkReviewMissingRows([]);
+      setIsBulkReviewModalOpen(false);
+      await sendSelectedRowsForReview(entries);
+    } catch (error) {
+      toastRef.current.danger("Failed to send review links.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsBulkReviewSending(false);
+    }
+  }, [
+    fetchReviewStateForRow,
+    isBulkReviewSending,
+    selectedReviewRows,
+    sendSelectedRowsForReview,
+  ]);
+
+  const handleEnableBulkPublicLink = useCallback(
+    async (row: GbpPostingRow) => {
+      if (!session?.accessToken) {
+        toastRef.current.danger("Session expired. Please login again.");
+
+        return;
+      }
+
+      try {
+        setBulkReviewEnablingRowId(row.id);
+        const accessToken = await getValidAccessToken();
+
+        await gbpPostingReviewsApi.enableLink(accessToken, {
+          postingId: row.id,
+        });
+        const state = await fetchReviewStateForRow(row);
+
+        if (state.link?.enabled && state.link.publicPath) {
+          setBulkReviewMissingRows((current) =>
+            current.filter((item) => item.id !== row.id),
+          );
+        }
+
+        toastRef.current.success("Public link enabled.");
+      } catch (error) {
+        toastRef.current.danger("Failed to enable public link.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setBulkReviewEnablingRowId(null);
+      }
+    },
+    [fetchReviewStateForRow, getValidAccessToken, session?.accessToken],
+  );
+
+  const exportSelectedRowsToCsv = useCallback(
+    (
+      entries: Array<{
+        row: GbpPostingRow;
+        state: GbpPostingReviewDashboardState;
+      }>,
+    ) => {
+      const headers = [
+        "Keyword",
+        "Type",
+        "Assignee",
+        "Description",
+        "Images",
+        "Button Type",
+        "Live Link",
+        "Date Published",
+        "Last Updated",
+        "Public Review URL",
+        "Public Link Expires",
+        "Status",
+        "Notes",
+      ];
+      const csvRows = [
+        headers.map(escapeCsvValue).join(","),
+        ...entries.map(({ row, state }) =>
+          [
+            row.keyword,
+            row.type,
+            row.assigneeName,
+            row.description,
+            row.images.map((image) => resolveServerAssetUrl(image)).join("\n"),
+            row.buttonType ?? "",
+            row.liveLink,
+            row.datePublished,
+            row.lastDateUpdated,
+            buildPublicReviewUrl(state.link?.publicPath),
+            state.link?.expiresAt ?? "",
+            row.status,
+            "",
+          ]
+            .map(escapeCsvValue)
+            .join(","),
+        ),
+      ];
+      const blob = new Blob([csvRows.join("\n")], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().slice(0, 10);
+
+      link.href = url;
+      link.download = `gbp-postings-${clientId ?? "client"}-${timestamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+    [clientId],
+  );
+
+  const handleBulkExportCsv = useCallback(async () => {
+    if (selectedReviewRows.length === 0 || isBulkExportingCsv) {
+      return;
+    }
+
+    try {
+      setIsBulkExportingCsv(true);
+      setBulkAction("export");
+      const entries = await Promise.all(
+        selectedReviewRows.map(async (row) => ({
+          row,
+          state: await fetchReviewStateForRow(row),
+        })),
+      );
+      const missingRows = entries
+        .filter(({ state }) => !state.link?.enabled || !state.link.publicPath)
+        .map(({ row }) => row);
+
+      if (missingRows.length > 0) {
+        setBulkReviewMissingRows(missingRows);
+        setIsBulkReviewModalOpen(true);
+
+        return;
+      }
+
+      setBulkReviewMissingRows([]);
+      setIsBulkReviewModalOpen(false);
+      exportSelectedRowsToCsv(entries);
+      toastRef.current.success(
+        `Exported ${entries.length} ${
+          entries.length === 1 ? "posting" : "postings"
+        } to CSV.`,
+      );
+    } catch (error) {
+      toastRef.current.danger("Failed to export CSV.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsBulkExportingCsv(false);
+    }
+  }, [
+    exportSelectedRowsToCsv,
+    fetchReviewStateForRow,
+    isBulkExportingCsv,
+    selectedReviewRows,
+  ]);
 
   type GbpRevisionSnapshot = {
     postContent: string;
@@ -855,29 +1115,48 @@ export const ClientGbpPostingsTable = ({
       return;
     }
 
+    if (!editingRow?.id || !clientId) {
+      toastRef.current.warning("Save the post first before uploading images.");
+
+      return;
+    }
+
     try {
-      const selectedFiles = Array.from(files);
+      const selectedFiles = Array.from(files).filter((file) =>
+        file.type.startsWith("image/"),
+      );
+
+      if (selectedFiles.length === 0) {
+        return;
+      }
+
       const oversizedFiles = selectedFiles.filter(
         (file) => file.size > MAX_POST_IMAGE_BYTES,
       );
 
       if (oversizedFiles.length > 0) {
         toastRef.current.warning("Image is too large.", {
-          description: "PNG or JPG images must be smaller than 3MB.",
+          description: "PNG or JPG images must be smaller than 5MB.",
         });
 
         return;
       }
 
-      const images = await Promise.all(
-        selectedFiles
-          .filter((file) => file.type.startsWith("image/"))
-          .map(fileToDataUrl),
+      const accessToken = await getValidAccessToken();
+      const uploaded = await Promise.all(
+        selectedFiles.map((file) =>
+          clientsApi.uploadClientGbpPostingImage(
+            accessToken,
+            clientId,
+            editingRow.id,
+            file,
+          ),
+        ),
       );
 
       setEditForm((current) => ({
         ...current,
-        images: [...images, ...current.images],
+        images: [...uploaded.map((image) => image.url), ...current.images],
       }));
     } catch (error) {
       toastRef.current.danger("Failed to upload image.", {
@@ -1176,11 +1455,28 @@ export const ClientGbpPostingsTable = ({
     }
   };
 
+  const selectedReviewRowCount = selectedReviewRows.length;
+  const isAllRowsSelected =
+    rows.length > 0 && selectedReviewRowCount === rows.length;
+  const isSomeRowsSelected = selectedReviewRowCount > 0 && !isAllRowsSelected;
+
   const columns = useMemo<DashboardDataTableColumn<GbpPostingRow>[]>(
     () => [
       {
         key: "select",
         label: "",
+        header: (
+          <Checkbox
+            aria-label="Select all GBP postings"
+            isIndeterminate={isSomeRowsSelected}
+            isSelected={isAllRowsSelected}
+            onValueChange={(isSelected) => {
+              setRows((current) =>
+                current.map((row) => ({ ...row, isSelected })),
+              );
+            }}
+          />
+        ),
         className: "w-12 bg-[#F9FAFB] text-[#111827]",
         renderCell: (item) => (
           <Checkbox
@@ -1241,7 +1537,7 @@ export const ClientGbpPostingsTable = ({
               <Avatar
                 key={`${item.id}-image-${image}`}
                 className={`h-8 w-8 border border-white grayscale ${index > 0 ? "-ml-2" : ""}`}
-                src={image}
+                src={resolveServerAssetUrl(image)}
               />
             ))}
           </div>
@@ -1337,7 +1633,13 @@ export const ClientGbpPostingsTable = ({
         ),
       },
     ],
-    [handleDeletePosting, isDeletingPostingId, openEditModal],
+    [
+      handleDeletePosting,
+      isAllRowsSelected,
+      isDeletingPostingId,
+      isSomeRowsSelected,
+      openEditModal,
+    ],
   );
 
   return (
@@ -1367,6 +1669,28 @@ export const ClientGbpPostingsTable = ({
             variant: "bordered",
           },
           {
+            key: "export-csv",
+            label: "Export to CSV",
+            isDisabled: selectedReviewRows.length === 0,
+            isLoading: isBulkExportingCsv,
+            startContent: <Download size={14} />,
+            variant: "bordered",
+            onPress: () => {
+              void handleBulkExportCsv();
+            },
+          },
+          {
+            key: "send-review",
+            label: "Send for review",
+            isDisabled: selectedReviewRows.length === 0,
+            isLoading: isBulkReviewSending,
+            startContent: <SendHorizontal size={14} />,
+            variant: "bordered",
+            onPress: () => {
+              void handleBulkSendForReview();
+            },
+          },
+          {
             key: "add-keyword-bulk",
             label: "Add Keywords",
             variant: "solid",
@@ -1380,6 +1704,79 @@ export const ClientGbpPostingsTable = ({
         rows={rows}
         title={isLoadingRows ? "GBP Postings (Loading...)" : "GBP Postings"}
       />
+      <Modal
+        isOpen={isBulkReviewModalOpen}
+        placement="center"
+        onOpenChange={setIsBulkReviewModalOpen}
+      >
+        <ModalContent>
+          <ModalHeader className="flex flex-col gap-1">
+            Public review links required
+          </ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-[#4B5563]">
+              {bulkAction === "export"
+                ? "These selected GBP posts need public review links before they can be exported to CSV."
+                : "These selected GBP posts need public review links before they can be sent to the client."}
+            </p>
+            <div className="space-y-3">
+              {bulkReviewMissingRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-default-200 p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#111827]">
+                      {row.keyword}
+                    </p>
+                    <p className="truncate text-xs text-[#6B7280]">
+                      {row.type} - {row.status}
+                    </p>
+                  </div>
+                  <Button
+                    className="shrink-0"
+                    isLoading={bulkReviewEnablingRowId === row.id}
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      void handleEnableBulkPublicLink(row);
+                    }}
+                  >
+                    Enable public link
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => {
+                setIsBulkReviewModalOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isLoading={
+                bulkAction === "export"
+                  ? isBulkExportingCsv
+                  : isBulkReviewSending
+              }
+              onPress={() => {
+                if (bulkAction === "export") {
+                  void handleBulkExportCsv();
+                } else {
+                  void handleBulkSendForReview();
+                }
+              }}
+            >
+              Try Again
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
       <AddGbpPostingKeywordsModal
         isOpen={isAddKeywordsModalOpen}
         onOpenChange={setIsAddKeywordsModalOpen}
@@ -1488,7 +1885,7 @@ export const ClientGbpPostingsTable = ({
                         <img
                           alt="GBP post preview"
                           className="h-full w-full object-cover"
-                          src={editForm.images[0]}
+                          src={resolveServerAssetUrl(editForm.images[0])}
                         />
                       ) : (
                         <button
@@ -1505,7 +1902,7 @@ export const ClientGbpPostingsTable = ({
                         >
                           <ImageIcon className="text-[#022279]" size={34} />
                           <span className="mt-4 text-sm text-[#98A2B3]">
-                            PNG or JPG, smaller than 3MB
+                            PNG or JPG, smaller than 5MB
                           </span>
                           <span className="mt-4 text-base text-[#111827]">
                             Drag and Drop your file here or
@@ -2111,7 +2508,7 @@ export const ClientGbpPostingsTable = ({
                                   key={`from-${index}-${image.slice(0, 24)}`}
                                   alt="Revision before"
                                   className="aspect-square w-full rounded object-cover"
-                                  src={image}
+                                  src={resolveServerAssetUrl(image)}
                                 />
                               ),
                             )}
@@ -2129,7 +2526,7 @@ export const ClientGbpPostingsTable = ({
                                   key={`to-${index}-${image.slice(0, 24)}`}
                                   alt="Revision after"
                                   className="aspect-square w-full rounded object-cover"
-                                  src={image}
+                                  src={resolveServerAssetUrl(image)}
                                 />
                               ),
                             )}

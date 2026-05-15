@@ -20,6 +20,7 @@ import {
   ModalHeader,
 } from "@heroui/modal";
 import { Progress } from "@heroui/progress";
+import { ScrollShadow } from "@heroui/scroll-shadow";
 import { Select, SelectItem } from "@heroui/select";
 import { Spinner } from "@heroui/spinner";
 import { Tab, Tabs } from "@heroui/tabs";
@@ -45,7 +46,6 @@ import {
   Plus,
   SendHorizontal,
   Settings,
-  Search,
   ShieldCheck,
   ShieldOff,
   SlidersHorizontal,
@@ -55,7 +55,6 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
 
 import { aiPromptsApi } from "@/apis/ai-prompts";
 import { clientsApi, type ClientDetails } from "@/apis/clients";
@@ -83,6 +82,8 @@ import {
   buildAiPromptTemplateValues,
   resolveAiPromptTemplate,
 } from "@/lib/ai-prompt-template";
+import { WEB_CONTENT_TYPE_OPTIONS } from "@/lib/web-content-types";
+import { WEB_CONTENT_STATUS_OPTIONS } from "@/lib/web-content-statuses";
 import { manusApi } from "@/apis/manus";
 import {
   websiteContentReviewsApi,
@@ -118,6 +119,16 @@ const buildPublicReviewUrl = (publicPath?: string | null) => {
   return `${window.location.origin}${publicPath}`;
 };
 
+const escapeCsvValue = (value: string | null | undefined) => {
+  const normalizedValue = value ?? "";
+
+  if (/[",\n\r]/.test(normalizedValue)) {
+    return `"${normalizedValue.replace(/"/g, '""')}"`;
+  }
+
+  return normalizedValue;
+};
+
 const logGenerationContextInfo = (
   message: string,
   details: Record<string, unknown>,
@@ -134,21 +145,74 @@ const logGenerationContextError = (
   console.error(message, details);
 };
 
+const isGeneratingContentStatus = (status?: string | null) =>
+  String(status || "")
+    .trim()
+    .toLowerCase() === "generating";
+const WEBSITE_CONTENT_ACTIVE_GENERATION_KEY =
+  "ahm:website-content-active-generation-rows";
+
 const INITIAL_BREAKDOWN = [
+  { key: "homepage", label: "Homepage", allocated: 1, used: 0 },
+  { key: "about-us", label: "About Us Page", allocated: 1, used: 0 },
   { key: "treatment", label: "Treatment pages", allocated: 10, used: 0 },
   { key: "condition", label: "Condition pages", allocated: 5, used: 0 },
+  { key: "service", label: "Service Page", allocated: 10, used: 0 },
+  { key: "department", label: "Department Page", allocated: 1, used: 0 },
+  { key: "location", label: "Location Page", allocated: 5, used: 0 },
+  {
+    key: "doctor-profile",
+    label: "Doctor Profile Page",
+    allocated: 1,
+    used: 0,
+  },
+  { key: "team", label: "Team Page", allocated: 1, used: 0 },
+  {
+    key: "patient-information",
+    label: "Patient Information Page",
+    allocated: 1,
+    used: 0,
+  },
   { key: "blogs", label: "Blogs", allocated: 40, used: 0 },
+  { key: "guide", label: "Guide Page", allocated: 5, used: 0 },
+  { key: "faq", label: "FAQ Page", allocated: 5, used: 0 },
+  { key: "case-study", label: "Case Study", allocated: 1, used: 0 },
   { key: "press", label: "Press Release", allocated: 10, used: 0 },
-  { key: "homepage", label: "Homepage", allocated: 1, used: 0 },
+  { key: "contact", label: "Contact Page", allocated: 1, used: 0 },
+  {
+    key: "book-appointment",
+    label: "Book Appointment Page",
+    allocated: 1,
+    used: 0,
+  },
+  { key: "consultation", label: "Consultation Page", allocated: 1, used: 0 },
+  {
+    key: "second-opinion",
+    label: "Second Opinion Page",
+    allocated: 1,
+    used: 0,
+  },
+  { key: "pricing", label: "Pricing Page", allocated: 1, used: 0 },
+  { key: "landing", label: "Landing Page", allocated: 1, used: 0 },
+  { key: "feedback", label: "Feedback Page", allocated: 1, used: 0 },
+  { key: "privacy-policy", label: "Privacy Policy", allocated: 1, used: 0 },
+  {
+    key: "terms",
+    label: "Terms and Conditions",
+    allocated: 1,
+    used: 0,
+  },
+  { key: "cookie-policy", label: "Cookie Policy", allocated: 1, used: 0 },
+  {
+    key: "medical-disclaimer",
+    label: "Medical Disclaimer",
+    allocated: 1,
+    used: 0,
+  },
+  { key: "404", label: "404 Page", allocated: 1, used: 0 },
 ];
 
-const MODAL_ROW_ORDER = [
-  "homepage",
-  "treatment",
-  "condition",
-  "press",
-  "blogs",
-];
+const MODAL_ROW_ORDER = INITIAL_BREAKDOWN.map((item) => item.key);
 
 type BreakdownItem = {
   allocated: number;
@@ -223,13 +287,6 @@ type GenerationModalState = {
   rowKeyword: string;
 };
 
-type GeneratedSeoFields = {
-  altDescription: string;
-  altTitle: string;
-  metaDescription: string;
-  metaTitle: string;
-};
-
 type GeneratedSeoMetadata = {
   articleTitle: string;
   metaDescription: string;
@@ -279,6 +336,7 @@ type EditContentFormValues = {
   metaDescription: string;
   metaTitle: string;
   status: string;
+  type: string;
   urlSlug: string;
 };
 
@@ -319,6 +377,7 @@ const EDIT_CONTENT_SCHEMA = yup.object({
   metaDescription: yup.string().max(320).default(""),
   metaTitle: yup.string().max(160).default(""),
   status: yup.string().trim().required().default("Draft"),
+  type: yup.string().trim().required("Type is required."),
   urlSlug: yup
     .string()
     .trim()
@@ -330,7 +389,7 @@ const EDIT_CONTENT_SCHEMA = yup.object({
     .default(""),
 });
 
-const CONTENT_STATUS_OPTIONS = ["Draft", "Generating", "Completed", "Failed"];
+const CONTENT_STATUS_OPTIONS = [...WEB_CONTENT_STATUS_OPTIONS];
 const CITATION_OPTIONS = ["In-text", "Footnote", "Reference"];
 const INTENT_OPTIONS = [
   "Informational",
@@ -376,102 +435,6 @@ const stripHtmlToPlainText = (value: string) => {
     .trim();
 };
 
-const cleanGeneratedWebsiteContent = (value: string) =>
-  value
-    .trim()
-    .replace(/\s*<[^>\n\r]*$/g, "")
-    .replace(/\s*&(?:[a-zA-Z0-9#]*)?$/g, "")
-    .replace(/\n?\s*#{1,6}\s*$/g, "")
-    .trim();
-
-const sanitizeGeneratedRichTextHtml = (value: string) => {
-  const cleanedValue = cleanGeneratedWebsiteContent(value);
-
-  if (!cleanedValue) {
-    return "";
-  }
-
-  if (!/<[a-z][\s\S]*>/i.test(cleanedValue)) {
-    return toEditorHtmlContent(cleanedValue);
-  }
-
-  if (typeof window === "undefined") {
-    return cleanedValue;
-  }
-
-  const parser = new DOMParser();
-  const documentNode = parser.parseFromString(cleanedValue, "text/html");
-  const blockedTags = ["script", "style", "iframe", "object", "embed"];
-  const allowedTags = new Set([
-    "a",
-    "blockquote",
-    "br",
-    "em",
-    "h1",
-    "h2",
-    "h3",
-    "li",
-    "ol",
-    "p",
-    "strong",
-    "ul",
-  ]);
-
-  blockedTags.forEach((tagName) => {
-    documentNode.querySelectorAll(tagName).forEach((node) => {
-      node.remove();
-    });
-  });
-
-  Array.from(documentNode.body.querySelectorAll("*")).forEach((element) => {
-    const tagName = element.tagName.toLowerCase();
-
-    if (!allowedTags.has(tagName)) {
-      const parent = element.parentNode;
-
-      if (!parent) {
-        element.remove();
-
-        return;
-      }
-
-      while (element.firstChild) {
-        parent.insertBefore(element.firstChild, element);
-      }
-
-      parent.removeChild(element);
-
-      return;
-    }
-
-    Array.from(element.attributes).forEach((attribute) => {
-      const attributeName = attribute.name.toLowerCase();
-
-      if (tagName === "a" && attributeName === "href") {
-        const href = attribute.value.trim();
-
-        if (/^(https?:|mailto:|tel:|#)/i.test(href)) {
-          element.setAttribute("href", href);
-          element.setAttribute("rel", "noopener noreferrer");
-          element.setAttribute("target", "_blank");
-        } else {
-          element.removeAttribute(attribute.name);
-        }
-
-        return;
-      }
-
-      element.removeAttribute(attribute.name);
-    });
-  });
-
-  const normalizedHtml = documentNode.body.innerHTML
-    .replace(/<(p|h1|h2|h3|li)>\s*<\/\1>/gi, "")
-    .trim();
-
-  return normalizedHtml || toEditorHtmlContent(cleanedValue);
-};
-
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, "&amp;")
@@ -504,7 +467,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return undefined;
   }
 
-  if (/^https?:\/\//i.test(value)) {
+  if (/^(https?:|data:|blob:)/i.test(value)) {
     return value;
   }
 
@@ -689,6 +652,13 @@ const statusChipClass = (status: string) => {
 
 const normalizePageTypeForPrompt = (pageType: string) => {
   const normalized = pageType.trim().toLowerCase();
+  const exactType = WEB_CONTENT_TYPE_OPTIONS.find(
+    (option) => option.toLowerCase() === normalized,
+  );
+
+  if (exactType) {
+    return exactType;
+  }
 
   if (normalized.includes("home")) {
     return "Homepage";
@@ -715,25 +685,121 @@ const normalizePageTypeForPrompt = (pageType: string) => {
 
 const getBreakdownKeyForContentType = (contentType: string) => {
   const normalized = contentType.trim().toLowerCase();
+  const directMatch = INITIAL_BREAKDOWN.find((item) => item.key === normalized);
+  const labelMatch = INITIAL_BREAKDOWN.find(
+    (item) => item.label.toLowerCase() === normalized,
+  );
+
+  if (directMatch || labelMatch) {
+    return (directMatch ?? labelMatch)?.key ?? null;
+  }
+
+  if (normalized.includes("about")) {
+    return "about-us";
+  }
 
   if (normalized.includes("home")) {
     return "homepage";
   }
 
-  if (normalized.includes("treatment") || normalized.includes("service")) {
+  if (normalized.includes("treatment")) {
     return "treatment";
+  }
+
+  if (normalized.includes("service")) {
+    return "service";
   }
 
   if (normalized.includes("condition")) {
     return "condition";
   }
 
+  if (normalized.includes("department")) {
+    return "department";
+  }
+
+  if (normalized.includes("location")) {
+    return "location";
+  }
+
+  if (normalized.includes("doctor") || normalized.includes("profile")) {
+    return "doctor-profile";
+  }
+
+  if (normalized.includes("team")) {
+    return "team";
+  }
+
+  if (normalized.includes("patient")) {
+    return "patient-information";
+  }
+
   if (normalized.includes("blog")) {
     return "blogs";
   }
 
+  if (normalized.includes("guide")) {
+    return "guide";
+  }
+
+  if (normalized.includes("faq")) {
+    return "faq";
+  }
+
+  if (normalized.includes("case")) {
+    return "case-study";
+  }
+
   if (normalized.includes("press")) {
     return "press";
+  }
+
+  if (normalized.includes("contact")) {
+    return "contact";
+  }
+
+  if (normalized.includes("book") || normalized.includes("appointment")) {
+    return "book-appointment";
+  }
+
+  if (normalized.includes("consultation")) {
+    return "consultation";
+  }
+
+  if (normalized.includes("second")) {
+    return "second-opinion";
+  }
+
+  if (normalized.includes("pricing")) {
+    return "pricing";
+  }
+
+  if (normalized.includes("landing")) {
+    return "landing";
+  }
+
+  if (normalized.includes("feedback")) {
+    return "feedback";
+  }
+
+  if (normalized.includes("privacy")) {
+    return "privacy-policy";
+  }
+
+  if (normalized.includes("terms")) {
+    return "terms";
+  }
+
+  if (normalized.includes("cookie")) {
+    return "cookie-policy";
+  }
+
+  if (normalized.includes("disclaimer")) {
+    return "medical-disclaimer";
+  }
+
+  if (normalized.includes("404")) {
+    return "404";
   }
 
   return null;
@@ -790,45 +856,6 @@ const getMaxOutputTokensForContentLength = (contentLength: string) => {
   }
 
   return 6000;
-};
-
-const parseGeneratedSeoFields = (value: string): GeneratedSeoFields => {
-  const trimmed = value.trim();
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const jsonSource = fencedMatch?.[1]?.trim() || trimmed;
-  const objectMatch = jsonSource.match(/\{[\s\S]*\}/);
-  const normalizedSource = objectMatch?.[0] || jsonSource;
-  let parsed: Record<string, unknown>;
-
-  try {
-    parsed = JSON.parse(normalizedSource) as Record<string, unknown>;
-  } catch {
-    throw new Error("Failed to parse generated SEO metadata.");
-  }
-
-  const metaTitle =
-    typeof parsed.metaTitle === "string" ? parsed.metaTitle.trim() : "";
-  const metaDescription =
-    typeof parsed.metaDescription === "string"
-      ? parsed.metaDescription.trim()
-      : "";
-  const altTitle =
-    typeof parsed.altTitle === "string" ? parsed.altTitle.trim() : "";
-  const altDescription =
-    typeof parsed.altDescription === "string"
-      ? parsed.altDescription.trim()
-      : "";
-
-  if (!metaTitle || !metaDescription || !altTitle || !altDescription) {
-    throw new Error("Generated SEO metadata was incomplete.");
-  }
-
-  return {
-    altDescription,
-    altTitle,
-    metaDescription,
-    metaTitle,
-  };
 };
 
 const parseGeneratedSeoMetadata = (value: string): GeneratedSeoMetadata => {
@@ -1083,6 +1110,24 @@ export const ClientWebsiteContentScreen = ({
   const [writingByRowId, setWritingByRowId] = useState<Record<string, boolean>>(
     {},
   );
+  const [activeGenerationRowIds, setActiveGenerationRowIds] = useState<
+    Set<string>
+  >(() => {
+    if (typeof window === "undefined") {
+      return new Set();
+    }
+
+    try {
+      const parsed = JSON.parse(
+        window.sessionStorage.getItem(WEBSITE_CONTENT_ACTIVE_GENERATION_KEY) ||
+          "[]",
+      );
+
+      return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    } catch {
+      return new Set();
+    }
+  });
   const [draggingKeywordId, setDraggingKeywordId] = useState<string | null>(
     null,
   );
@@ -1103,6 +1148,11 @@ export const ClientWebsiteContentScreen = ({
   const [clusterConfirmRowId, setClusterConfirmRowId] = useState<string | null>(
     null,
   );
+  const [layoutPromptRowId, setLayoutPromptRowId] = useState<string | null>(
+    null,
+  );
+  const [layoutPromptFile, setLayoutPromptFile] = useState<File | null>(null);
+  const [isLayoutUploading, setIsLayoutUploading] = useState(false);
   const [generationClientDetails, setGenerationClientDetails] =
     useState<ClientDetails | null>(null);
   const [, setIsGenerationContextLoading] = useState(false);
@@ -1137,12 +1187,18 @@ export const ClientWebsiteContentScreen = ({
   const [isReviewLinkMutating, setIsReviewLinkMutating] = useState(false);
   const [isBulkReviewModalOpen, setIsBulkReviewModalOpen] = useState(false);
   const [isBulkReviewSending, setIsBulkReviewSending] = useState(false);
+  const [isBulkDeletingKeywords, setIsBulkDeletingKeywords] = useState(false);
+  const [deleteConfirmRows, setDeleteConfirmRows] = useState<
+    WebsiteContentRow[]
+  >([]);
   const [bulkReviewEnablingRowId, setBulkReviewEnablingRowId] = useState<
     string | null
   >(null);
   const [bulkReviewMissingRows, setBulkReviewMissingRows] = useState<
     WebsiteContentRow[]
   >([]);
+  const [bulkAction, setBulkAction] = useState<"send" | "export">("send");
+  const [isBulkExportingCsv, setIsBulkExportingCsv] = useState(false);
   const [isSendingReviewLink, setIsSendingReviewLink] = useState(false);
   const [editContentActivityTab, setEditContentActivityTab] =
     useState("content");
@@ -1188,6 +1244,7 @@ export const ClientWebsiteContentScreen = ({
       metaDescription: "",
       metaTitle: "",
       status: "Draft",
+      type: "",
       urlSlug: "",
     },
     mode: "onSubmit",
@@ -1195,6 +1252,10 @@ export const ClientWebsiteContentScreen = ({
   const editContentCurrentValues = useWatch({
     control: editContentControl,
   });
+  const selectedReviewRows = useMemo(
+    () => rows.filter((row) => row.isSelected),
+    [rows],
+  );
 
   const loadSavedKeywords = useCallback(async () => {
     if (!session?.accessToken || !clientId) {
@@ -1666,6 +1727,78 @@ export const ClientWebsiteContentScreen = ({
     );
   };
 
+  const updateRowsByIds = (
+    rowIds: Set<string>,
+    patch: Partial<WebsiteContentRow>,
+  ) => {
+    setRows((current) =>
+      current.map((row) => (rowIds.has(row.id) ? { ...row, ...patch } : row)),
+    );
+  };
+
+  const setBackendGenerationActive = useCallback(
+    (rowId: string, isActive: boolean) => {
+      setActiveGenerationRowIds((current) => {
+        const next = new Set(current);
+
+        if (isActive) {
+          next.add(rowId);
+        } else {
+          next.delete(rowId);
+        }
+
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem(
+            WEBSITE_CONTENT_ACTIVE_GENERATION_KEY,
+            JSON.stringify(Array.from(next)),
+          );
+        }
+
+        return next;
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    // Hydrate active-generation flags from server row statuses. This makes
+    // navigation/refresh work: when the user lands back on the page, any
+    // row whose backend status is still "Generating" is treated as active
+    // so the action button shows "Generating..." and stays disabled until
+    // the backend finishes (or flips to "Failed").
+    rows.forEach((row) => {
+      const isGenerating = isGeneratingContentStatus(row.status);
+      const isTracked = activeGenerationRowIds.has(row.id);
+
+      if (isGenerating && !isTracked) {
+        setBackendGenerationActive(row.id, true);
+      } else if (!isGenerating && isTracked) {
+        setBackendGenerationActive(row.id, false);
+      }
+    });
+
+    const hasGeneratingRows = rows.some((row) =>
+      isGeneratingContentStatus(row.status),
+    );
+
+    if (!hasGeneratingRows) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadSavedKeywords();
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    activeGenerationRowIds,
+    loadSavedKeywords,
+    rows,
+    setBackendGenerationActive,
+  ]);
+
   const persistKeywordHierarchy = useCallback(
     async (
       row: WebsiteContentRow,
@@ -1824,41 +1957,70 @@ export const ClientWebsiteContentScreen = ({
     ],
   );
 
-  const handleDeleteKeyword = useCallback(
-    async (row: WebsiteContentRow) => {
-      if (!session?.accessToken) {
-        toast.danger("Session expired. Please login again.");
+  const openDeleteConfirm = useCallback((rowsToDelete: WebsiteContentRow[]) => {
+    if (rowsToDelete.length === 0) {
+      return;
+    }
 
-        return;
-      }
+    setDeleteConfirmRows(rowsToDelete);
+  }, []);
 
-      if (!row.listId || !row.keywordId) {
-        toast.danger("Unable to delete this keyword.");
+  const handleConfirmDeleteKeywords = useCallback(async () => {
+    if (deleteConfirmRows.length === 0 || isBulkDeletingKeywords) {
+      return;
+    }
 
-        return;
-      }
+    if (!session?.accessToken) {
+      toast.danger("Session expired. Please login again.");
 
-      try {
-        const accessToken = await getValidAccessToken();
+      return;
+    }
 
-        await keywordContentListsApi.deleteKeywordContentListKeyword(
-          accessToken,
-          {
+    const deletableRows = deleteConfirmRows.filter(
+      (row) => row.listId && row.keywordId,
+    );
+
+    if (deletableRows.length === 0) {
+      toast.danger("Unable to delete selected keywords.");
+
+      return;
+    }
+
+    try {
+      setIsBulkDeletingKeywords(true);
+      const accessToken = await getValidAccessToken();
+
+      await Promise.all(
+        deletableRows.map((row) =>
+          keywordContentListsApi.deleteKeywordContentListKeyword(accessToken, {
             keywordId: row.keywordId,
             listId: row.listId,
-          },
-        );
-        await loadSavedKeywords();
-        toast.success("Keyword deleted successfully.");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to delete keyword.";
+          }),
+        ),
+      );
+      await loadSavedKeywords();
+      setDeleteConfirmRows([]);
+      toast.success(
+        deletableRows.length === 1
+          ? "Keyword deleted successfully."
+          : `${deletableRows.length} keywords deleted successfully.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to delete keywords.";
 
-        toast.danger(message);
-      }
-    },
-    [getValidAccessToken, loadSavedKeywords, session?.accessToken, toast],
-  );
+      toast.danger(message);
+    } finally {
+      setIsBulkDeletingKeywords(false);
+    }
+  }, [
+    deleteConfirmRows,
+    getValidAccessToken,
+    isBulkDeletingKeywords,
+    loadSavedKeywords,
+    session?.accessToken,
+    toast,
+  ]);
 
   const setRowLoadingState = useCallback(
     (rowId: string, isLoading: boolean) => {
@@ -2157,10 +2319,15 @@ ${plainContent || "N/A"}`.trim();
   const generateContentForRow = useCallback(
     async (
       row: WebsiteContentRow,
-      options?: { openModal?: boolean; showSuccessToast?: boolean },
+      options?: {
+        layoutImageUrl?: string | null;
+        openModal?: boolean;
+        showSuccessToast?: boolean;
+      },
     ) => {
       setRowLoadingState(row.id, true);
       updateRowById(row.id, { status: "Generating" });
+      await persistRowPatch(row, { status: "Generating" });
       if (options?.openModal ?? true) {
         openGenerationModal(row);
       }
@@ -2173,6 +2340,7 @@ ${plainContent || "N/A"}`.trim();
           clientId,
           contentLength: row.contentLength,
           keyword: row.keyword,
+          layoutImageUrl: options?.layoutImageUrl ?? null,
           prompt,
           rowId: row.id,
           title: row.title,
@@ -2203,63 +2371,46 @@ ${plainContent || "N/A"}`.trim();
         }
 
         const accessToken = await getValidAccessToken();
-        const response = await manusApi.generateText(accessToken, {
-          clientId,
-          maxCharacters: getMaxOutputTokensForContentLength(row.contentLength),
-          prompt,
-          provider: "ANTHROPIC",
-        });
-        const generatedContent = sanitizeGeneratedRichTextHtml(
-          response.text?.trim() || "",
+        const seoPromptTemplate = buildSeoFieldsPrompt(
+          row,
+          "__GENERATED_CONTENT__",
         );
 
-        if (!generatedContent) {
-          throw new Error("No content was generated. Please try again.");
-        }
-
-        const seoPrompt = buildSeoFieldsPrompt(row, generatedContent);
-        const seoResponse = await manusApi.generateText(accessToken, {
-          clientId,
-          maxCharacters: 700,
-          prompt: seoPrompt,
-          provider: "ANTHROPIC",
-        });
-        const generatedSeoFields = parseGeneratedSeoFields(
-          seoResponse.text?.trim() || "",
+        await keywordContentListsApi.startWebsiteContentGeneration(
+          accessToken,
+          {
+            clientId: String(clientId),
+            contentLength: row.contentLength,
+            contentPrompt: prompt,
+            contentType: row.type,
+            keywordId: row.keywordId,
+            layoutImageUrl: options?.layoutImageUrl ?? null,
+            listId: row.listId,
+            maxContentTokens: getMaxOutputTokensForContentLength(
+              row.contentLength,
+            ),
+            maxSeoTokens: 700,
+            seoPromptTemplate,
+            title: row.title,
+          },
         );
-
-        await persistRowPatch(row, {
-          altDescription: generatedSeoFields.altDescription,
-          altTitle: generatedSeoFields.altTitle,
-          contentLength: row.contentLength,
-          contentType: row.type,
-          generatedContent,
-          metaDescription: generatedSeoFields.metaDescription,
-          metaTitle: generatedSeoFields.metaTitle,
-          status: "Completed",
-          title: row.title,
-        });
-
-        updateRowById(row.id, {
-          altDescription: generatedSeoFields.altDescription,
-          altTitle: generatedSeoFields.altTitle,
-          generatedContent,
-          metaDescription: generatedSeoFields.metaDescription,
-          metaTitle: generatedSeoFields.metaTitle,
-          status: "Completed",
-        });
+        setBackendGenerationActive(row.id, true);
+        // Keep the modal open in "Generating..." mode. The background job is
+        // queued on the backend; the polling effect will refresh the row when
+        // it completes (or fails) and a separate effect will flip the modal
+        // into the result view at that point.
         if (options?.openModal ?? true) {
-          setGenerationModal({
-            content: generatedContent,
+          setGenerationModal((current) => ({
+            ...current,
             error: "",
-            isGenerating: false,
+            isGenerating: true,
             isOpen: true,
             rowId: row.id,
             rowKeyword: row.keyword,
-          });
+          }));
         }
         if (options?.showSuccessToast ?? true) {
-          toast.success("Content generated successfully.");
+          toast.success("Content generation started.");
         }
       } catch (error) {
         const message =
@@ -2289,7 +2440,9 @@ ${plainContent || "N/A"}`.trim();
       getValidAccessToken,
       openGenerationModal,
       persistRowPatch,
+      activeGenerationRowIds,
       session?.accessToken,
+      setBackendGenerationActive,
       setRowLoadingState,
       toast,
       updateRowById,
@@ -2297,13 +2450,13 @@ ${plainContent || "N/A"}`.trim();
   );
 
   const handleGenerateForRow = useCallback(
-    async (row: WebsiteContentRow) => {
-      if (writingByRowId[row.id]) {
+    async (row: WebsiteContentRow, layoutImageUrl?: string | null) => {
+      if (writingByRowId[row.id] || activeGenerationRowIds.has(row.id)) {
         return;
       }
 
       try {
-        await generateContentForRow(row);
+        await generateContentForRow(row, { layoutImageUrl });
       } catch (error) {
         toast.danger(
           error instanceof Error
@@ -2312,15 +2465,101 @@ ${plainContent || "N/A"}`.trim();
         );
       }
     },
-    [generateContentForRow, toast, writingByRowId],
+    [activeGenerationRowIds, generateContentForRow, toast, writingByRowId],
+  );
+
+  const handleConfirmLayoutPrompt = useCallback(
+    async (useLayout: boolean) => {
+      const row = layoutPromptRowId
+        ? (rows.find((candidate) => candidate.id === layoutPromptRowId) ?? null)
+        : null;
+
+      if (!row) {
+        return;
+      }
+
+      let uploadedUrl: string | null = null;
+
+      if (useLayout) {
+        if (!layoutPromptFile) {
+          toast.warning(
+            "Choose a layout image first, or click 'Skip & Generate' to continue without one.",
+          );
+
+          return;
+        }
+
+        if (!session?.accessToken || !clientId) {
+          toast.danger("Session expired. Please login again.");
+
+          return;
+        }
+
+        try {
+          setIsLayoutUploading(true);
+          const accessToken = await getValidAccessToken();
+          const uploaded = await clientsApi.uploadWebsiteContentLayout(
+            accessToken,
+            clientId,
+            layoutPromptFile,
+          );
+
+          uploadedUrl = uploaded.url;
+        } catch (error) {
+          toast.danger("Failed to upload layout image.", {
+            description:
+              error instanceof Error ? error.message : "Please try again.",
+          });
+
+          return;
+        } finally {
+          setIsLayoutUploading(false);
+        }
+      }
+
+      setLayoutPromptRowId(null);
+      setLayoutPromptFile(null);
+      void handleGenerateForRow(row, uploadedUrl);
+    },
+    [
+      clientId,
+      getValidAccessToken,
+      handleGenerateForRow,
+      layoutPromptFile,
+      layoutPromptRowId,
+      rows,
+      session?.accessToken,
+      toast,
+    ],
   );
 
   const handleGenerateForCluster = useCallback(
     async (row: WebsiteContentRow) => {
-      const clusterRows = [row, ...getClusterChildRows(row)];
+      const fullClusterRows = [row, ...getClusterChildRows(row)];
+      // Skip any rows already mid-generation so they're not retriggered.
+      const isRowGenerating = (candidate: WebsiteContentRow) =>
+        Boolean(writingByRowId[candidate.id]) ||
+        activeGenerationRowIds.has(candidate.id) ||
+        isGeneratingContentStatus(candidate.status);
+      const skippedRows = fullClusterRows.filter(isRowGenerating);
+      const clusterRows = fullClusterRows.filter(
+        (candidate) => !isRowGenerating(candidate),
+      );
 
-      if (clusterRows.some((clusterRow) => writingByRowId[clusterRow.id])) {
+      if (!clusterRows.length) {
+        toast.info(
+          "Every keyword in this cluster is already generating. Nothing to start.",
+        );
+
         return;
+      }
+
+      if (skippedRows.length) {
+        toast.info(
+          `Skipped ${skippedRows.length} keyword${
+            skippedRows.length === 1 ? "" : "s"
+          } already generating in this cluster.`,
+        );
       }
 
       setGenerationModal({
@@ -2332,7 +2571,19 @@ ${plainContent || "N/A"}`.trim();
         rowKeyword: row.keyword,
       });
 
+      const pendingClusterRows = new Set(clusterRows.map((item) => item.id));
+
       try {
+        clusterRows.forEach((clusterRow) => {
+          setRowLoadingState(clusterRow.id, true);
+          updateRowById(clusterRow.id, { status: "Generating" });
+        });
+        await Promise.all(
+          clusterRows.map((clusterRow) =>
+            persistRowPatch(clusterRow, { status: "Generating" }),
+          ),
+        );
+
         for (const clusterRow of clusterRows) {
           setGenerationModal((current) => ({
             ...current,
@@ -2346,6 +2597,7 @@ ${plainContent || "N/A"}`.trim();
             openModal: false,
             showSuccessToast: false,
           });
+          pendingClusterRows.delete(clusterRow.id);
         }
 
         const lastRow = clusterRows[clusterRows.length - 1];
@@ -2371,15 +2623,35 @@ ${plainContent || "N/A"}`.trim();
           isGenerating: false,
           isOpen: true,
         }));
+        pendingClusterRows.forEach((rowId) => {
+          const pendingRow = clusterRows.find((item) => item.id === rowId);
+
+          if (!pendingRow) {
+            return;
+          }
+
+          setRowLoadingState(pendingRow.id, false);
+          updateRowById(pendingRow.id, { status: "Failed" });
+          void persistRowPatch(pendingRow, { status: "Failed" });
+        });
         toast.danger(message);
       }
     },
-    [generateContentForRow, getClusterChildRows, toast, writingByRowId],
+    [
+      generateContentForRow,
+      getClusterChildRows,
+      persistRowPatch,
+      activeGenerationRowIds,
+      setRowLoadingState,
+      toast,
+      updateRowById,
+      writingByRowId,
+    ],
   );
 
   const handleWriteClick = useCallback(
     (row: WebsiteContentRow) => {
-      if (writingByRowId[row.id]) {
+      if (writingByRowId[row.id] || activeGenerationRowIds.has(row.id)) {
         return;
       }
 
@@ -2406,10 +2678,10 @@ ${plainContent || "N/A"}`.trim();
         return;
       }
 
-      void handleGenerateForRow(row);
+      setLayoutPromptFile(null);
+      setLayoutPromptRowId(row.id);
     },
     [
-      handleGenerateForRow,
       hasExistingGeneratedContent,
       generationContextBlockers,
       generationContextStatus,
@@ -2417,6 +2689,7 @@ ${plainContent || "N/A"}`.trim();
       shouldBlockWriteForGenerationContext,
       toast,
       writingByRowId,
+      activeGenerationRowIds,
     ],
   );
 
@@ -2433,6 +2706,13 @@ ${plainContent || "N/A"}`.trim();
         ? (rows.find((row) => row.id === clusterConfirmRowId) ?? null)
         : null,
     [clusterConfirmRowId, rows],
+  );
+  const layoutPromptRow = useMemo(
+    () =>
+      layoutPromptRowId
+        ? (rows.find((row) => row.id === layoutPromptRowId) ?? null)
+        : null,
+    [layoutPromptRowId, rows],
   );
   const clusterTargetRows = useMemo(
     () =>
@@ -2453,6 +2733,45 @@ ${plainContent || "N/A"}`.trim();
         : null,
     [generationModal.rowId, rows],
   );
+
+  // When the row backing the open generation modal flips out of "Generating",
+  // either show the produced content or surface the failure inside the same
+  // modal. This is what gives the user the "wait, then see the result" UX.
+  useEffect(() => {
+    if (!generationModal.isOpen || !generationModal.isGenerating) {
+      return;
+    }
+
+    if (!editContentRow) {
+      return;
+    }
+
+    const normalizedStatus = String(editContentRow.status || "")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedStatus === "generating") {
+      return;
+    }
+
+    if (normalizedStatus === "failed") {
+      setGenerationModal((current) => ({
+        ...current,
+        error:
+          "Content generation failed. Please try again or contact support if it keeps failing.",
+        isGenerating: false,
+      }));
+
+      return;
+    }
+
+    setGenerationModal((current) => ({
+      ...current,
+      content: editContentRow.generatedContent || current.content,
+      error: "",
+      isGenerating: false,
+    }));
+  }, [editContentRow, generationModal.isGenerating, generationModal.isOpen]);
   const activeReviewState = useMemo(
     () =>
       editContentRow ? (reviewStateByRowId[editContentRow.id] ?? null) : null,
@@ -2462,11 +2781,6 @@ ${plainContent || "N/A"}`.trim();
     () => buildPublicReviewUrl(activeReviewState?.link?.publicPath),
     [activeReviewState?.link?.publicPath],
   );
-  const selectedReviewRows = useMemo(
-    () => rows.filter((row) => row.isSelected),
-    [rows],
-  );
-
   const fetchReviewStateForRow = useCallback(
     async (row: WebsiteContentRow) => {
       if (!session?.accessToken || !row.listId) {
@@ -2549,6 +2863,7 @@ ${plainContent || "N/A"}`.trim();
       metaDescription: editContentRow.metaDescription?.trim() || "",
       metaTitle: editContentRow.metaTitle?.trim() || articleTitle,
       status: editContentRow.status || "Draft",
+      type: editContentRow.type || "",
       urlSlug:
         editContentRow.urlSlug?.trim() ||
         toUrlSlug(editContentRow.title || editContentRow.keyword),
@@ -2652,7 +2967,7 @@ ${plainContent || "N/A"}`.trim();
         altDescription: validated.altDescription,
         altTitle: validated.altTitle,
         contentLength: editContentRow.contentLength,
-        contentType: editContentRow.type,
+        contentType: validated.type,
         featuredImage: nextFeaturedImage,
         generatedContent: validated.content,
         metaDescription: validated.metaDescription,
@@ -2671,6 +2986,7 @@ ${plainContent || "N/A"}`.trim();
         metaTitle: validated.metaTitle,
         status: validated.status,
         title: validated.articleTitle,
+        type: validated.type,
         urlSlug: normalizedUrlSlug,
       });
       setFeaturedImagesByRowId((current) => ({
@@ -2908,6 +3224,7 @@ ${plainContent || "N/A"}`.trim();
 
     try {
       setIsBulkReviewSending(true);
+      setBulkAction("send");
       const entries = await Promise.all(
         selectedReviewRows.map(async (row) => ({
           row,
@@ -2941,6 +3258,116 @@ ${plainContent || "N/A"}`.trim();
     isBulkReviewSending,
     selectedReviewRows,
     sendSelectedRowsForReview,
+    toast,
+  ]);
+
+  const exportSelectedRowsToCsv = useCallback(
+    (
+      entries: Array<{
+        row: WebsiteContentRow;
+        state: WebsiteContentReviewDashboardState;
+      }>,
+    ) => {
+      const headers = [
+        "Keyword",
+        "Title",
+        "URL Slug",
+        "Type",
+        "Intent",
+        "Search Volume",
+        "Content Length",
+        "Meta Title",
+        "Meta Description",
+        "Public Review URL",
+        "Public Link Expires",
+        "Status",
+        "Notes",
+      ];
+      const csvRows = [
+        headers.map(escapeCsvValue).join(","),
+        ...entries.map(({ row, state }) =>
+          [
+            row.keyword,
+            row.title,
+            row.urlSlug ?? "",
+            row.type,
+            row.intent,
+            row.sv,
+            row.contentLength,
+            row.metaTitle ?? "",
+            row.metaDescription ?? "",
+            buildPublicReviewUrl(state.link?.publicPath),
+            state.link?.expiresAt ?? "",
+            row.status,
+            "",
+          ]
+            .map(escapeCsvValue)
+            .join(","),
+        ),
+      ];
+      const blob = new Blob([csvRows.join("\n")], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const timestamp = new Date().toISOString().slice(0, 10);
+
+      link.href = url;
+      link.download = `website-content-${clientId ?? "client"}-${timestamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    },
+    [clientId],
+  );
+
+  const handleBulkExportCsv = useCallback(async () => {
+    if (selectedReviewRows.length === 0 || isBulkExportingCsv) {
+      return;
+    }
+
+    try {
+      setIsBulkExportingCsv(true);
+      setBulkAction("export");
+      const entries = await Promise.all(
+        selectedReviewRows.map(async (row) => ({
+          row,
+          state: await fetchReviewStateForRow(row),
+        })),
+      );
+      const missingRows = entries
+        .filter(({ state }) => !state.link?.enabled || !state.link.publicPath)
+        .map(({ row }) => row);
+
+      if (missingRows.length > 0) {
+        setBulkReviewMissingRows(missingRows);
+        setIsBulkReviewModalOpen(true);
+
+        return;
+      }
+
+      setBulkReviewMissingRows([]);
+      setIsBulkReviewModalOpen(false);
+      exportSelectedRowsToCsv(entries);
+      toast.success(
+        `Exported ${entries.length} ${
+          entries.length === 1 ? "article" : "articles"
+        } to CSV.`,
+      );
+    } catch (error) {
+      toast.danger("Failed to export CSV.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsBulkExportingCsv(false);
+    }
+  }, [
+    exportSelectedRowsToCsv,
+    fetchReviewStateForRow,
+    isBulkExportingCsv,
+    selectedReviewRows,
     toast,
   ]);
 
@@ -3467,6 +3894,66 @@ ${plainContent || "N/A"}`.trim();
     [featuredImagesByRowId],
   );
 
+  const getBulkEditTargetRows = (row: WebsiteContentRow) =>
+    selectedReviewRows.length > 0 ? selectedReviewRows : [row];
+
+  const handleContentTypeChange = (
+    row: WebsiteContentRow,
+    nextType: string,
+  ) => {
+    const targetRows = getBulkEditTargetRows(row);
+    const targetIds = new Set(targetRows.map((targetRow) => targetRow.id));
+    const previousTypes = new Map(
+      targetRows.map((targetRow) => [targetRow.id, targetRow.type]),
+    );
+
+    updateRowsByIds(targetIds, { type: nextType });
+    void Promise.all(
+      targetRows.map((targetRow) =>
+        persistRowPatch(targetRow, { contentType: nextType }),
+      ),
+    ).catch(() => {
+      setRows((current) =>
+        current.map((currentRow) =>
+          previousTypes.has(currentRow.id)
+            ? { ...currentRow, type: previousTypes.get(currentRow.id) ?? "" }
+            : currentRow,
+        ),
+      );
+      toast.danger("Failed to update content type.");
+    });
+  };
+
+  const handleContentLengthChange = (
+    row: WebsiteContentRow,
+    nextContentLength: string,
+  ) => {
+    const targetRows = getBulkEditTargetRows(row);
+    const targetIds = new Set(targetRows.map((targetRow) => targetRow.id));
+    const previousContentLengths = new Map(
+      targetRows.map((targetRow) => [targetRow.id, targetRow.contentLength]),
+    );
+
+    updateRowsByIds(targetIds, { contentLength: nextContentLength });
+    void Promise.all(
+      targetRows.map((targetRow) =>
+        persistRowPatch(targetRow, { contentLength: nextContentLength }),
+      ),
+    ).catch(() => {
+      setRows((current) =>
+        current.map((currentRow) =>
+          previousContentLengths.has(currentRow.id)
+            ? {
+                ...currentRow,
+                contentLength: previousContentLengths.get(currentRow.id) ?? "",
+              }
+            : currentRow,
+        ),
+      );
+      toast.danger("Failed to update content length.");
+    });
+  };
+
   const tableColumns: DashboardDataTableColumn<WebsiteContentRow>[] = [
     {
       key: "select",
@@ -3481,18 +3968,6 @@ ${plainContent || "N/A"}`.trim();
           }}
         />
       ),
-    },
-    {
-      key: "sv",
-      label: "SV",
-      className: "bg-[#F9FAFB] text-[#111827]",
-      renderCell: (item) => item.sv,
-    },
-    {
-      key: "intent",
-      label: "Intent",
-      className: "bg-[#F9FAFB] text-[#111827]",
-      renderCell: (item) => formatIntentAbbreviation(item.intent),
     },
     {
       key: "keyword",
@@ -3521,13 +3996,47 @@ ${plainContent || "N/A"}`.trim();
       ),
     },
     {
+      key: "intent",
+      label: "Intent",
+      className: "bg-[#F9FAFB] text-[#111827]",
+      renderCell: (item) => formatIntentAbbreviation(item.intent),
+    },
+    {
+      key: "sv",
+      label: "SV",
+      className: "bg-[#F9FAFB] text-[#111827]",
+      renderCell: (item) => item.sv,
+    },
+    {
       key: "type",
       label: "Type",
       className: "bg-[#F9FAFB] text-[#111827]",
       renderCell: (item) => (
-        <Chip className="bg-[#B9EFFF] text-[#0284C7]" radius="full" size="sm">
-          {toLabelCase(item.type)}
-        </Chip>
+        <Select
+          aria-label={`Content type for ${item.keyword}`}
+          className="min-w-[190px] max-w-[220px]"
+          classNames={{
+            trigger: "min-h-9 text-sm",
+            value: "text-sm",
+          }}
+          selectedKeys={item.type ? [item.type] : []}
+          size="sm"
+          variant="bordered"
+          onSelectionChange={(keys) => {
+            const [selectedKey] =
+              keys === "all" ? [] : Array.from(keys).map(String);
+
+            if (!selectedKey || selectedKey === item.type) {
+              return;
+            }
+
+            handleContentTypeChange(item, selectedKey);
+          }}
+        >
+          {WEB_CONTENT_TYPE_OPTIONS.map((option) => (
+            <SelectItem key={option}>{option}</SelectItem>
+          ))}
+        </Select>
       ),
     },
     {
@@ -3559,12 +4068,7 @@ ${plainContent || "N/A"}`.trim();
               return;
             }
 
-            updateRowById(item.id, { contentLength: selectedKey });
-            void persistRowPatch(item, { contentLength: selectedKey }).catch(
-              () => {
-                // Keep local selection to avoid noisy UX on transient errors.
-              },
-            );
+            handleContentLengthChange(item, selectedKey);
           }}
         >
           {CONTENT_LENGTH_OPTIONS.map((option) => (
@@ -3595,14 +4099,27 @@ ${plainContent || "N/A"}`.trim();
       label: "Action",
       className: "bg-[#F9FAFB] text-[#111827]",
       renderCell: (item) => {
-        const isWriting = Boolean(writingByRowId[item.id]);
+        // Backend row.status is the source of truth:
+        //  - "Generating" → button locked in Generating... state
+        //  - "Failed"     → button enabled, label "Retry"
+        //  - anything else → default label
+        // writingByRowId only covers the tiny in-flight window between the
+        // click and the server acknowledging the new "Generating" status.
+        const normalizedStatus = String(item.status || "")
+          .trim()
+          .toLowerCase();
+        const isGenerating =
+          Boolean(writingByRowId[item.id]) || normalizedStatus === "generating";
+        const isFailed = normalizedStatus === "failed";
         const isWriteDisabled =
-          isWriting || shouldBlockWriteForGenerationContext;
+          isGenerating || shouldBlockWriteForGenerationContext;
         const writeButtonLabel = shouldBlockWriteForGenerationContext
           ? writeGenerationContextLabel
-          : isWriting
+          : isGenerating
             ? "Generating..."
-            : getWriteButtonLabel(item);
+            : isFailed
+              ? "Retry"
+              : getWriteButtonLabel(item);
         const hasClusterChildren = rows.some(
           (row) => row.parentKeywordId === item.keywordId,
         );
@@ -3639,7 +4156,8 @@ ${plainContent || "N/A"}`.trim();
         logGenerationContextInfo("[web-content] Write button render", {
           disabled: isWriteDisabled,
           gateBlocked: shouldBlockWriteForGenerationContext,
-          isWriting,
+          isGenerating,
+          isFailed,
           keyword: item.keyword,
           label: writeButtonLabel,
           rowId: item.id,
@@ -3650,7 +4168,7 @@ ${plainContent || "N/A"}`.trim();
           <div className="flex items-center justify-end gap-2">
             <Button
               isDisabled={isWriteDisabled}
-              isLoading={isWriting}
+              isLoading={isGenerating}
               radius="md"
               size="sm"
               variant="bordered"
@@ -3695,7 +4213,7 @@ ${plainContent || "N/A"}`.trim();
                   }
 
                   if (actionKey === "delete") {
-                    void handleDeleteKeyword(item);
+                    openDeleteConfirm([item]);
                   }
                 }}
               >
@@ -3798,29 +4316,38 @@ ${plainContent || "N/A"}`.trim();
               Edit
             </Button>
           </CardHeader>
-          <CardBody className="space-y-4 px-4 pb-5 pt-2">
-            {liveBreakdown.map((item) => (
-              <div
-                key={item.key}
-                className="grid grid-cols-[170px_1fr_auto] items-center gap-3"
-              >
-                <span className="text-sm text-[#111827]">{item.label}</span>
-                <Progress
-                  aria-label={item.label}
-                  classNames={{
-                    indicator: "bg-[#022279]",
-                    track: "bg-[#E6EAF7]",
-                  }}
-                  size="sm"
-                  value={
-                    item.allocated > 0 ? (item.used / item.allocated) * 100 : 0
-                  }
-                />
-                <span className="text-base font-semibold text-[#1F2937]">
-                  {item.used}/{item.allocated}
-                </span>
-              </div>
-            ))}
+          <CardBody className="px-4 pb-5 pt-2">
+            <ScrollShadow
+              hideScrollBar
+              className="max-h-[320px] space-y-4 pr-1"
+              orientation="vertical"
+              size={32}
+            >
+              {liveBreakdown.map((item) => (
+                <div
+                  key={item.key}
+                  className="grid grid-cols-[170px_1fr_auto] items-center gap-3"
+                >
+                  <span className="text-sm text-[#111827]">{item.label}</span>
+                  <Progress
+                    aria-label={item.label}
+                    classNames={{
+                      indicator: "bg-[#022279]",
+                      track: "bg-[#E6EAF7]",
+                    }}
+                    size="sm"
+                    value={
+                      item.allocated > 0
+                        ? (item.used / item.allocated) * 100
+                        : 0
+                    }
+                  />
+                  <span className="text-base font-semibold text-[#1F2937]">
+                    {item.used}/{item.allocated}
+                  </span>
+                </div>
+              ))}
+            </ScrollShadow>
           </CardBody>
         </Card>
       </div>
@@ -3842,6 +4369,31 @@ ${plainContent || "N/A"}`.trim();
             </Button>
             <Button startContent={<Columns3 size={14} />} variant="bordered">
               Columns
+            </Button>
+            <Button
+              isIconOnly
+              aria-label="Delete selected keywords"
+              className="text-danger"
+              color="danger"
+              isDisabled={selectedReviewRows.length === 0}
+              isLoading={isBulkDeletingKeywords}
+              variant="bordered"
+              onPress={() => {
+                openDeleteConfirm(selectedReviewRows);
+              }}
+            >
+              <Trash2 size={16} />
+            </Button>
+            <Button
+              isDisabled={selectedReviewRows.length === 0}
+              isLoading={isBulkExportingCsv}
+              startContent={<Download size={14} />}
+              variant="bordered"
+              onPress={() => {
+                void handleBulkExportCsv();
+              }}
+            >
+              Export CSV
             </Button>
             <Button
               isDisabled={selectedReviewRows.length === 0}
@@ -3937,39 +4489,6 @@ ${plainContent || "N/A"}`.trim();
             title=""
             withShell={false}
           />
-
-          {!isWebsiteContentLoading && rows.length === 0 ? (
-            <div className="px-4 pb-10 pt-8 text-center">
-              <h3 className="text-2xl leading-[1.2] text-[#111827]">
-                Lorem ipsum dolor sit amet consectetur.
-              </h3>
-              <p className="mx-auto mt-4 max-w-2xl text-base text-[#6B7280]">
-                Lorem ipsum dolor sit amet consectetur. Tincidunt sed tortor eu
-                iaculis pulvinar congue hendrerit nibh. Ultrices commodo turpis
-                sit etiam auctor.
-              </p>
-              <div className="mt-8 flex items-center justify-center gap-5">
-                <Link href="/dashboard/keyword-research">
-                  <Button
-                    className="bg-[#022279] text-white"
-                    startContent={<Search size={16} />}
-                  >
-                    Start Keyword Research
-                  </Button>
-                </Link>
-                <span className="text-sm text-[#6B7280]">Or</span>
-                <Button
-                  className="bg-[#022279] text-white"
-                  startContent={<Plus size={16} />}
-                  onPress={() => {
-                    setIsAddKeywordsModalOpen(true);
-                  }}
-                >
-                  Add Keyword
-                </Button>
-              </div>
-            </div>
-          ) : null}
         </CardBody>
       </Card>
 
@@ -4013,7 +4532,12 @@ ${plainContent || "N/A"}`.trim();
             </Button>
           </ModalHeader>
           <ModalBody className="pb-5">
-            <div className="overflow-hidden rounded-xl border border-default-200">
+            <ScrollShadow
+              hideScrollBar
+              className="max-h-[440px] rounded-xl border border-default-200"
+              orientation="vertical"
+              size={36}
+            >
               <DashboardDataTable
                 ariaLabel="Content breakdown table"
                 columns={[
@@ -4077,7 +4601,7 @@ ${plainContent || "N/A"}`.trim();
                 title=""
                 withShell={false}
               />
-            </div>
+            </ScrollShadow>
 
             <div className="pt-2">
               <div className="mb-2 flex items-center justify-between text-[#374151]">
@@ -4163,6 +4687,53 @@ ${plainContent || "N/A"}`.trim();
 
       <Modal
         hideCloseButton
+        isOpen={deleteConfirmRows.length > 0}
+        size="md"
+        onOpenChange={(isOpen) => {
+          if (!isOpen && !isBulkDeletingKeywords) {
+            setDeleteConfirmRows([]);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="pb-2">
+            <h3 className="text-lg font-semibold text-[#111827]">
+              Delete {deleteConfirmRows.length === 1 ? "Keyword" : "Keywords"}
+            </h3>
+          </ModalHeader>
+          <ModalBody className="space-y-3 pt-0 text-sm text-[#4B5563]">
+            <p>
+              {deleteConfirmRows.length === 1
+                ? `Are you sure you want to delete "${deleteConfirmRows[0]?.keyword}"?`
+                : `Are you sure you want to delete ${deleteConfirmRows.length} selected keywords?`}
+            </p>
+            <p>This action cannot be undone.</p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={isBulkDeletingKeywords}
+              variant="bordered"
+              onPress={() => {
+                setDeleteConfirmRows([]);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="danger"
+              isLoading={isBulkDeletingKeywords}
+              onPress={() => {
+                void handleConfirmDeleteKeywords();
+              }}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        hideCloseButton
         isOpen={Boolean(overwriteTargetRow)}
         size="md"
         onOpenChange={(isOpen) => {
@@ -4200,10 +4771,106 @@ ${plainContent || "N/A"}`.trim();
                   return;
                 }
 
-                void handleGenerateForRow(row);
+                setLayoutPromptFile(null);
+                setLayoutPromptRowId(row.id);
               }}
             >
               Continue
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        hideCloseButton
+        isOpen={Boolean(layoutPromptRow)}
+        size="lg"
+        onOpenChange={(isOpen) => {
+          if (!isOpen && !isLayoutUploading) {
+            setLayoutPromptRowId(null);
+            setLayoutPromptFile(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="pb-2">
+            <h3 className="text-lg font-semibold text-[#111827]">
+              Generate content — page layout (optional)
+            </h3>
+          </ModalHeader>
+          <ModalBody className="space-y-3 pt-0 text-sm text-[#4B5563]">
+            <p>
+              Optional: upload a page design layout (PNG, JPG, WEBP, GIF — up to
+              10MB) to guide the section structure and length. We won&apos;t
+              transcribe any text from the design — the prose stays fully AI
+              generated.
+            </p>
+            <label
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-default-300 bg-[#F8FAFC] px-4 py-6 text-sm text-[#6B7280] hover:border-[#022279] hover:text-[#022279]"
+              htmlFor="website-content-layout-input"
+            >
+              <span className="font-medium">
+                {layoutPromptFile
+                  ? layoutPromptFile.name
+                  : "Drop layout here or click to choose a file"}
+              </span>
+              {layoutPromptFile ? (
+                <span className="text-xs text-[#9CA3AF]">
+                  {(layoutPromptFile.size / (1024 * 1024)).toFixed(2)} MB
+                </span>
+              ) : null}
+              <input
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                id="website-content-layout-input"
+                type="file"
+                onChange={(event) => {
+                  const [file] = Array.from(event.target.files ?? []);
+
+                  setLayoutPromptFile(file ?? null);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            {layoutPromptFile ? (
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => setLayoutPromptFile(null)}
+              >
+                Clear selected file
+              </Button>
+            ) : null}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={isLayoutUploading}
+              variant="bordered"
+              onPress={() => {
+                setLayoutPromptRowId(null);
+                setLayoutPromptFile(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              isDisabled={isLayoutUploading}
+              variant="bordered"
+              onPress={() => {
+                void handleConfirmLayoutPrompt(false);
+              }}
+            >
+              Skip & Generate
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isDisabled={!layoutPromptFile}
+              isLoading={isLayoutUploading}
+              onPress={() => {
+                void handleConfirmLayoutPrompt(true);
+              }}
+            >
+              Generate with Layout
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -4417,6 +5084,45 @@ ${plainContent || "N/A"}`.trim();
                         </div>
 
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <Controller
+                            control={editContentControl}
+                            name="type"
+                            render={({ field }) => (
+                              <div className="space-y-1">
+                                <label
+                                  className="text-xs font-medium text-[#374151]"
+                                  htmlFor="edit-content-type"
+                                >
+                                  Type
+                                </label>
+                                <Select
+                                  aria-label="Type"
+                                  id="edit-content-type"
+                                  selectedKeys={
+                                    field.value ? [field.value] : []
+                                  }
+                                  size="sm"
+                                  variant="bordered"
+                                  onSelectionChange={(keys) => {
+                                    const [next] =
+                                      keys === "all"
+                                        ? []
+                                        : Array.from(keys).map(String);
+
+                                    if (next) {
+                                      field.onChange(next);
+                                    }
+                                  }}
+                                >
+                                  {WEB_CONTENT_TYPE_OPTIONS.map((option) => (
+                                    <SelectItem key={option}>
+                                      {option}
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </div>
+                            )}
+                          />
                           <Controller
                             control={editContentControl}
                             name="status"
@@ -5385,8 +6091,9 @@ ${plainContent || "N/A"}`.trim();
                 Public links required
               </h3>
               <p className="mt-1 text-sm font-normal text-[#6B7280]">
-                These selected articles need public review links before they can
-                be sent.
+                {bulkAction === "export"
+                  ? "These selected articles need public review links before they can be exported to CSV."
+                  : "These selected articles need public review links before they can be sent."}
               </p>
             </div>
           </ModalHeader>
@@ -5431,9 +6138,17 @@ ${plainContent || "N/A"}`.trim();
             </Button>
             <Button
               className="bg-[#022279] text-white"
-              isLoading={isBulkReviewSending}
+              isLoading={
+                bulkAction === "export"
+                  ? isBulkExportingCsv
+                  : isBulkReviewSending
+              }
               onPress={() => {
-                void handleBulkSendForReview();
+                if (bulkAction === "export") {
+                  void handleBulkExportCsv();
+                } else {
+                  void handleBulkSendForReview();
+                }
               }}
             >
               Try Again

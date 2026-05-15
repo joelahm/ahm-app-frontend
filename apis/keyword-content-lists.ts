@@ -93,6 +93,20 @@ export interface UploadedWebsiteContentFeaturedImage {
   url: string;
 }
 
+export interface StartWebsiteContentGenerationPayload {
+  clientId: string;
+  contentLength: string;
+  contentPrompt: string;
+  contentType: string;
+  keywordId: string;
+  layoutImageUrl?: string | null;
+  listId: string;
+  maxContentTokens: number;
+  maxSeoTokens: number;
+  seoPromptTemplate: string;
+  title: string;
+}
+
 export const keywordContentListsApi = {
   listKeywordContentLists: async (
     accessToken: string,
@@ -198,6 +212,31 @@ export const keywordContentListsApi = {
       );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  startWebsiteContentGeneration: async (
+    accessToken: string,
+    payload: StartWebsiteContentGenerationPayload,
+  ) => {
+    try {
+      const response = await keywordContentListsApiClient.post(
+        "/api/v1/keyword-content-lists/keywords/generate-content",
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data as {
+        keywordId: string;
+        listId: string;
+        queued: boolean;
+        status: string;
+      };
     } catch (error) {
       throw new Error(parseError(error));
     }

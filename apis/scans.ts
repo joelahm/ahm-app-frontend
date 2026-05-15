@@ -413,6 +413,57 @@ export const scansApi = {
       throw new Error(parseError(error));
     }
   },
+  stopScanRun: async (
+    accessToken: string,
+    scanId: number | string,
+    runId: number | string,
+  ) => {
+    try {
+      const response = await scansApiClient.post<{
+        run: ScanRecord;
+        stopped: boolean;
+      }>(
+        `/api/v1/scans/${scanId}/runs/${runId}/stop`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listActiveScanRunsForClient: async (
+    accessToken: string,
+    clientId: number | string,
+  ) => {
+    try {
+      const response = await scansApiClient.get<{
+        runs: Array<{
+          runId: number;
+          scanId: number;
+          status: string;
+          totalRequests: number;
+          completedRequests: number;
+          failedRequests: number;
+          keyword: string | null;
+          startedAt: string | null;
+        }>;
+      }>(`/api/v1/scans/client/${clientId}/local-rankings/active-runs`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      return response.data.runs;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getScanRunById: async (
     accessToken: string,
     scanId: number | string,

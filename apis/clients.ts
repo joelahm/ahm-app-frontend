@@ -275,6 +275,8 @@ export interface ProjectTask {
     lastName: string | null;
   };
   assignedToId: number | string | null;
+  clientId?: number | string | null;
+  clientName?: string | null;
   createdAt: string | null;
   createdBy: number | string | null;
   description: string | null;
@@ -285,9 +287,11 @@ export interface ProjectTask {
   dueDateOffsetDays?: number;
   dueDateRuleType?: string | null;
   id: number | string;
+  latestComment?: string | null;
   parentTaskId?: number | string | null;
   priority: string | null;
   projectId: number | string | null;
+  projectName?: string | null;
   projectType: string | null;
   startDate: string | null;
   status: string | null;
@@ -407,6 +411,22 @@ export interface TaskAttachment {
 
 export interface TaskAttachmentsResponse {
   attachments: TaskAttachment[];
+  total: number;
+}
+
+export interface ClientCitationAttachment {
+  citationId: number | string;
+  createdAt: string | null;
+  filename: string;
+  id: number | string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: number | string | null;
+  url: string;
+}
+
+export interface ClientCitationAttachmentsResponse {
+  attachments: ClientCitationAttachment[];
   total: number;
 }
 
@@ -1831,6 +1851,8 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
       lastName: asString(assignedToRecord.lastName),
     },
     assignedToId: asId(source.assignedToId),
+    clientId: asId(source.clientId),
+    clientName: asString(source.clientName),
     createdAt: asString(source.createdAt),
     createdBy: asId(source.createdBy),
     description: asString(source.description),
@@ -1853,6 +1875,7 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
     dueDateRuleType:
       asString(source.dueDateRuleType) ?? asString(source.due_date_rule_type),
     id,
+    latestComment: asString(source.latestComment),
     parentTaskId:
       asId(source.parentTaskId) ??
       asId(source.parentTaskID) ??
@@ -1860,6 +1883,7 @@ const parseProjectTaskResponse = (value: unknown): ProjectTask => {
       asId(source.parentId),
     priority: asString(source.priority),
     projectId: asId(source.projectId),
+    projectName: asString(source.projectName),
     projectType: asString(source.projectType),
     startDate: asString(source.startDate),
     status: asString(source.status),
@@ -1890,13 +1914,18 @@ const parseProjectTasksResponse = (value: unknown): ProjectTasksResponse => {
     const projectTasks = asArray(project.tasks);
     const projectId = asId(project.projectId) ?? asId(project.id);
     const projectName = asString(project.projectName);
+    const projectClientId = asId(project.clientId);
+    const projectClientName = asString(project.clientName);
 
     return projectTasks.map((taskItem) => {
       const task = asObject(taskItem);
 
       return {
         ...task,
+        clientId: asId(task.clientId) ?? projectClientId,
+        clientName: asString(task.clientName) ?? projectClientName,
         projectId: asId(task.projectId) ?? projectId,
+        projectName: asString(task.projectName) ?? projectName,
         projectType: asString(task.projectType) ?? projectName,
       };
     });
@@ -2177,6 +2206,61 @@ const parseTaskAttachmentsResponse = (
         }
       })
       .filter((item): item is TaskAttachment => item !== null),
+    total:
+      asNumber(payload.total) ?? asNumber(root.total) ?? rawAttachments.length,
+  };
+};
+
+const parseClientCitationAttachmentResponse = (
+  value: unknown,
+): ClientCitationAttachment => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const attachmentRecord = asObject(payload.attachment);
+  const source =
+    Object.keys(attachmentRecord).length > 0
+      ? attachmentRecord
+      : asObject(payload);
+  const id = source.id;
+
+  if (typeof id !== "number" && typeof id !== "string") {
+    throw new Error("Invalid citation attachment response.");
+  }
+
+  return {
+    citationId: asId(source.citationId) ?? "",
+    createdAt: asString(source.createdAt),
+    filename: asString(source.filename) ?? "",
+    id,
+    mimeType: asString(source.mimeType) ?? "",
+    sizeBytes: asNumber(source.sizeBytes) ?? 0,
+    uploadedBy: asId(source.uploadedBy),
+    url: asString(source.url) ?? "",
+  };
+};
+
+const parseClientCitationAttachmentsResponse = (
+  value: unknown,
+): ClientCitationAttachmentsResponse => {
+  const root = asObject(value);
+  const nested = asObject(root.data);
+  const payload = Object.keys(nested).length > 0 ? nested : root;
+  const rawAttachments =
+    asArray(payload.attachments).length > 0
+      ? asArray(payload.attachments)
+      : asArray(root.attachments);
+
+  return {
+    attachments: rawAttachments
+      .map((item) => {
+        try {
+          return parseClientCitationAttachmentResponse({ attachment: item });
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is ClientCitationAttachment => item !== null),
     total:
       asNumber(payload.total) ?? asNumber(root.total) ?? rawAttachments.length,
   };
@@ -2693,6 +2777,69 @@ export const clientsApi = {
       throw new Error(parseError(error));
     }
   },
+  uploadWebsiteContentLayout: async (
+    accessToken: string,
+    clientId: string | number,
+    file: File,
+  ) => {
+    try {
+      const formData = new FormData();
+
+      formData.append("layout", file);
+
+      const response = await clientsApiClient.post<{
+        image: {
+          mimeType: string;
+          name: string;
+          size: number;
+          url: string;
+        };
+      }>(`/api/v1/clients/${clientId}/website-content-layouts`, formData, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      return response.data.image;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  uploadClientGbpPostingImage: async (
+    accessToken: string,
+    clientId: string | number,
+    postingId: string | number,
+    file: File,
+  ) => {
+    try {
+      const formData = new FormData();
+
+      formData.append("image", file);
+
+      const response = await clientsApiClient.post<{
+        image: {
+          mimeType: string;
+          name: string;
+          size: number;
+          url: string;
+        };
+      }>(
+        `/api/v1/clients/${clientId}/gbp-postings/${postingId}/images`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      return response.data.image;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   deleteClientGbpPosting: async (
     accessToken: string,
     clientId: string | number,
@@ -2808,7 +2955,7 @@ export const clientsApi = {
       throw new Error(parseError(error));
     }
   },
-  getProjectTasks: async (accessToken: string, clientId: string | number) => {
+  getProjectTasks: async (accessToken: string, clientId?: string | number) => {
     try {
       const response = await clientsApiClient.get<unknown>(
         "/api/v1/projects/tasks",
@@ -2816,9 +2963,10 @@ export const clientsApi = {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
-          params: {
-            clientId,
-          },
+          params:
+            clientId !== undefined && clientId !== null && clientId !== ""
+              ? { clientId }
+              : undefined,
         },
       );
 
@@ -3335,6 +3483,72 @@ export const clientsApi = {
       );
 
       return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  uploadClientCitationAttachment: async (
+    accessToken: string,
+    clientId: string | number,
+    citationId: string | number,
+    file: File,
+  ): Promise<ClientCitationAttachment> => {
+    try {
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      const response = await clientsApiClient.post<unknown>(
+        `/api/v1/clients/${clientId}/citations/${citationId}/attachments`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      return parseClientCitationAttachmentResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listClientCitationAttachments: async (
+    accessToken: string,
+    clientId: string | number,
+    citationId: string | number,
+  ): Promise<ClientCitationAttachmentsResponse> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/clients/${clientId}/citations/${citationId}/attachments`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return parseClientCitationAttachmentsResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientCitationAttachment: async (
+    accessToken: string,
+    clientId: string | number,
+    citationId: string | number,
+    attachmentId: string | number,
+  ) => {
+    try {
+      await clientsApiClient.delete(
+        `/api/v1/clients/${clientId}/citations/${citationId}/attachments/${attachmentId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
     } catch (error) {
       throw new Error(parseError(error));
     }

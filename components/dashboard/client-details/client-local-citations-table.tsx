@@ -5,6 +5,7 @@ import type { Selection } from "@react-types/shared";
 import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
+import { Checkbox } from "@heroui/checkbox";
 import { Chip } from "@heroui/chip";
 import {
   Dropdown,
@@ -13,6 +14,13 @@ import {
   DropdownTrigger,
 } from "@heroui/dropdown";
 import { Input } from "@heroui/input";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -24,6 +32,8 @@ import {
   List,
   Search,
   SquareDashedMousePointer,
+  Trash2,
+  Upload,
 } from "lucide-react";
 
 import {
@@ -42,11 +52,16 @@ import {
   DashboardDataTable,
   DashboardDataTableColumn,
 } from "@/components/dashboard/dashboard-data-table";
+import {
+  type ImportedCitationRow,
+  ImportBulkCitationsModal,
+} from "@/components/dashboard/settings/import-bulk-citations-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
 
 type CitationStatus =
   | "Complete"
   | "Pending"
+  | "Submitted"
   | "Incomplete"
   | "Missing"
   | "Error";
@@ -54,6 +69,7 @@ type CitationStatus =
 const citationStatuses = [
   "Complete",
   "Pending",
+  "Submitted",
   "Incomplete",
   "Missing",
   "Error",
@@ -85,6 +101,7 @@ interface ClientLocalCitationsTableProps {
 }
 
 const thClassName = "text-xs font-medium text-[#111827] bg-[#F9FAFB]";
+const pageSizeOptions = [10, 25, 50, 100];
 const defaultVerificationStatus: ClientCitationVerificationStatus = {
   address: "Not Synced",
   businessName: "Not Synced",
@@ -107,6 +124,10 @@ const statusSummaryConfig = {
   Pending: {
     icon: SquareDashedMousePointer,
     iconClassName: "bg-[#FEF3C7] text-[#F59E0B]",
+  },
+  Submitted: {
+    icon: CheckCircle2,
+    iconClassName: "bg-[#DBEAFE] text-[#2563EB]",
   },
   Incomplete: {
     icon: AlertTriangle,
@@ -163,6 +184,10 @@ const getStatusChipClassName = (status: CitationStatus) => {
     return "bg-[#FFEDD5] text-[#EA580C]";
   }
 
+  if (status === "Submitted") {
+    return "bg-[#DBEAFE] text-[#2563EB]";
+  }
+
   if (status === "Error") {
     return "bg-[#FEE2E2] text-[#DC2626]";
   }
@@ -184,6 +209,17 @@ const getDirectoryTone = (directory: string) => {
   }
 
   return "bg-[#F8FAFC] text-[#4B5563]";
+};
+
+const toCitationStatus = (value?: string | null): CitationStatus => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  const matchedStatus = citationStatuses.find(
+    (status) => status.toLowerCase() === normalized,
+  );
+
+  return matchedStatus ?? "Pending";
 };
 
 const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
@@ -311,6 +347,8 @@ const columns: DashboardDataTableColumn<LocalCitationRow>[] = [
   },
 ];
 
+const lockedColumnKeys = new Set(["action"]);
+
 const buildColumns = ({
   onView,
 }: {
@@ -364,11 +402,20 @@ export const ClientLocalCitationsTable = ({
     CitationTemplate[]
   >([]);
   const [isAddCitationModalOpen, setIsAddCitationModalOpen] = useState(false);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [isImportingTemplates, setIsImportingTemplates] = useState(false);
   const [activeCitation, setActiveCitation] = useState<LocalCitationRow | null>(
     null,
   );
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [searchValue, setSearchValue] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<Selection>(new Set([]));
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
+    () => new Set(columns.map((column) => column.key)),
+  );
   const [clientContext, setClientContext] = useState({
     address: "-",
     name: "-",
@@ -461,73 +508,36 @@ export const ClientLocalCitationsTable = ({
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
-    const citationMap = new Map(
-      citations
-        .filter((citation) => citation.citationDatabaseEntryId)
-        .map((citation) => [
-          citation.citationDatabaseEntryId as string,
-          citation,
-        ]),
+    const templatesById = new Map(
+      citationTemplates.map((template) => [template.id, template]),
     );
-    const templateRows = citationTemplates.map((template, index) => {
-      const matchedCitation = citationMap.get(template.id);
+    const hydratedRows = citations.map((citation) => {
+      const template = citation.citationDatabaseEntryId
+        ? templatesById.get(citation.citationDatabaseEntryId)
+        : null;
 
       return {
         address: clientContext.address,
-        citationId: matchedCitation ? String(matchedCitation.id) : null,
-        citationDatabaseEntryId: template.id,
-        dateAdded: matchedCitation?.createdAt?.slice(0, 10) ?? "-",
-        directory: template.name,
-        id: `template-${template.id}-${index}`,
+        citationId: String(citation.id),
+        citationDatabaseEntryId: citation.citationDatabaseEntryId ?? null,
+        dateAdded: citation.createdAt?.slice(0, 10) ?? "-",
+        directory: citation.directoryName,
+        id: `saved-${citation.id}`,
         name: clientContext.name,
-        notes: matchedCitation?.notes ?? "",
-        password: matchedCitation?.password ?? "",
+        notes: citation.notes ?? "",
+        password: citation.password ?? "",
         phone: clientContext.phone,
-        profileUrl: matchedCitation?.profileUrl ?? "",
-        source: "Database",
-        status: (matchedCitation?.status as CitationStatus | null) ?? "Pending",
-        type: template.type || "-",
-        username: matchedCitation?.username ?? "",
-        validationLink: template.validationLink,
+        profileUrl: citation.profileUrl ?? "",
+        source: citation.citationDatabaseEntryId ? "Database" : "Custom",
+        status: toCitationStatus(citation.status),
+        type: citation.type ?? template?.type ?? "-",
+        username: citation.username ?? "",
+        validationLink: template?.validationLink ?? "",
         verificationStatus:
-          matchedCitation?.verificationStatus ?? defaultVerificationStatus,
+          citation.verificationStatus ?? defaultVerificationStatus,
         zipCode: clientContext.zipCode,
       } satisfies LocalCitationRow;
     });
-    const templateIds = new Set(
-      citationTemplates.map((template) => template.id),
-    );
-    const extraSavedRows = citations
-      .filter(
-        (citation) =>
-          !citation.citationDatabaseEntryId ||
-          !templateIds.has(citation.citationDatabaseEntryId),
-      )
-      .map(
-        (citation, index) =>
-          ({
-            address: clientContext.address,
-            citationId: String(citation.id),
-            citationDatabaseEntryId: citation.citationDatabaseEntryId ?? null,
-            dateAdded: citation.createdAt?.slice(0, 10) ?? "-",
-            directory: citation.directoryName,
-            id: `saved-${citation.id}-${index}`,
-            name: clientContext.name,
-            notes: citation.notes ?? "",
-            password: citation.password ?? "",
-            phone: clientContext.phone,
-            profileUrl: citation.profileUrl ?? "",
-            source: "Custom",
-            status: (citation.status as CitationStatus | null) ?? "Pending",
-            type: citation.type ?? "-",
-            username: citation.username ?? "",
-            validationLink: "",
-            verificationStatus:
-              citation.verificationStatus ?? defaultVerificationStatus,
-            zipCode: clientContext.zipCode,
-          }) satisfies LocalCitationRow,
-      );
-    const hydratedRows = [...templateRows, ...extraSavedRows];
 
     if (!query) {
       return hydratedRows;
@@ -575,9 +585,27 @@ export const ClientLocalCitationsTable = ({
           setActiveCitation(row);
           setIsAddCitationModalOpen(true);
         },
-      }),
+      }).filter((column) => visibleColumnKeys.has(column.key)),
+    [visibleColumnKeys],
+  );
+
+  const toggleableColumns = useMemo(
+    () => columns.filter((column) => !lockedColumnKeys.has(column.key)),
     [],
   );
+
+  const selectedCitationRows = useMemo(() => {
+    const selectedRowIds =
+      selectedKeys === "all"
+        ? new Set(filteredRows.map((row) => row.id))
+        : new Set(Array.from(selectedKeys).map(String));
+
+    return filteredRows.filter(
+      (row) => row.citationId && selectedRowIds.has(row.id),
+    );
+  }, [filteredRows, selectedKeys]);
+
+  const selectedCitationCount = selectedCitationRows.length;
 
   const handleSaveCitation = async (payload: {
     notes?: string;
@@ -620,12 +648,43 @@ export const ClientLocalCitationsTable = ({
           );
 
       setCitations((current) => {
-        const filtered = current.filter(
-          (citation) => String(citation.id) !== String(savedCitation.id),
+        const existingIndex = current.findIndex(
+          (citation) => String(citation.id) === String(savedCitation.id),
         );
 
-        return [...filtered, savedCitation];
+        if (existingIndex === -1) {
+          return [...current, savedCitation];
+        }
+
+        const next = [...current];
+
+        next[existingIndex] = savedCitation;
+
+        return next;
       });
+      setActiveCitation((current) =>
+        current
+          ? {
+              ...current,
+              citationId: String(savedCitation.id),
+              citationDatabaseEntryId:
+                savedCitation.citationDatabaseEntryId ?? null,
+              dateAdded: savedCitation.createdAt?.slice(0, 10) ?? "-",
+              directory: savedCitation.directoryName,
+              notes: savedCitation.notes ?? "",
+              password: savedCitation.password ?? "",
+              profileUrl: savedCitation.profileUrl ?? "",
+              source: savedCitation.citationDatabaseEntryId
+                ? "Database"
+                : "Custom",
+              status: toCitationStatus(savedCitation.status),
+              type: savedCitation.type ?? current.type,
+              username: savedCitation.username ?? "",
+              verificationStatus:
+                savedCitation.verificationStatus ?? defaultVerificationStatus,
+            }
+          : current,
+      );
       toast.success("Citation saved successfully.");
     } catch (error) {
       const message =
@@ -638,9 +697,192 @@ export const ClientLocalCitationsTable = ({
     }
   };
 
+  const handleImportTemplates = async () => {
+    if (!session) {
+      return;
+    }
+
+    const existingTemplateIds = new Set(
+      citations
+        .map((citation) => citation.citationDatabaseEntryId)
+        .filter(Boolean)
+        .map(String),
+    );
+    const missingTemplates = citationTemplates.filter(
+      (template) => !existingTemplateIds.has(template.id),
+    );
+
+    if (!missingTemplates.length) {
+      toast.warning("All citation templates are already imported.");
+
+      return;
+    }
+
+    setIsImportingTemplates(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const results = await Promise.allSettled(
+        missingTemplates.map((template) =>
+          clientsApi.createClientCitation(accessToken, clientId, {
+            citationDatabaseEntryId: template.id,
+            directoryName: template.name,
+            status: "Pending",
+            verificationStatus: defaultVerificationStatus,
+          }),
+        ),
+      );
+      const importedCitations = results
+        .filter(
+          (result): result is PromiseFulfilledResult<ClientCitation> =>
+            result.status === "fulfilled",
+        )
+        .map((result) => result.value);
+
+      if (!importedCitations.length) {
+        toast.danger("Failed to import citation templates.");
+
+        return;
+      }
+
+      setCitations((current) => {
+        const importedIds = new Set(
+          importedCitations.map((citation) => String(citation.id)),
+        );
+        const filtered = current.filter(
+          (citation) => !importedIds.has(String(citation.id)),
+        );
+
+        return [...filtered, ...importedCitations];
+      });
+
+      if (importedCitations.length < missingTemplates.length) {
+        toast.warning("Some citation templates were not imported.", {
+          description: `${importedCitations.length} of ${missingTemplates.length} templates were imported.`,
+        });
+
+        return;
+      }
+
+      toast.success("Citation templates imported.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to import citation templates.";
+
+      toast.danger("Failed to import citation templates.", {
+        description: message,
+      });
+    } finally {
+      setIsImportingTemplates(false);
+    }
+  };
+
+  const handleBulkUploadRows = async (importedRows: ImportedCitationRow[]) => {
+    if (!session) {
+      throw new Error("You must be signed in to upload citations.");
+    }
+
+    const accessToken = await getValidAccessToken();
+    const results = await Promise.allSettled(
+      importedRows.map((row) =>
+        clientsApi.createClientCitation(accessToken, clientId, {
+          directoryName: row.directorySite,
+          profileUrl: row.validationLink,
+          status: "Pending",
+          verificationStatus: defaultVerificationStatus,
+        }),
+      ),
+    );
+    const uploadedCitations = results
+      .filter(
+        (result): result is PromiseFulfilledResult<ClientCitation> =>
+          result.status === "fulfilled",
+      )
+      .map((result) => result.value);
+
+    if (!uploadedCitations.length) {
+      throw new Error("Failed to upload citations.");
+    }
+
+    setCitations((current) => [...current, ...uploadedCitations]);
+
+    if (uploadedCitations.length < importedRows.length) {
+      toast.warning("Some citations were not uploaded.", {
+        description: `${uploadedCitations.length} of ${importedRows.length} rows were imported.`,
+      });
+
+      return;
+    }
+
+    toast.success("Citations uploaded.");
+  };
+
+  const handleBulkDelete = async () => {
+    if (!session || !selectedCitationRows.length) {
+      return;
+    }
+
+    setIsBulkDeleting(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const results = await Promise.allSettled(
+        selectedCitationRows.map((row) =>
+          clientsApi.deleteClientCitation(
+            accessToken,
+            clientId,
+            row.citationId as string,
+          ),
+        ),
+      );
+      const deletedIds = new Set(
+        selectedCitationRows
+          .filter((_, index) => results[index]?.status === "fulfilled")
+          .map((row) => row.citationId)
+          .filter(Boolean)
+          .map(String),
+      );
+
+      if (!deletedIds.size) {
+        toast.danger("Failed to delete selected citations.");
+
+        return;
+      }
+
+      setCitations((current) =>
+        current.filter((citation) => !deletedIds.has(String(citation.id))),
+      );
+      setSelectedKeys(new Set([]));
+      setIsBulkDeleteConfirmOpen(false);
+
+      if (deletedIds.size < selectedCitationRows.length) {
+        toast.warning("Some citations were not deleted.", {
+          description: `${deletedIds.size} of ${selectedCitationRows.length} citations were deleted.`,
+        });
+
+        return;
+      }
+
+      toast.success("Selected citations deleted.");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to delete selected citations.";
+
+      toast.danger("Failed to delete selected citations.", {
+        description: message,
+      });
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <>
-      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {statusSummaryItems.map((item) => {
           const Icon = item.icon;
 
@@ -669,30 +911,123 @@ export const ClientLocalCitationsTable = ({
         showPagination
         ariaLabel="Client local citations"
         columns={tableColumns}
+        currentPage={currentPage}
         getRowKey={(item) => item.id}
         headerRight={
           <div className="flex w-full flex-wrap items-center justify-end gap-2">
             <Button
+              className="border-danger-200 text-danger"
+              isDisabled={!selectedCitationCount || isBulkDeleting}
+              isLoading={isBulkDeleting}
               radius="sm"
-              startContent={<List size={14} />}
+              startContent={!isBulkDeleting ? <Trash2 size={14} /> : null}
               variant="bordered"
+              onPress={() => setIsBulkDeleteConfirmOpen(true)}
             >
-              Show 10
+              Delete
             </Button>
             <Button
               radius="sm"
-              startContent={<Columns3 size={14} />}
+              startContent={<Upload size={14} />}
               variant="bordered"
+              onPress={() => setIsBulkUploadModalOpen(true)}
             >
-              Columns
+              Bulk Upload
             </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isDisabled={!citationTemplates.length}
+              isLoading={isImportingTemplates}
+              radius="sm"
+              startContent={!isImportingTemplates ? <List size={14} /> : null}
+              onPress={() => {
+                void handleImportTemplates();
+              }}
+            >
+              Import Template
+            </Button>
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  radius="sm"
+                  startContent={<List size={14} />}
+                  variant="bordered"
+                >
+                  Show {pageSize}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Rows per page"
+                selectedKeys={[String(pageSize)]}
+                selectionMode="single"
+                onSelectionChange={(keys) => {
+                  const selectedKey =
+                    keys === "all" ? String(pageSize) : keys.currentKey;
+                  const selectedPageSize = Number(selectedKey);
+
+                  if (Number.isFinite(selectedPageSize)) {
+                    setPageSize(selectedPageSize);
+                    setCurrentPage(1);
+                  }
+                }}
+              >
+                {pageSizeOptions.map((option) => (
+                  <DropdownItem key={String(option)}>
+                    Show {option}
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown closeOnSelect={false} placement="bottom-end">
+              <DropdownTrigger>
+                <Button
+                  radius="sm"
+                  startContent={<Columns3 size={14} />}
+                  variant="bordered"
+                >
+                  Columns
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Visible local citation columns"
+                closeOnSelect={false}
+              >
+                {toggleableColumns.map((column) => (
+                  <DropdownItem key={column.key} textValue={column.label}>
+                    <Checkbox
+                      isSelected={visibleColumnKeys.has(column.key)}
+                      onValueChange={() => {
+                        setVisibleColumnKeys((current) => {
+                          const next = new Set(current);
+
+                          if (next.has(column.key)) {
+                            next.delete(column.key);
+                          } else {
+                            next.add(column.key);
+                          }
+
+                          return next.size > lockedColumnKeys.size
+                            ? next
+                            : new Set(columns.map((item) => item.key));
+                        });
+                      }}
+                    >
+                      {column.label}
+                    </Checkbox>
+                  </DropdownItem>
+                ))}
+              </DropdownMenu>
+            </Dropdown>
             <Input
               className="w-full min-w-[240px] md:w-72"
               placeholder="Search here"
               radius="sm"
               startContent={<Search className="text-default-400" size={16} />}
               value={searchValue}
-              onValueChange={setSearchValue}
+              onValueChange={(value) => {
+                setSearchValue(value);
+                setCurrentPage(1);
+              }}
             />
             {/* <Button
               className="bg-[#022279] text-white"
@@ -703,9 +1038,11 @@ export const ClientLocalCitationsTable = ({
             </Button> */}
           </div>
         }
+        pageSize={pageSize}
         rows={filteredRows}
         selectedKeys={selectedKeys}
         title="Local Citations"
+        onPageChange={setCurrentPage}
         onSelectionChange={setSelectedKeys}
       />
       <AddCitationModal
@@ -716,6 +1053,8 @@ export const ClientLocalCitationsTable = ({
           validationLink: activeCitation?.validationLink ?? "",
           zipCode: activeCitation?.zipCode ?? clientContext.zipCode,
         }}
+        citationId={activeCitation?.citationId ?? null}
+        clientId={clientId}
         initialValues={
           activeCitation
             ? {
@@ -745,6 +1084,48 @@ export const ClientLocalCitationsTable = ({
         }}
         onSubmit={handleSaveCitation}
       />
+      <ImportBulkCitationsModal
+        isOpen={isBulkUploadModalOpen}
+        onImport={handleBulkUploadRows}
+        onOpenChange={setIsBulkUploadModalOpen}
+      />
+      <Modal
+        isOpen={isBulkDeleteConfirmOpen}
+        onOpenChange={(isOpen) => {
+          if (!isBulkDeleting) {
+            setIsBulkDeleteConfirmOpen(isOpen);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>Delete selected citations?</ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-[#4B5563]">
+              This will delete {selectedCitationCount} selected citation
+              {selectedCitationCount === 1 ? "" : "s"} from this client.
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={isBulkDeleting}
+              variant="light"
+              onPress={() => setIsBulkDeleteConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-danger text-white"
+              isLoading={isBulkDeleting}
+              startContent={!isBulkDeleting ? <Trash2 size={16} /> : null}
+              onPress={() => {
+                void handleBulkDelete();
+              }}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 };

@@ -40,6 +40,7 @@ import {
   type PendingAttachmentItem,
   validateCommentPayloadSize,
 } from "@/lib/comment-attachments";
+import { GBP_POSTING_STATUS_OPTIONS } from "@/lib/gbp-posting-statuses";
 
 interface GbpPostingReviewScreenProps {
   token: string;
@@ -47,7 +48,7 @@ interface GbpPostingReviewScreenProps {
 
 type VerificationStep = "details" | "otp";
 
-const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 const BUTTON_OPTIONS = [
   "Learn more",
@@ -74,8 +75,22 @@ const FieldLabel = ({
   </label>
 );
 
-const sessionStorageKey = (token: string) =>
-  `gbp-posting-review-session:${token}`;
+const SESSION_STORAGE_KEY = "client-review-session";
+
+const resolveServerAssetUrl = (value?: string | null) => {
+  if (!value) {
+    return "";
+  }
+
+  if (/^(https?:|data:|blob:)/i.test(value)) {
+    return value;
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  const normalizedPath = value.replace(/^\/+/, "");
+
+  return baseUrl ? `${baseUrl}/${normalizedPath}` : value;
+};
 
 const emptyPosting: PublicGbpPosting = {
   audience: null,
@@ -102,19 +117,6 @@ const formatDateTime = (value?: string | null) => {
 
   return date.toLocaleString();
 };
-
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      resolve(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.onerror = () => {
-      reject(new Error("Failed to read image."));
-    };
-    reader.readAsDataURL(file);
-  });
 
 const sanitizeCommentHtml = (html: string) => {
   if (typeof window === "undefined" || !html) {
@@ -188,8 +190,9 @@ export const GbpPostingReviewScreen = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [isDeletingCommentId, setIsDeletingCommentId] = useState("");
+  const [isCookieAuthenticated, setIsCookieAuthenticated] = useState(false);
 
-  const isVerified = Boolean(reviewSessionToken);
+  const isVerified = Boolean(reviewSessionToken) || isCookieAuthenticated;
   const comments = contentData?.comments ?? [];
   const reviewerEmail = contentData?.reviewer.email?.toLowerCase() ?? "";
 
@@ -199,7 +202,7 @@ export const GbpPostingReviewScreen = ({
   );
 
   useEffect(() => {
-    const savedToken = window.localStorage.getItem(sessionStorageKey(token));
+    const savedToken = window.localStorage.getItem(SESSION_STORAGE_KEY);
 
     if (savedToken) {
       setReviewSessionToken(savedToken);
@@ -228,13 +231,31 @@ export const GbpPostingReviewScreen = ({
       setError("");
 
       try {
-        const response = await gbpPostingReviewsApi.getPublicStatus(token);
+        const savedToken =
+          window.localStorage.getItem(SESSION_STORAGE_KEY) || "";
+        const response = await gbpPostingReviewsApi.getPublicStatus(
+          token,
+          savedToken || undefined,
+        );
 
         if (!isMounted) {
           return;
         }
 
         setStatus(response);
+
+        if (response.authenticated) {
+          setIsCookieAuthenticated(true);
+          if (savedToken) {
+            setReviewSessionToken(savedToken);
+          }
+        } else {
+          setIsCookieAuthenticated(false);
+          if (savedToken) {
+            window.localStorage.removeItem(SESSION_STORAGE_KEY);
+            setReviewSessionToken("");
+          }
+        }
       } catch (loadError) {
         if (!isMounted) {
           return;
@@ -260,7 +281,7 @@ export const GbpPostingReviewScreen = ({
   }, [token]);
 
   useEffect(() => {
-    if (!reviewSessionToken) {
+    if (!isVerified) {
       return;
     }
 
@@ -294,8 +315,9 @@ export const GbpPostingReviewScreen = ({
           return;
         }
 
-        window.localStorage.removeItem(sessionStorageKey(token));
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
         setReviewSessionToken("");
+        setIsCookieAuthenticated(false);
         toast.warning("Please verify your email to continue.", {
           description:
             loadError instanceof Error ? loadError.message : undefined,
@@ -312,7 +334,7 @@ export const GbpPostingReviewScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [reviewSessionToken, token]);
+  }, [isVerified, reviewSessionToken, token]);
 
   const handleSendOtp = async () => {
     if (verificationStep === "otp" && resendCooldown > 0) {
@@ -347,10 +369,11 @@ export const GbpPostingReviewScreen = ({
       });
 
       window.localStorage.setItem(
-        sessionStorageKey(token),
+        SESSION_STORAGE_KEY,
         response.reviewSessionToken,
       );
       setReviewSessionToken(response.reviewSessionToken);
+      setIsCookieAuthenticated(true);
       toast.success("Email verified.");
     } catch (verifyError) {
       toast.danger("Failed to verify code.", {
@@ -374,6 +397,7 @@ export const GbpPostingReviewScreen = ({
           buttonType: posting.buttonType ?? "",
           images: posting.images,
           postContent: posting.postContent ?? "",
+          status: posting.status ?? "",
         },
       );
       const refreshed = await gbpPostingReviewsApi.getPublicContent(
@@ -405,14 +429,21 @@ export const GbpPostingReviewScreen = ({
       return;
     }
 
-    const selectedFiles = Array.from(files);
+    const selectedFiles = Array.from(files).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+
+    if (selectedFiles.length === 0) {
+      return;
+    }
+
     const oversizedFiles = selectedFiles.filter(
       (file) => file.size > MAX_IMAGE_BYTES,
     );
 
     if (oversizedFiles.length > 0) {
       toast.warning("Image is too large.", {
-        description: "PNG or JPG images must be smaller than 3MB.",
+        description: "PNG or JPG images must be smaller than 5MB.",
       });
 
       return;
@@ -420,14 +451,18 @@ export const GbpPostingReviewScreen = ({
 
     try {
       const uploaded = await Promise.all(
-        selectedFiles
-          .filter((file) => file.type.startsWith("image/"))
-          .map(fileToDataUrl),
+        selectedFiles.map((file) =>
+          gbpPostingReviewsApi.uploadPublicImage(
+            token,
+            reviewSessionToken,
+            file,
+          ),
+        ),
       );
 
       setPosting((current) => ({
         ...current,
-        images: [...current.images, ...uploaded],
+        images: [...current.images, ...uploaded.map((image) => image.url)],
       }));
     } catch (uploadError) {
       toast.danger("Failed to add image.", {
@@ -766,6 +801,30 @@ export const GbpPostingReviewScreen = ({
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="space-y-4 rounded-lg border border-default-200 bg-white p-4">
             <div>
+              <div className="w-full">
+                <FieldLabel htmlFor="review-posting-status">Status</FieldLabel>
+                <Select
+                  aria-label="Status"
+                  id="review-posting-status"
+                  selectedKeys={posting.status ? [posting.status] : []}
+                  size="sm"
+                  variant="bordered"
+                  onSelectionChange={(keys) => {
+                    const first = Array.from(keys as Set<string>)[0] ?? "";
+
+                    setPosting((current) => ({
+                      ...current,
+                      status: first || current.status || "Draft",
+                    }));
+                  }}
+                >
+                  {GBP_POSTING_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option}>{option}</SelectItem>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div>
               <FieldLabel htmlFor="review-button-type">Button</FieldLabel>
               <Select
                 aria-label="Button"
@@ -831,7 +890,7 @@ export const GbpPostingReviewScreen = ({
                   onClick={() => {
                     if (primaryImage) {
                       window.open(
-                        primaryImage,
+                        resolveServerAssetUrl(primaryImage),
                         "_blank",
                         "noopener,noreferrer",
                       );
@@ -846,7 +905,7 @@ export const GbpPostingReviewScreen = ({
                       alt="Posting image"
                       className="aspect-[2/1.3] w-full rounded-lg object-cover"
                       height={96}
-                      src={primaryImage}
+                      src={resolveServerAssetUrl(primaryImage)}
                       width={160}
                     />
                   ) : (
@@ -867,7 +926,7 @@ export const GbpPostingReviewScreen = ({
                           alt={`Posting image ${index + 2}`}
                           className="aspect-square w-full object-cover"
                           height={56}
-                          src={image}
+                          src={resolveServerAssetUrl(image)}
                           width={56}
                         />
                         <button

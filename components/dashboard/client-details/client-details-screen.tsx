@@ -75,6 +75,12 @@ const DEFAULT_COUNTRY_OPTION: KeywordResearchCountryOption = {
   value: "GB",
 };
 
+const PRACTICE_STRUCTURE_OPTIONS = [
+  "Private",
+  "NHS",
+  "Private and NHS",
+] as const;
+
 const buildDefaultPracticeHours = (): PracticeHour[] =>
   days.map((day) => ({
     day,
@@ -624,6 +630,19 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
     mode: "onBlur",
   });
   const watchedValues = watch();
+  const filteredClientNameOptions = useMemo(() => {
+    const normalizedQuery = (watchedValues.clientName ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (!normalizedQuery) {
+      return clientNameOptions;
+    }
+
+    return clientNameOptions.filter((name) =>
+      name.toLowerCase().includes(normalizedQuery),
+    );
+  }, [clientNameOptions, watchedValues.clientName]);
   const completionPercentage = useMemo(() => {
     const completionChecks = [
       hasTextValue(watchedValues.clientName),
@@ -1330,7 +1349,7 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                         errorMessage={errors.clientName?.message}
                         inputValue={field.value ?? ""}
                         isInvalid={!!errors.clientName}
-                        items={clientNameOptions.map((name) => ({
+                        items={filteredClientNameOptions.map((name) => ({
                           id: name,
                           name,
                         }))}
@@ -1493,13 +1512,21 @@ export const ClientDetailsScreen = ({ slug }: { slug: string }) => {
                   control={control}
                   name="practiceStructure"
                   render={({ field }) => (
-                    <Input
+                    <Select
                       radius="sm"
+                      selectedKeys={field.value ? [field.value] : []}
                       size="sm"
-                      value={field.value ?? ""}
                       onBlur={field.onBlur}
-                      onChange={field.onChange}
-                    />
+                      onSelectionChange={(keys) => {
+                        const first = Array.from(keys as Set<string>)[0] ?? "";
+
+                        field.onChange(first);
+                      }}
+                    >
+                      {PRACTICE_STRUCTURE_OPTIONS.map((option) => (
+                        <SelectItem key={option}>{option}</SelectItem>
+                      ))}
+                    </Select>
                   )}
                 />
               </div>

@@ -17,6 +17,7 @@ import { useAuth } from "@/components/auth/auth-context";
 import { DynamicValuePillsPicker } from "@/components/dashboard/settings/dynamic-value-pills-picker";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { getDynamicPromptValuesByPostType } from "@/lib/ai-prompt-dynamic-values";
+import { WEB_CONTENT_TYPE_OPTIONS } from "@/lib/web-content-types";
 
 const labelClassName = "mb-1.5 block text-sm text-[#4B5563]";
 
@@ -24,14 +25,9 @@ const typeOfPostOptions = [
   "GBP Update",
   "GBP Offer",
   "GBP Event",
-  "Service Page",
   "Meta Title",
-  "Homepage",
-  "Treatment Page",
-  "Condition Page",
-  "Blog Page",
-  "Press Release",
   "Guest Post",
+  ...WEB_CONTENT_TYPE_OPTIONS,
 ];
 
 const statusOptions = ["Active", "Draft"] as const;

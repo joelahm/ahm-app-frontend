@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Badge } from "@heroui/badge";
 import { Button } from "@heroui/button";
@@ -16,8 +16,10 @@ import { ChevronRight, Search, Bell } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { clientsApi } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
 import { useNotifications } from "@/components/dashboard/notifications-provider";
+import { formatClientSlug, getClientDisplayName } from "@/lib/client-display";
 
 interface DashboardTopbarProps {
   title: string;
@@ -30,8 +32,19 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
   const { logout, session } = useAuth();
   const { markAllRead, markNotificationRead, notifications, unreadCount } =
     useNotifications();
+  const clientSlug = useMemo(() => {
+    const segments = pathname.split("?")[0].split("/").filter(Boolean);
+    const clientSegmentIndex = segments.findIndex(
+      (segment, index) => segment === "clients" && index === 1,
+    );
+
+    return clientSegmentIndex >= 0
+      ? segments[clientSegmentIndex + 1] || ""
+      : "";
+  }, [pathname]);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [breadcrumbClientName, setBreadcrumbClientName] = useState("");
   const displayName =
     [session?.user?.firstName, session?.user?.lastName]
       .filter((value) => typeof value === "string" && value.trim().length > 0)
@@ -48,7 +61,7 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
       return undefined;
     }
 
-    if (/^https?:\/\//i.test(rawAvatarUrl)) {
+    if (/^(https?:|data:|blob:)/i.test(rawAvatarUrl)) {
       return rawAvatarUrl;
     }
 
@@ -60,6 +73,44 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
   const headingTitle = title.includes(",")
     ? `${title.split(",")[0]}, ${displayName}!`
     : `${title} ${displayName}!`;
+
+  useEffect(() => {
+    if (!clientSlug || !session?.accessToken) {
+      setBreadcrumbClientName("");
+
+      return;
+    }
+
+    let isMounted = true;
+    const fallbackName = formatClientSlug(clientSlug);
+
+    const loadClientName = async () => {
+      try {
+        const client = await clientsApi.getClientById(
+          session.accessToken,
+          clientSlug,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setBreadcrumbClientName(getClientDisplayName(client, fallbackName));
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setBreadcrumbClientName(fallbackName);
+      }
+    };
+
+    void loadClientName();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [clientSlug, session?.accessToken]);
 
   const breadcrumbs = useMemo(() => {
     const segments = pathname.split("?")[0].split("/").filter(Boolean);
@@ -86,8 +137,15 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
 
     return segments.map((segment, index) => {
       const href = `/${segments.slice(0, index + 1).join("/")}`;
-      const label =
-        index === 0 ? "Dashboard" : formatSegment(decodeURIComponent(segment));
+      const isClientSlugCrumb =
+        index > 1 &&
+        segments[index - 1] === "clients" &&
+        segment === clientSlug;
+      const label = isClientSlugCrumb
+        ? breadcrumbClientName || formatClientSlug(segment)
+        : index === 0
+          ? "Dashboard"
+          : formatSegment(decodeURIComponent(segment));
 
       return {
         href,
@@ -95,7 +153,7 @@ export const DashboardTopbar = ({ title, subtitle }: DashboardTopbarProps) => {
         label,
       };
     });
-  }, [pathname]);
+  }, [breadcrumbClientName, clientSlug, pathname]);
 
   const handleLogout = async () => {
     await logout();

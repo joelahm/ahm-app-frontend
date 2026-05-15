@@ -148,7 +148,7 @@ const scanKeywordSchema = yup.object({
     .min(1, "Add at least one keyword")
     .required(),
   isRecurring: yup.boolean().default(false).required(),
-  labels: yup.array().of(yup.string().required()).default([]).required(),
+  labels: yup.array().of(yup.string().trim()).default([]).notRequired(),
   connectedLocation: yup
     .string()
     .required("A synced Google Business Profile is required"),
@@ -179,6 +179,9 @@ const scanKeywordSchema = yup.object({
     then: (schema) => schema.required("Frequency is required"),
   }),
 });
+
+const toStringTokens = (value: Array<string | undefined> | null | undefined) =>
+  (value ?? []).filter((token): token is string => typeof token === "string");
 
 export type ScanKeywordFormValues = yup.InferType<typeof scanKeywordSchema>;
 export interface ScanCoveragePreview {
@@ -601,7 +604,9 @@ export const ScanKeywordModal = ({
         coverageUnit:
           validatedValues.coverageUnit === "miles" ? "MILES" : "KILOMETERS",
         keywords: validatedValues.keywords,
-        labels: validatedValues.labels,
+        labels: (validatedValues.labels ?? [])
+          .map((label) => label?.trim() ?? "")
+          .filter(Boolean),
         recurrenceEnabled: validatedValues.isRecurring,
         runNow: true,
         ...(recurringSchedule ?? {}),
@@ -800,7 +805,7 @@ export const ScanKeywordModal = ({
                     errorMessage={errors.keywords?.message}
                     label="Keywords"
                     placeholder="Add keyword"
-                    tokens={field.value ?? []}
+                    tokens={toStringTokens(field.value)}
                     onChange={(tokens) => field.onChange(tokens)}
                   />
                 )}
@@ -892,7 +897,7 @@ export const ScanKeywordModal = ({
                   <TokenInputField
                     label="Label"
                     placeholder="Add new label"
-                    tokens={field.value ?? []}
+                    tokens={toStringTokens(field.value)}
                     onChange={(tokens) => field.onChange(tokens)}
                   />
                 )}

@@ -31,14 +31,7 @@ import {
   buildAiPromptTemplateValues,
   resolveAiPromptTemplate,
 } from "@/lib/ai-prompt-template";
-
-const contentTypeOptions = [
-  "Homepage",
-  "Treatment Page",
-  "Condition Page",
-  "Blog Page",
-  "Press Release",
-];
+import { WEB_CONTENT_TYPE_OPTIONS } from "@/lib/web-content-types";
 
 const TITLE_GENERATION_MODEL = "claude-3-5-haiku-20241022";
 
@@ -546,10 +539,12 @@ export const WebsiteContentKeywordsModal = ({
                                   trigger: "min-h-9 text-xs",
                                   value: "text-xs",
                                 }}
-                                items={contentTypeOptions.map((option) => ({
-                                  label: option,
-                                  value: option,
-                                }))}
+                                items={WEB_CONTENT_TYPE_OPTIONS.map(
+                                  (option) => ({
+                                    label: option,
+                                    value: option,
+                                  }),
+                                )}
                                 placeholder="Select Type"
                                 selectedKeys={field.value ? [field.value] : []}
                                 size="sm"
@@ -680,10 +675,12 @@ export const WebsiteContentKeywordsModal = ({
                                   trigger: "min-h-9 text-xs",
                                   value: "text-xs",
                                 }}
-                                items={contentTypeOptions.map((option) => ({
-                                  label: option,
-                                  value: option,
-                                }))}
+                                items={WEB_CONTENT_TYPE_OPTIONS.map(
+                                  (option) => ({
+                                    label: option,
+                                    value: option,
+                                  }),
+                                )}
                                 placeholder="Select Type"
                                 selectedKeys={field.value ? [field.value] : []}
                                 size="sm"

@@ -162,6 +162,9 @@ const to24HourTime = (time: string, meridiem: string) => {
   return `${String(hours).padStart(2, "0")}:${minutePart ?? "00"}`;
 };
 
+const toStringTokens = (value: Array<string | undefined> | null | undefined) =>
+  (value ?? []).filter((token): token is string => typeof token === "string");
+
 const resolveCoordinatesFromPlaceId = async (placeId: string) => {
   if (!placeId) {
     return null;
@@ -242,7 +245,7 @@ const quickScanSchema = yup.object({
     .of(yup.string().required())
     .min(1, "Add at least one keyword.")
     .required(),
-  labels: yup.array().of(yup.string().required()).default([]).required(),
+  labels: yup.array().of(yup.string().trim()).default([]).notRequired(),
   repeatTime: yup.string().when("isRecurring", {
     is: true,
     otherwise: (schema) => schema.default("").notRequired(),
@@ -549,7 +552,9 @@ export const QuickScanScreen = () => {
           ? (validated.frequency || "WEEKLY").toUpperCase()
           : undefined,
         keywords: validated.keywords,
-        labels: validated.labels,
+        labels: (validated.labels ?? [])
+          .map((label) => label?.trim() ?? "")
+          .filter(Boolean),
         quickScanContext: {
           address: gbpPreview.address ?? null,
           businessName: gbpPreview.businessName ?? selectedPlace.mainText,
@@ -691,7 +696,7 @@ export const QuickScanScreen = () => {
                     errorMessage={errors.keywords?.message}
                     label="Keywords"
                     placeholder="Add keyword"
-                    tokens={field.value ?? []}
+                    tokens={toStringTokens(field.value)}
                     onChange={field.onChange}
                   />
                 )}
@@ -704,7 +709,7 @@ export const QuickScanScreen = () => {
                     errorMessage={errors.labels?.message}
                     label="Labels"
                     placeholder="Add label"
-                    tokens={field.value ?? []}
+                    tokens={toStringTokens(field.value)}
                     onChange={field.onChange}
                   />
                 )}

@@ -20,7 +20,6 @@ import {
   TableHeader,
   TableRow,
 } from "@heroui/table";
-import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
@@ -30,7 +29,9 @@ import {
 } from "lucide-react";
 
 import { clientsApi, type ProjectTask } from "@/apis/clients";
+import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
+import { ViewTaskModal } from "@/components/dashboard/client-details/view-task-modal";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { formatCommentPreview } from "@/lib/comment-preview";
 
@@ -168,7 +169,7 @@ const resolveServerAssetUrl = (value?: string | null) => {
     return undefined;
   }
 
-  if (/^https?:\/\//i.test(value)) {
+  if (/^(https?:|data:|blob:)/i.test(value)) {
     return value;
   }
 
@@ -351,7 +352,6 @@ const flattenRows = (
 export const MyTasksScreen = () => {
   const { getValidAccessToken, session } = useAuth();
   const toast = useAppToast();
-  const router = useRouter();
 
   const [allTasks, setAllTasks] = useState<TaskWithClient[]>([]);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
@@ -367,6 +367,11 @@ export const MyTasksScreen = () => {
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
     () => new Set(toggleableColumnKeys),
   );
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [users, setUsers] = useState<
+    Array<{ avatar?: string; id: string; name: string }>
+  >([]);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const currentUserId = String(session?.user.id ?? "");
 
@@ -385,69 +390,20 @@ export const MyTasksScreen = () => {
 
       try {
         const accessToken = await getValidAccessToken();
-        const clients = await clientsApi.getClients(accessToken);
-        const taskResponses = await Promise.all(
-          clients.map(async (client) => {
-            try {
-              const response = await clientsApi.getProjectTasks(
-                accessToken,
-                client.id,
-              );
-
-              const clientId = String(client.id);
-              const clientName =
-                client.clientName?.trim() || client.businessName?.trim() || "-";
-
-              const latestCommentByTaskId = new Map<string, string>();
-
-              await Promise.all(
-                response.tasks.map(async (task) => {
-                  try {
-                    const commentsResponse = await clientsApi.getTaskComments(
-                      accessToken,
-                      task.id,
-                    );
-                    const latestComment = commentsResponse.comments
-                      .slice()
-                      .sort((left, right) => {
-                        const leftTime = left.createdAt
-                          ? new Date(left.createdAt).getTime()
-                          : 0;
-                        const rightTime = right.createdAt
-                          ? new Date(right.createdAt).getTime()
-                          : 0;
-
-                        return rightTime - leftTime;
-                      })[0]?.comment;
-
-                    latestCommentByTaskId.set(
-                      String(task.id),
-                      formatCommentPreview(latestComment),
-                    );
-                  } catch {
-                    latestCommentByTaskId.set(String(task.id), "-");
-                  }
-                }),
-              );
-
-              return response.tasks.map((task) => ({
-                ...task,
-                clientId,
-                clientName,
-                latestComment:
-                  latestCommentByTaskId.get(String(task.id)) || "-",
-              }));
-            } catch {
-              return [] as TaskWithClient[];
-            }
-          }),
-        );
+        const response = await clientsApi.getProjectTasks(accessToken);
 
         if (!isActive) {
           return;
         }
 
-        setAllTasks(taskResponses.flat());
+        const enriched: TaskWithClient[] = response.tasks.map((task) => ({
+          ...task,
+          clientId: task.clientId ? String(task.clientId) : "",
+          clientName: task.clientName?.trim() || "-",
+          latestComment: formatCommentPreview(task.latestComment),
+        }));
+
+        setAllTasks(enriched);
       } catch (error) {
         if (!isActive) {
           return;
@@ -471,7 +427,74 @@ export const MyTasksScreen = () => {
     return () => {
       isActive = false;
     };
-  }, [currentUserId, getValidAccessToken, session]);
+  }, [currentUserId, getValidAccessToken, reloadKey, session]);
+
+  useEffect(() => {
+    if (!session) {
+      setUsers([]);
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const hydrateUsers = async () => {
+      try {
+        const accessToken = await getValidAccessToken();
+        const allUsers: Array<{
+          avatarUrl?: string | null;
+          email: string;
+          firstName: string | null;
+          id: number;
+          lastName: string | null;
+        }> = [];
+        let page = 1;
+        let hasNext = true;
+
+        while (hasNext) {
+          const response = await usersApi.getUsers(accessToken, {
+            limit: 100,
+            page,
+          });
+
+          allUsers.push(...response.users);
+          hasNext = Boolean(response.pagination?.hasNext);
+          page += 1;
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setUsers(
+          allUsers.map((user) => {
+            const fullName = [user.firstName, user.lastName]
+              .map((value) => value?.trim() ?? "")
+              .filter(Boolean)
+              .join(" ");
+
+            return {
+              avatar: user.avatarUrl ?? undefined,
+              id: String(user.id),
+              name: fullName || user.email,
+            };
+          }),
+        );
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setUsers([]);
+      }
+    };
+
+    void hydrateUsers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [getValidAccessToken, session]);
 
   const assignedTasks = useMemo(
     () =>
@@ -728,16 +751,90 @@ export const MyTasksScreen = () => {
   };
 
   const openTask = (item: TaskRow) => {
-    if (!item.clientId) {
-      return;
+    setSelectedTaskId(item.id);
+  };
+
+  const selectedTaskWithClient = useMemo(() => {
+    if (!selectedTaskId) {
+      return null;
     }
 
-    router.push(
-      `/dashboard/clients/${encodeURIComponent(
-        item.clientId,
-      )}/task-lists?taskId=${encodeURIComponent(item.id)}`,
-    );
-  };
+    return allTasks.find((task) => String(task.id) === selectedTaskId) ?? null;
+  }, [allTasks, selectedTaskId]);
+
+  const selectedTaskProjectOptions = useMemo(() => {
+    if (!selectedTaskWithClient) {
+      return [];
+    }
+
+    const projectsByKey = new Map<string, string>();
+
+    allTasks.forEach((task) => {
+      if (task.clientId !== selectedTaskWithClient.clientId) {
+        return;
+      }
+
+      const id = task.projectId ? String(task.projectId) : "";
+
+      if (!id) {
+        return;
+      }
+
+      const label =
+        (task.projectName as string | undefined)?.trim() ||
+        (task.projectType as string | undefined)?.trim() ||
+        "";
+
+      if (label && !projectsByKey.has(id)) {
+        projectsByKey.set(id, label);
+      }
+    });
+
+    return Array.from(projectsByKey.entries()).map(([id, label]) => ({
+      id,
+      label,
+    }));
+  }, [allTasks, selectedTaskWithClient]);
+
+  const selectedTaskModalProps = useMemo(() => {
+    if (!selectedTaskWithClient) {
+      return null;
+    }
+
+    const assigneeIdValue = selectedTaskWithClient.assignedToId
+      ? String(selectedTaskWithClient.assignedToId)
+      : selectedTaskWithClient.assignedTo?.id
+        ? String(selectedTaskWithClient.assignedTo.id)
+        : "";
+    const assigneeName =
+      users.find((user) => user.id === assigneeIdValue)?.name ||
+      [
+        selectedTaskWithClient.assignedTo?.firstName,
+        selectedTaskWithClient.assignedTo?.lastName,
+      ]
+        .map((value) => value?.trim() ?? "")
+        .filter(Boolean)
+        .join(" ");
+
+    return {
+      assigneeId: assigneeIdValue,
+      assigneeName: assigneeName || "Unassigned",
+      blockedTaskId: selectedTaskWithClient.blockedTaskId
+        ? String(selectedTaskWithClient.blockedTaskId)
+        : undefined,
+      comment: selectedTaskWithClient.latestComment || "",
+      description: selectedTaskWithClient.description ?? "",
+      dueDate: selectedTaskWithClient.dueDate ?? "",
+      dueDateRuleType: selectedTaskWithClient.dueDateRuleType ?? null,
+      id: String(selectedTaskWithClient.id),
+      projectId: selectedTaskWithClient.projectId
+        ? String(selectedTaskWithClient.projectId)
+        : "",
+      status: selectedTaskWithClient.status ?? "To Do",
+      taskName:
+        selectedTaskWithClient.taskName ?? selectedTaskWithClient.task ?? "",
+    };
+  }, [selectedTaskWithClient, users]);
 
   const renderTaskCell = (item: TaskRow, columnKey: string) => {
     if (columnKey === "taskName") {
@@ -1123,6 +1220,24 @@ export const MyTasksScreen = () => {
           </Table>
         </CardBody>
       </Card>
+      <ViewTaskModal
+        clientAddress=""
+        clientName={selectedTaskWithClient?.clientName ?? "-"}
+        isOpen={Boolean(selectedTaskModalProps)}
+        projectOptions={selectedTaskProjectOptions}
+        statusOptions={[...STATUS_LABELS]}
+        subtasks={[]}
+        task={selectedTaskModalProps}
+        users={users}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setSelectedTaskId(null);
+          }
+        }}
+        onTaskSaved={async () => {
+          setReloadKey((current) => current + 1);
+        }}
+      />
     </div>
   );
 };

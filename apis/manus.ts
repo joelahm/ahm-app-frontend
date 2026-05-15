@@ -24,6 +24,7 @@ const parseError = (error: unknown) => {
 
 interface GenerateTextPayload {
   clientId?: string;
+  layoutImageUrl?: string | null;
   maxCharacters?: number;
   model?: string;
   provider?: "ANTHROPIC" | "MANUS" | "OPENAI";
