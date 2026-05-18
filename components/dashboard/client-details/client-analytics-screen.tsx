@@ -2,895 +2,1714 @@
 
 import type { ReactNode } from "react";
 
+import Chart from "chart.js/auto";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
-import { Progress } from "@heroui/progress";
+import { DateRangePicker } from "@heroui/date-picker";
+import { parseDate, type DateValue } from "@internationalized/date";
 import {
   CalendarDays,
-  ChevronDown,
-  Columns3,
-  EllipsisVertical,
-  Eye,
-  Link2,
-  List,
-  Monitor,
-  Search,
-  Smartphone,
+  ClipboardList,
+  Download,
+  FileText,
+  Globe,
+  Quote,
+  RefreshCw,
+  Settings,
   Star,
-  Tablet,
 } from "lucide-react";
-import Image from "next/image";
 
 import {
-  DashboardDataTable,
-  type DashboardDataTableColumn,
-} from "@/components/dashboard/dashboard-data-table";
+  clientsApi,
+  type ClientCitation,
+  type ClientDetails,
+  type ClientGbpDetails,
+  type ClientGbpPosting,
+  type ClientGbpReview,
+  type ClientProject,
+  type ProjectTask,
+} from "@/apis/clients";
+import {
+  keywordContentListsApi,
+  type ContentBreakdownItem,
+  type KeywordContentListRecord,
+} from "@/apis/keyword-content-lists";
+import { scansApi, type LocalRankingKeyword } from "@/apis/scans";
+import { useAuth } from "@/components/auth/auth-context";
+import { useAppToast } from "@/hooks/use-app-toast";
 
-type RankingRow = {
-  dateAdded: string;
-  id: string;
-  keyword: string;
-  latestScan: string;
-  previousScan: string;
-  source: string;
-  totalScans: string;
+type ProjectOverview = {
+  completed: number;
+  name: string;
+  progress: number;
+  status: "Active" | "Completed" | "In Progress" | "Pending";
 };
 
-const metricCards = [
-  {
-    accent: "bg-[#E9F3FF] text-[#1674EA]",
-    icon: PhoneMetricIcon,
-    label: "Calls",
-    value: "12,000",
-  },
-  {
-    accent: "bg-[#ECFDF3] text-[#039855]",
-    icon: BookingMetricIcon,
-    label: "Bookings",
-    value: "234",
-  },
-  {
-    accent: "bg-[#EFF4FF] text-[#444CE7]",
-    icon: ClickMetricIcon,
-    label: "Website Clicks",
-    value: "8,023",
-  },
-  {
-    accent: "bg-[#FFF3EA] text-[#F97316]",
-    icon: RouteMetricIcon,
-    label: "Direction Requests",
-    value: "340",
-  },
-  {
-    accent: "bg-[#F4EBFF] text-[#7A3FF2]",
-    icon: ViewMetricIcon,
-    label: "Impressions",
-    value: "45,000",
-  },
+type StatusCount = {
+  color: string;
+  label: string;
+  value: number;
+};
+
+type AnalyticsDateRange = {
+  end: string;
+  start: string;
+};
+
+type ReviewTrendPoint = {
+  isFuture: boolean;
+  label: string;
+  value: number | null;
+};
+
+type ProfileCompletionSummary = {
+  completed: number;
+  pending: number;
+  percentage: number;
+  total: number;
+};
+
+const CONTENT_STATUS_LABELS = [
+  "Draft",
+  "Generating",
+  "Internal Review",
+  "Ready for Client Review",
+  "Sent to Client for Review",
+  "Completed",
+];
+const CONTENT_STATUS_COLORS = [
+  "#3B82F6",
+  "#65B7F3",
+  "#25C7DD",
+  "#6E55F6",
+  "#3B82F6",
+  "#07A36D",
+];
+const CONTENT_CHART_MAX = 180;
+
+const DEFAULT_CONTENT_BREAKDOWN = [
+  { key: "treatment-pages", label: "Treatment Pages", allocated: 10, used: 0 },
+  { key: "condition-pages", label: "Condition Pages", allocated: 5, used: 0 },
+  { key: "blogs", label: "Blogs", allocated: 40, used: 0 },
+  { key: "press-release", label: "Press Release", allocated: 10, used: 0 },
+  { key: "homepage", label: "Homepage", allocated: 1, used: 0 },
 ];
 
-const deviceBreakdown = [
-  { color: "#1D9BF0", icon: Monitor, label: "Desktop", value: "5,897" },
-  { color: "#12B6E9", icon: Smartphone, label: "Mobile", value: "9,976" },
-  { color: "#6D5EF8", icon: Tablet, label: "Tablet", value: "327" },
-];
+const statusPillClass: Record<ProjectOverview["status"], string> = {
+  Active: "bg-emerald-50 text-emerald-600",
+  Completed: "bg-emerald-50 text-emerald-600",
+  "In Progress": "bg-[#EEF4FF] text-[#244AA8]",
+  Pending: "bg-orange-50 text-orange-500",
+};
 
-const queryRows = [
-  { change: "5%", keyword: "dental clinic", rank: "7th", volume: "600" },
-  { change: "5%", keyword: "veneers", rank: "7th", volume: "520" },
-  { change: "4%", keyword: "teeth whitening", rank: "4th", volume: "480" },
-  { change: "4%", keyword: "dental implants", rank: "4th", volume: "420" },
-  { change: "3%", keyword: "invisalign", rank: "2nd", volume: "390" },
-];
+const projectIcons = [Globe, ClipboardList, FileText, Settings, Quote];
 
-const competitorRows = [
-  {
-    average: "4.7",
-    business: "ABC Dental",
-    category: "Dentist",
-    reviews: "520",
-  },
-  {
-    average: "4.6",
-    business: "Dental Bright",
-    category: "Orthodontist",
-    reviews: "470",
-  },
-  {
-    average: "4.5",
-    business: "Harley Dental",
-    category: "Cosmetic Clinic",
-    reviews: "410",
-  },
-  {
-    average: "4.4",
-    business: "Smile One",
-    category: "Dentist",
-    reviews: "380",
-  },
-  {
-    average: "4.3",
-    business: "London Dental",
-    category: "Dental Clinic",
-    reviews: "320",
-  },
-];
+const formatDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
 
-const rankingRows: RankingRow[] = [
-  {
-    dateAdded: "25 Dec, 2024",
-    id: "1",
-    keyword: "dental bridges",
-    latestScan: "4.6",
-    previousScan: "5.1",
-    source: "GBP",
-    totalScans: "3",
-  },
-  {
-    dateAdded: "29 Dec, 2024",
-    id: "2",
-    keyword: "emergency dentist",
-    latestScan: "3.2",
-    previousScan: "4.4",
-    source: "GBP Health",
-    totalScans: "5",
-  },
-  {
-    dateAdded: "30 Dec, 2024",
-    id: "3",
-    keyword: "dental implants",
-    latestScan: "5.7",
-    previousScan: "6.2",
-    source: "GBP",
-    totalScans: "4",
-  },
-  {
-    dateAdded: "08 Jan, 2025",
-    id: "4",
-    keyword: "root canal",
-    latestScan: "6.1",
-    previousScan: "7.5",
-    source: "GBP Health",
-    totalScans: "4",
-  },
-  {
-    dateAdded: "15 Jan, 2025",
-    id: "5",
-    keyword: "braces",
-    latestScan: "4.9",
-    previousScan: "6.4",
-    source: "GBP",
-    totalScans: "2",
-  },
-];
+  return `${year}-${month}-${day}`;
+};
 
-const rankingColumns: DashboardDataTableColumn<RankingRow>[] = [
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "source",
-    label: "Source / Name",
-    renderCell: (item) => (
-      <div className="space-y-1">
-        <p className="text-sm text-[#111827]">{item.source}</p>
-        <p className="text-xs text-default-500">Live scan</p>
-      </div>
-    ),
-  },
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "dateAdded",
-    label: "Date Added",
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.dateAdded}</span>
-    ),
-  },
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "keyword",
-    label: "Keyword",
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.keyword}</span>
-    ),
-  },
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "previousScan",
-    label: "Previous Scan",
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.previousScan}</span>
-    ),
-  },
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "latestScan",
-    label: "Latest Scan",
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.latestScan}</span>
-    ),
-  },
-  {
-    className: "bg-[#F9FAFB] text-xs font-medium text-[#111827]",
-    key: "totalScans",
-    label: "Total Scan",
-    renderCell: (item) => (
-      <span className="text-sm text-[#111827]">{item.totalScans}</span>
-    ),
-  },
-];
+const getDefaultAnalyticsRange = (): AnalyticsDateRange => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
 
-const chartPoints = [
-  [30, 145],
-  [76, 134],
-  [122, 128],
-  [168, 118],
-  [214, 106],
-  [260, 94],
-  [306, 87],
-  [352, 78],
-  [398, 84],
-];
+  return {
+    end: formatDateInputValue(now),
+    start: formatDateInputValue(start),
+  };
+};
 
-const reviewBars = [
-  { aqua: 48, purple: 61 },
-  { aqua: 57, purple: 70 },
-  { aqua: 64, purple: 78 },
-  { aqua: 46, purple: 59 },
-  { aqua: 49, purple: 64 },
-  { aqua: 41, purple: 54 },
-  { aqua: 38, purple: 47 },
-  { aqua: 69, purple: 82 },
-  { aqua: 44, purple: 58 },
-  { aqua: 52, purple: 65 },
-  { aqua: 37, purple: 49 },
-  { aqua: 34, purple: 46 },
-];
+const toDateValue = (value?: string | null): DateValue | null => {
+  if (!value) {
+    return null;
+  }
 
-const reviewDistribution = [
-  { label: "5", value: 97 },
-  { label: "4", value: 88 },
-  { label: "3", value: 80 },
-  { label: "2", value: 73 },
-  { label: "1", value: 70 },
-];
+  try {
+    return parseDate(value);
+  } catch {
+    return null;
+  }
+};
 
-const queryBars = [100, 86, 68, 58, 44];
-const monthLabels = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+const formatDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
 
-const sectionTitleClass = "text-sm font-semibold text-[#111827]";
-const sectionSubtitleClass = "text-xs text-default-500";
+  const date = new Date(value);
 
-function PhoneMetricIcon() {
-  return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
-      <path
-        d="M5.1 2.55a1.5 1.5 0 0 1 1.55-.36l1.7.57a1.5 1.5 0 0 1 .98 1.18l.18 1.48a1.5 1.5 0 0 1-.43 1.21l-.77.77a11.2 11.2 0 0 0 4.3 4.3l.77-.77a1.5 1.5 0 0 1 1.2-.43l1.49.18a1.5 1.5 0 0 1 1.18.98l.56 1.7a1.5 1.5 0 0 1-.35 1.55l-.83.83a2.25 2.25 0 0 1-2.16.58A15.15 15.15 0 0 1 1.77 4.7a2.25 2.25 0 0 1 .58-2.16l.83-.83Z"
-        fill="currentColor"
-      />
-    </svg>
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+  });
+};
+
+const formatShortMonthDate = (value?: string | null) => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+  });
+};
+
+const getRatingNumber = (value?: string | null) => {
+  const rating = Number(String(value ?? "").replace(/[^\d.]/g, ""));
+
+  return Number.isFinite(rating) ? rating : null;
+};
+
+const parseReviewDate = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isDateInAnalyticsRange = (
+  value: string | null | undefined,
+  range: AnalyticsDateRange,
+) => {
+  const date = parseReviewDate(value);
+  const start = parseReviewDate(range.start);
+  const end = parseReviewDate(range.end);
+
+  if (!date || !start || !end) {
+    return false;
+  }
+
+  const startTime = new Date(start);
+  const endTime = new Date(end);
+
+  startTime.setHours(0, 0, 0, 0);
+  endTime.setHours(23, 59, 59, 999);
+
+  return date >= startTime && date <= endTime;
+};
+
+const getFirstDateInRange = (
+  range: AnalyticsDateRange,
+  ...values: Array<string | null | undefined>
+) => values.find((value) => isDateInAnalyticsRange(value, range)) ?? null;
+
+const getCurrentYearMonthStarts = () => {
+  const now = new Date();
+
+  return Array.from(
+    { length: 12 },
+    (_, index) => new Date(now.getFullYear(), index, 1),
   );
-}
+};
 
-function BookingMetricIcon() {
+const getReviewTrend = (
+  reviews: ClientGbpReview[],
+  totalReviewCount: number,
+) => {
+  const now = new Date();
+  const currentMonthIndex = now.getMonth();
+  const monthStarts = getCurrentYearMonthStarts();
+  const monthlyCounts = monthStarts.map((monthStart) => {
+    const month = monthStart.getMonth();
+    const year = monthStart.getFullYear();
+
+    return reviews.filter((review) => {
+      const date = parseReviewDate(review.date);
+
+      return (
+        date !== null &&
+        date.getFullYear() === year &&
+        date.getMonth() === month
+      );
+    }).length;
+  });
+  const knownRangeTotal = monthlyCounts.reduce((sum, value) => sum + value, 0);
+  let runningTotal = Math.max(0, totalReviewCount - knownRangeTotal);
+
+  return monthStarts.map((monthStart, index) => {
+    const isFuture = index > currentMonthIndex;
+
+    if (!isFuture) {
+      runningTotal += monthlyCounts[index] ?? 0;
+    }
+
+    return {
+      isFuture,
+      label: monthStart.toLocaleDateString("en-US", { month: "short" }),
+      value: isFuture ? null : runningTotal,
+    };
+  });
+};
+
+const getThisMonthReviewCount = (reviews: ClientGbpReview[]) => {
+  const now = new Date();
+
+  return reviews.filter((review) => {
+    const date = parseReviewDate(review.date);
+
+    return (
+      date !== null &&
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth()
+    );
+  }).length;
+};
+
+const isDateInMonthOffset = (value: string | null | undefined, offset = 0) => {
+  const date = parseReviewDate(value);
+
+  if (!date) {
+    return false;
+  }
+
+  const now = new Date();
+  const target = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+
   return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
-      <path
-        d="M4.5 2.25v1.5M13.5 2.25v1.5M3 5.25h12M4.2 15.75h9.6A1.2 1.2 0 0 0 15 14.55v-8.1a1.2 1.2 0 0 0-1.2-1.2H4.2A1.2 1.2 0 0 0 3 6.45v8.1a1.2 1.2 0 0 0 1.2 1.2Zm2.55-6.15h4.5v4.5h-4.5V9.6Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
+    date.getFullYear() === target.getFullYear() &&
+    date.getMonth() === target.getMonth()
   );
-}
+};
 
-function ClickMetricIcon() {
-  return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
-      <path
-        d="m4.5 2.25 7.5 7.5-3.75.75-.75 3.75-3-12Zm8.25.75 1.5-1.5M15.75 5.25h-2.25M12.75 8.25l1.5 1.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
+const getScoreTone = (score: number) => {
+  if (score >= 80) {
+    return {
+      graph: "#07A36D",
+      label: "Good",
+      pillClass: "bg-emerald-50 text-emerald-600",
+      text: "#07A36D",
+    };
+  }
+
+  if (score >= 50) {
+    return {
+      graph: "#FF922E",
+      label: "Needs Work",
+      pillClass: "bg-orange-50 text-orange-600",
+      text: "#FF922E",
+    };
+  }
+
+  return {
+    graph: "#EF4444",
+    label: "Poor",
+    pillClass: "bg-red-50 text-red-600",
+    text: "#EF4444",
+  };
+};
+
+const normalizeStatus = (value?: string | null) =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+const hasTextValue = (value: string | null | undefined) =>
+  Boolean(value?.trim());
+
+const hasItems = (items: unknown[] | null | undefined) =>
+  Array.isArray(items) && items.length > 0;
+
+const hasCompletedPracticeHours = (
+  items: ClientDetails["practiceHours"] | null | undefined,
+) =>
+  Array.isArray(items) &&
+  items.some(
+    (item) =>
+      item.enabled &&
+      hasTextValue(item.startTime) &&
+      hasTextValue(item.endTime) &&
+      hasTextValue(item.startMeridiem) &&
+      hasTextValue(item.endMeridiem),
   );
-}
 
-function RouteMetricIcon() {
-  return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
-      <path
-        d="M6 15.75a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Zm6-9a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5ZM7.88 12.3l2.24-2.6M8.25 3.75h1.5a2.25 2.25 0 0 1 2.25 2.25v.75"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
+const getProfileCompletionSummary = (
+  client: ClientDetails | null,
+): ProfileCompletionSummary => {
+  if (!client) {
+    return { completed: 0, pending: 0, percentage: 0, total: 0 };
+  }
 
-function ViewMetricIcon() {
-  return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18">
-      <path
-        d="M1.5 9s2.7-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.7 4.5-7.5 4.5S1.5 9 1.5 9Zm7.5 2.25a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.5"
-      />
-    </svg>
-  );
-}
+  const checks = [
+    hasTextValue(client.clientName),
+    hasTextValue(client.businessName),
+    hasTextValue(client.niche),
+    hasTextValue(client.personalEmail),
+    hasTextValue(client.personalPhone),
+    hasTextValue(client.practiceEmail),
+    hasTextValue(client.businessPhone),
+    hasTextValue(client.website),
+    hasTextValue(client.country),
+    hasTextValue(client.typeOfPractice),
+    hasTextValue(client.profession),
+    hasTextValue(client.practiceStructure),
+    hasTextValue(client.gmcRegistrationNumber),
+    hasTextValue(client.buildingName),
+    hasTextValue(client.unitNumber),
+    hasTextValue(client.streetAddress),
+    hasTextValue(client.region),
+    hasTextValue(client.visibleArea),
+    hasTextValue(client.nearbyAreasServed),
+    hasTextValue(client.postCode),
+    hasTextValue(client.credentials),
+    hasTextValue(client.majorAccomplishments),
+    hasTextValue(client.gbpLink),
+    hasTextValue(client.facebook),
+    hasTextValue(client.instagram),
+    hasTextValue(client.linkedin),
+    hasTextValue(client.websiteLoginLink),
+    hasTextValue(client.websiteUsername),
+    hasTextValue(client.websitePassword),
+    hasTextValue(client.googleAnalytics),
+    hasTextValue(client.googleSearchConsole),
+    hasTextValue(String(client.assignedTo ?? "")),
+    hasItems(client.topMedicalSpecialties),
+    hasItems(client.subSpecialties),
+    hasItems(client.topTreatments),
+    hasItems(client.treatmentAndServices),
+    hasItems(client.conditionsTreated),
+    hasTextValue(client.uniqueToCompetitors),
+    hasCompletedPracticeHours(client.practiceHours),
+    hasItems(client.highQualityHeadshot),
+    hasItems(client.yourCv),
+    hasItems(client.practiceLocationInteriorPhoto),
+    hasItems(client.practiceLocationExteriorPhoto),
+    hasItems(client.otherImages),
+    hasItems(client.colorGuide),
+    hasItems(client.logo),
+  ];
+  const completed = checks.filter(Boolean).length;
+  const total = checks.length;
 
-const SmallStatCard = ({
-  change,
-  subtitle,
-  title,
-  value,
-}: {
-  change: string;
-  subtitle: string;
-  title: string;
-  value: string;
-}) => (
-  <Card className="border border-default-200 shadow-none">
-    <CardBody className="space-y-3 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#98A2B3]">
-            {title}
-          </p>
-          <p className="mt-2 text-[28px] font-semibold leading-none text-[#111827]">
-            {value}
-          </p>
-        </div>
-        <div className="rounded-2xl bg-[#EEF4FF] p-2 text-[#3B82F6]">
-          <Eye size={16} />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-[#16A34A]">{change}</p>
-        <p className="text-xs text-default-500">{subtitle}</p>
-      </div>
-    </CardBody>
-  </Card>
-);
+  return {
+    completed,
+    pending: total - completed,
+    percentage: Math.round((completed / total) * 100),
+    total,
+  };
+};
 
-const AnalyticsCardShell = ({
-  actions,
+const parseProgress = (value?: string | null) => {
+  const numeric = Number(String(value ?? "").replace(/[^\d.]/g, ""));
+
+  return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+};
+
+const getProjectStatus = (
+  project: ClientProject,
+): ProjectOverview["status"] => {
+  const status = normalizeStatus(project.phase || project.progress);
+
+  if (status.includes("complete")) return "Completed";
+  if (status.includes("active")) return "Active";
+  if (status.includes("pending") || status.includes("todo")) return "Pending";
+
+  return "In Progress";
+};
+
+const getContentStatus = (value?: string | null) => {
+  const status = normalizeStatus(value);
+
+  if (status.includes("generat")) return "Generating";
+  if (status.includes("internal")) return "Internal Review";
+  if (status.includes("ready")) return "Ready for Client Review";
+  if (status.includes("client") || status.includes("review")) {
+    return "Sent to Client for Review";
+  }
+  if (status.includes("complete") || status.includes("publish")) {
+    return "Completed";
+  }
+
+  return "Draft";
+};
+
+const getContentChartLabel = (label: string) => {
+  if (label === "Internal Review") return ["Internal", "Review"];
+  if (label === "Ready for Client Review") {
+    return ["Ready for", "Client Review"];
+  }
+  if (label === "Sent to Client for Review") {
+    return ["Sent to Client", "for Review"];
+  }
+
+  return label;
+};
+
+const CardShell = ({
   children,
-  subtitle,
+  className = "",
+  right,
   title,
 }: {
-  actions?: ReactNode;
   children: ReactNode;
-  subtitle?: string;
+  className?: string;
+  right?: ReactNode;
   title: string;
 }) => (
-  <Card className="border border-default-200 shadow-none">
-    <CardHeader className="items-start justify-between gap-3 px-5 pb-0 pt-5">
-      <div>
-        <p className={sectionTitleClass}>{title}</p>
-        {subtitle ? <p className={sectionSubtitleClass}>{subtitle}</p> : null}
-      </div>
-      {actions}
+  <Card
+    className={`analytics-card rounded-lg border border-[#E3E7EF] shadow-none ${className}`}
+  >
+    <CardHeader className="flex items-center justify-between border-b border-[#E3E7EF] px-5 py-4">
+      <h2 className="text-lg font-semibold text-[#1F2937]">{title}</h2>
+      {right}
     </CardHeader>
     <CardBody className="p-5">{children}</CardBody>
   </Card>
 );
 
-const ConnectGoogleAnalyticsState = () => (
-  <div className="flex min-h-[520px] items-center justify-center rounded-2xl bg-white px-4 py-16">
-    <div className="mx-auto flex max-w-[760px] flex-col items-center text-center">
-      <div className="grid h-[58px] w-[58px] place-items-center rounded-xl border border-default-200 bg-white text-[30px] font-semibold text-[#4F46E5] shadow-sm">
-        <Image
-          alt="Google"
-          height={28}
-          src="/images/google-icon.svg"
-          width={28}
-        />
-      </div>
-      <h1 className="mt-14 text-2xl font-semibold tracking-[-0.03em] text-[#111827]">
-        Connect Google to See Analytics
-      </h1>
-      <p className="mt-4 max-w-[720px] text-base text-[#6B7280]">
-        To view Google Business Profile analytics, this location needs to be
-        connected through Google Business Profile API.
-      </p>
-      <Button
-        className="mt-14 h-14 min-w-[270px] rounded-lg bg-[#4F46E5] px-8 text-base font-semibold text-white"
-        startContent={<Link2 size={19} />}
+const ProgressBar = ({
+  color = "#0B2F8A",
+  value,
+}: {
+  color?: string;
+  value: number;
+}) => (
+  <div className="h-3 min-w-[112px] flex-1 overflow-hidden rounded-full bg-[#EEF2FF]">
+    <div
+      className="h-full rounded-full"
+      style={{ backgroundColor: color, width: `${Math.min(100, value)}%` }}
+    />
+  </div>
+);
+
+const Donut = ({
+  center,
+  segments,
+  size = 184,
+}: {
+  center: React.ReactNode;
+  segments: Array<{ color: string; value: number }>;
+  size?: number;
+}) => {
+  let start = 0;
+  const stops = segments
+    .filter((segment) => segment.value > 0)
+    .map((segment) => {
+      const end = start + segment.value;
+      const stop = `${segment.color} ${start}% ${end}%`;
+
+      start = end;
+
+      return stop;
+    })
+    .join(", ");
+
+  return (
+    <div
+      className="grid place-items-center rounded-full"
+      style={{
+        background: `conic-gradient(${stops || "#E5E7EB 0% 100%"})`,
+        height: size,
+        width: size,
+      }}
+    >
+      <div
+        className="grid place-items-center rounded-full bg-white text-center"
+        style={{ height: size * 0.76, width: size * 0.76 }}
       >
-        Connect with Google
-      </Button>
+        {center}
+      </div>
+    </div>
+  );
+};
+
+const Gauge = ({ value }: { value: number }) => (
+  <div className="relative mx-auto grid aspect-[2/1] w-full max-w-[420px] place-items-center">
+    <svg className="h-full w-full" viewBox="0 0 320 160">
+      <path
+        d="M 30 145 A 130 130 0 0 1 290 145"
+        fill="none"
+        stroke="#EEF2FF"
+        strokeLinecap="round"
+        strokeWidth="15"
+      />
+      <path
+        d="M 30 145 A 130 130 0 0 1 290 145"
+        fill="none"
+        pathLength="100"
+        stroke="#07A36D"
+        strokeDasharray={`${Math.max(0, Math.min(100, value))} 100`}
+        strokeLinecap="round"
+        strokeWidth="15"
+      />
+    </svg>
+    <div className="absolute inset-x-0 bottom-[8%] text-center text-5xl font-semibold leading-none text-[#111827]">
+      {value}%
     </div>
   </div>
 );
 
-export const ClientAnalyticsScreen = ({ clientId }: { clientId?: string }) => {
-  const isGoogleConnected = false;
+const WebsiteContentChart = ({
+  rows,
+}: {
+  rows: Array<{ label: string; value: number }>;
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  void clientId;
+  useEffect(() => {
+    if (!canvasRef.current) {
+      return;
+    }
 
-  if (!isGoogleConnected) {
-    return <ConnectGoogleAnalyticsState />;
-  }
+    const chart = new Chart<"bar", number[], string | string[]>(
+      canvasRef.current,
+      {
+        data: {
+          datasets: [
+            {
+              backgroundColor: CONTENT_STATUS_COLORS,
+              borderRadius: {
+                topLeft: 8,
+                topRight: 8,
+              },
+              data: rows.map((row) => row.value),
+              maxBarThickness: 34,
+              type: "bar",
+            },
+          ],
+          labels: rows.map((row) => getContentChartLabel(row.label)),
+        },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (context) => `${context.label}: ${context.parsed.y}`,
+              },
+            },
+          },
+          responsive: true,
+          scales: {
+            x: {
+              border: { color: "#C9CED8" },
+              grid: {
+                color: "#EEF2F6",
+                drawTicks: false,
+                tickBorderDash: [4, 4],
+              },
+              ticks: {
+                color: "#6B7280",
+                font: { size: 12 },
+                maxRotation: 0,
+                minRotation: 0,
+              },
+            },
+            y: {
+              border: { color: "#C9CED8" },
+              grid: {
+                color: "#E3E7EF",
+                drawTicks: false,
+                tickBorderDash: [4, 4],
+              },
+              max: CONTENT_CHART_MAX,
+              min: 0,
+              ticks: {
+                color: "#6B7280",
+                font: { size: 12 },
+                stepSize: 45,
+              },
+            },
+          },
+        },
+        type: "bar",
+      },
+    );
+
+    return () => {
+      chart.destroy();
+    };
+  }, [rows]);
 
   return (
-    <div className="space-y-5 pb-8">
-      <Card className="border border-default-200 shadow-none">
-        <CardBody className="space-y-5 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#98A2B3]">
-                Google Business Profile Interaction
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-[#111827]">
-                Client Analytics
-              </h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                endContent={<ChevronDown size={14} />}
-                radius="sm"
-                startContent={<CalendarDays size={14} />}
-                variant="bordered"
-              >
-                This Month
-              </Button>
-              <Button
-                endContent={<ChevronDown size={14} />}
-                radius="sm"
-                startContent={<Search size={14} />}
-                variant="bordered"
-              >
-                Search Performance
-              </Button>
-              <Chip
-                className="bg-[#E8F3FF] text-[#1674EA]"
-                radius="full"
-                size="sm"
-              >
-                20% more profile views than last month
-              </Chip>
-            </div>
-          </div>
+    <div className="h-[260px] min-w-[520px]">
+      <canvas ref={canvasRef} />
+    </div>
+  );
+};
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_330px]">
-            <div className="rounded-[26px] border border-default-200 bg-[#FCFDFF] p-4">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className={sectionTitleClass}>
-                    Search Performance Last 90 Days
-                  </p>
-                  <p className={sectionSubtitleClass}>
-                    Search views and interactions across the active GBP listing
-                  </p>
-                </div>
-                <Button isIconOnly radius="full" size="sm" variant="light">
-                  <EllipsisVertical size={16} />
-                </Button>
-              </div>
+const GbpPostingStatusChart = ({
+  rows,
+  total,
+}: {
+  rows: StatusCount[];
+  total: number;
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-              <div className="rounded-[22px] bg-white px-2 py-3">
-                <svg className="h-[260px] w-full" viewBox="0 0 430 260">
-                  <defs>
-                    <linearGradient
-                      id="analytics-line-fill"
-                      x1="0%"
-                      x2="0%"
-                      y1="0%"
-                      y2="100%"
-                    >
-                      <stop
-                        offset="0%"
-                        stopColor="#4455F5"
-                        stopOpacity="0.18"
-                      />
-                      <stop
-                        offset="100%"
-                        stopColor="#4455F5"
-                        stopOpacity="0.01"
-                      />
-                    </linearGradient>
-                  </defs>
+  useEffect(() => {
+    if (!canvasRef.current) {
+      return;
+    }
 
-                  {[0, 1, 2, 3, 4].map((line) => (
-                    <line
-                      key={line}
-                      stroke="#E5E7EB"
-                      strokeDasharray="4 6"
-                      x1="18"
-                      x2="410"
-                      y1={34 + line * 42}
-                      y2={34 + line * 42}
-                    />
-                  ))}
+    const values = rows.map((row) => row.value);
+    const hasValues = values.some((value) => value > 0);
+    const chart = new Chart<"doughnut", number[], string>(canvasRef.current, {
+      data: {
+        datasets: [
+          {
+            backgroundColor: hasValues
+              ? rows.map((row) => row.color)
+              : ["#E5E7EB"],
+            borderColor: "#FFFFFF",
+            borderRadius: 10,
+            borderWidth: 8,
+            data: hasValues ? values : [1],
+            spacing: 2,
+          },
+        ],
+        labels: hasValues ? rows.map((row) => row.label) : ["No posts"],
+      },
+      options: {
+        animation: false,
+        maintainAspectRatio: false,
+        circumference: 360,
+        cutout: "66%",
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false },
+        },
+        responsive: true,
+        rotation: -120,
+      },
+      type: "doughnut",
+    });
 
-                  <path
-                    d={`M ${chartPoints.map(([x, y]) => `${x} ${y}`).join(" L ")} L 398 212 L 30 212 Z`}
-                    fill="url(#analytics-line-fill)"
-                  />
-                  <path
-                    d={`M ${chartPoints.map(([x, y]) => `${x} ${y}`).join(" L ")}`}
-                    fill="none"
-                    stroke="#4455F5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="4"
-                  />
+    return () => {
+      chart.destroy();
+    };
+  }, [rows]);
 
-                  {chartPoints.map(([x, y], index) => (
-                    <g key={`${x}-${y}`}>
-                      <circle
-                        cx={x}
-                        cy={y}
-                        fill="#fff"
-                        r="6"
-                        stroke="#4455F5"
-                        strokeWidth="3"
-                      />
-                      {index === chartPoints.length - 1 ? (
-                        <>
-                          <circle
-                            cx={x}
-                            cy={y}
-                            fill="#4455F5"
-                            opacity="0.12"
-                            r="16"
-                          />
-                          <line
-                            stroke="#B5BED1"
-                            strokeDasharray="4 6"
-                            x1={x}
-                            x2={x}
-                            y1={y}
-                            y2="212"
-                          />
-                        </>
-                      ) : null}
-                    </g>
-                  ))}
-                </svg>
-              </div>
-            </div>
+  return (
+    <div className="relative mx-auto h-[180px] w-[180px]">
+      <canvas ref={canvasRef} />
+      <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+        <div>
+          <p className="text-2xl font-semibold leading-none text-[#1F2937]">
+            {total}
+          </p>
+          <p className="mt-2 text-sm text-[#98A2B3]">Total Post</p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
-            <div className="space-y-4">
-              <SmallStatCard
-                change="+2.6% increase this week"
-                subtitle="Compared to the previous period"
-                title="Total Interactions"
-                value="14.3%"
-              />
-              <SmallStatCard
-                change="+220 reviews this month"
-                subtitle="Google reviews added"
-                title="Total Reviews"
-                value="1,200"
-              />
-            </div>
-          </div>
-        </CardBody>
-      </Card>
+const ReviewEngagementChart = ({
+  highlightIndex,
+  rows,
+}: {
+  highlightIndex: number;
+  rows: ReviewTrendPoint[];
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {metricCards.map((item) => {
-          const MetricIcon = item.icon;
+  useEffect(() => {
+    if (!canvasRef.current) {
+      return;
+    }
 
-          return (
-            <Card
-              key={item.label}
-              className="border border-default-200 shadow-none"
-            >
-              <CardBody className="flex flex-row items-center justify-between p-5">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-[#98A2B3]">
-                    {item.label}
-                  </p>
-                  <p className="mt-2 text-[28px] font-semibold leading-none text-[#111827]">
-                    {item.value}
-                  </p>
-                </div>
-                <div className={`rounded-2xl p-3 ${item.accent}`}>
-                  <MetricIcon />
-                </div>
-              </CardBody>
-            </Card>
-          );
-        })}
+    const context = canvasRef.current.getContext("2d");
+
+    if (!context) {
+      return;
+    }
+
+    const gradient = context.createLinearGradient(0, 0, 0, 260);
+
+    gradient.addColorStop(0, "rgba(11, 47, 138, 0.18)");
+    gradient.addColorStop(1, "rgba(11, 47, 138, 0)");
+
+    const visibleValues = rows
+      .map((row) => row.value)
+      .filter((value): value is number => typeof value === "number");
+    const maxValue = Math.max(60, ...visibleValues);
+    const verticalMarker = {
+      afterDatasetsDraw: (chart: Chart) => {
+        const meta = chart.getDatasetMeta(0);
+        const point =
+          rows[highlightIndex]?.value === null
+            ? null
+            : meta.data[highlightIndex];
+
+        if (!point) {
+          return;
+        }
+
+        const { ctx, chartArea } = chart;
+        const { x, y } = point.getProps(["x", "y"], true);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([8, 8]);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "#0B2F8A";
+        ctx.moveTo(x, y + 16);
+        ctx.lineTo(x, chartArea.bottom - 10);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(11, 47, 138, 0.12)";
+        ctx.arc(x, y, 23, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = "#FFFFFF";
+        ctx.arc(x, y, 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = "#0B2F8A";
+        ctx.stroke();
+        ctx.restore();
+      },
+      id: "reviewEngagementMarker",
+    };
+
+    const chart = new Chart<"line", Array<number | null>, string>(
+      canvasRef.current,
+      {
+        data: {
+          datasets: [
+            {
+              backgroundColor: gradient,
+              borderColor: "#0B2F8A",
+              borderWidth: 2,
+              data: rows.map((row) => row.value),
+              fill: true,
+              pointRadius: 0,
+              tension: 0.38,
+            },
+            {
+              borderColor: "rgba(70, 115, 255, 0.28)",
+              borderWidth: 2,
+              data: rows.map((row, index) =>
+                row.value === null
+                  ? null
+                  : Math.max(0, row.value - Math.max(2, 5 - index)),
+              ),
+              pointRadius: 0,
+              tension: 0.38,
+            },
+          ],
+          labels: rows.map((row) => row.label),
+        },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false },
+          },
+          responsive: true,
+          scales: {
+            x: {
+              border: { display: false },
+              grid: { display: false, drawTicks: false },
+              ticks: {
+                color: "#697386",
+                font: { size: 14 },
+                padding: 18,
+              },
+            },
+            y: {
+              border: { display: false },
+              grid: {
+                color: "#D9DEE8",
+                drawTicks: false,
+                tickBorderDash: [6, 6],
+              },
+              max: Math.ceil(maxValue / 20) * 20,
+              min: 0,
+              ticks: {
+                color: "#697386",
+                font: { size: 14 },
+                padding: 16,
+                stepSize: 15,
+              },
+            },
+          },
+        },
+        plugins: [verticalMarker],
+        type: "line",
+      },
+    );
+
+    return () => {
+      chart.destroy();
+    };
+  }, [highlightIndex, rows]);
+
+  return (
+    <div className="h-[300px]">
+      <canvas ref={canvasRef} />
+    </div>
+  );
+};
+
+export const ClientAnalyticsScreen = ({ clientId }: { clientId?: string }) => {
+  const { getValidAccessToken, session } = useAuth();
+  const toast = useAppToast();
+  const [clientDetails, setClientDetails] = useState<ClientDetails | null>(
+    null,
+  );
+  const [projects, setProjects] = useState<ClientProject[]>([]);
+  const [tasks, setTasks] = useState<ProjectTask[]>([]);
+  const [contentLists, setContentLists] = useState<KeywordContentListRecord[]>(
+    [],
+  );
+  const [breakdown, setBreakdown] = useState<ContentBreakdownItem[]>([]);
+  const [postings, setPostings] = useState<ClientGbpPosting[]>([]);
+  const [gbpDetails, setGbpDetails] = useState<ClientGbpDetails | null>(null);
+  const [reviews, setReviews] = useState<ClientGbpReview[]>([]);
+  const [citations, setCitations] = useState<ClientCitation[]>([]);
+  const [rankings, setRankings] = useState<LocalRankingKeyword[]>([]);
+  const [dateRange, setDateRange] = useState<AnalyticsDateRange>(() =>
+    getDefaultAnalyticsRange(),
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingReviews, setIsRefreshingReviews] = useState(false);
+
+  const loadOverview = useCallback(async () => {
+    if (!clientId || !session?.accessToken) {
+      setIsLoading(false);
+
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const [
+        clientResult,
+        projectsResult,
+        tasksResult,
+        contentResult,
+        breakdownResult,
+        postingsResult,
+        gbpResult,
+        reviewsResult,
+        citationsResult,
+        rankingsResult,
+      ] = await Promise.allSettled([
+        clientsApi.getClientById(accessToken, clientId),
+        clientsApi.getClientProjects(accessToken, clientId, { limit: 100 }),
+        clientsApi.getProjectTasks(accessToken, clientId),
+        keywordContentListsApi.listKeywordContentLists(accessToken, {
+          clientId,
+        }),
+        keywordContentListsApi.getClientContentBreakdown(accessToken, clientId),
+        clientsApi.listClientGbpPostings(accessToken, clientId),
+        clientsApi.getClientGbpDetails(accessToken, clientId),
+        clientsApi.getClientGbpReviews(accessToken, clientId),
+        clientsApi.getClientCitations(accessToken, clientId),
+        scansApi.getClientLocalRankings(accessToken, clientId, {
+          limit: 100,
+          page: 1,
+        }),
+      ]);
+
+      setClientDetails(
+        clientResult.status === "fulfilled" ? clientResult.value : null,
+      );
+      setProjects(
+        projectsResult.status === "fulfilled"
+          ? projectsResult.value.projects
+          : [],
+      );
+      setTasks(
+        tasksResult.status === "fulfilled" ? tasksResult.value.tasks : [],
+      );
+      setContentLists(
+        contentResult.status === "fulfilled"
+          ? contentResult.value.keywordContentLists
+          : [],
+      );
+      setBreakdown(
+        breakdownResult.status === "fulfilled"
+          ? breakdownResult.value.items
+          : [],
+      );
+      setPostings(
+        postingsResult.status === "fulfilled"
+          ? postingsResult.value.postings
+          : [],
+      );
+      setGbpDetails(gbpResult.status === "fulfilled" ? gbpResult.value : null);
+      setReviews(
+        reviewsResult.status === "fulfilled" ? reviewsResult.value.reviews : [],
+      );
+      setCitations(
+        citationsResult.status === "fulfilled"
+          ? citationsResult.value.citations
+          : [],
+      );
+      setRankings(
+        rankingsResult.status === "fulfilled"
+          ? rankingsResult.value.keywords
+          : [],
+      );
+    } catch (error) {
+      toast.danger("Failed to load client activity overview.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clientId, getValidAccessToken, session?.accessToken, toast]);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+
+  const handleRefreshReviews = useCallback(async () => {
+    if (!clientId || !session?.accessToken || isRefreshingReviews) {
+      return;
+    }
+
+    setIsRefreshingReviews(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const reviewsResponse = await clientsApi.getClientGbpReviews(
+        accessToken,
+        clientId,
+        {
+          forceRefresh: true,
+        },
+      );
+
+      setReviews(reviewsResponse.reviews);
+      toast.success("Review data refreshed.");
+    } catch (error) {
+      toast.danger("Failed to refresh review data.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsRefreshingReviews(false);
+    }
+  }, [
+    clientId,
+    getValidAccessToken,
+    isRefreshingReviews,
+    session?.accessToken,
+    toast,
+  ]);
+
+  const filteredProjects = useMemo(
+    () =>
+      projects.filter((project) =>
+        getFirstDateInRange(
+          dateRange,
+          project.updatedAt,
+          project.startDate,
+          project.dueDate,
+        ),
+      ),
+    [dateRange, projects],
+  );
+  const filteredTasks = useMemo(
+    () =>
+      tasks.filter((task) =>
+        getFirstDateInRange(
+          dateRange,
+          task.dueDate,
+          task.updatedAt,
+          task.startDate,
+          task.createdAt,
+        ),
+      ),
+    [dateRange, tasks],
+  );
+  const filteredContentLists = useMemo(
+    () =>
+      contentLists.filter((list) =>
+        getFirstDateInRange(dateRange, list.updatedAt, list.createdAt),
+      ),
+    [contentLists, dateRange],
+  );
+  const filteredPostings = useMemo(
+    () =>
+      postings.filter((post) =>
+        getFirstDateInRange(
+          dateRange,
+          post.publishedAt,
+          post.scheduledAt,
+          post.updatedAt,
+          post.createdAt,
+        ),
+      ),
+    [dateRange, postings],
+  );
+  const filteredReviews = useMemo(
+    () =>
+      reviews.filter((review) =>
+        isDateInAnalyticsRange(review.date, dateRange),
+      ),
+    [dateRange, reviews],
+  );
+  const filteredCitations = useMemo(
+    () =>
+      citations.filter((citation) =>
+        getFirstDateInRange(dateRange, citation.createdAt, citation.updatedAt),
+      ),
+    [citations, dateRange],
+  );
+  const filteredRankings = useMemo(
+    () =>
+      rankings.filter((ranking) =>
+        getFirstDateInRange(dateRange, ranking.dateOfScan, ranking.dateAdded),
+      ),
+    [dateRange, rankings],
+  );
+
+  const contentStatusCounts = useMemo(() => {
+    const keywords = filteredContentLists.flatMap(
+      (list) => list.keywords ?? [],
+    );
+
+    return CONTENT_STATUS_LABELS.map((label) => ({
+      label,
+      value: keywords.filter(
+        (keyword) => getContentStatus(keyword.status) === label,
+      ).length,
+    }));
+  }, [filteredContentLists]);
+  const profileCompletion = useMemo(
+    () => getProfileCompletionSummary(clientDetails),
+    [clientDetails],
+  );
+  const overdueTasks = filteredTasks.filter((task) => {
+    if (!task.dueDate || normalizeStatus(task.status).includes("complete")) {
+      return false;
+    }
+
+    return new Date(task.dueDate).getTime() < Date.now();
+  }).length;
+  const upcomingTasks = filteredTasks
+    .filter((task) => {
+      if (!task.dueDate || normalizeStatus(task.status).includes("complete")) {
+        return false;
+      }
+
+      const due = new Date(task.dueDate).getTime();
+      const now = Date.now();
+
+      return due >= now && due <= now + 7 * 24 * 60 * 60 * 1000;
+    })
+    .sort(
+      (left, right) =>
+        new Date(left.dueDate ?? "").getTime() -
+        new Date(right.dueDate ?? "").getTime(),
+    );
+  const projectRows: ProjectOverview[] = filteredProjects
+    .slice(0, 5)
+    .map((project) => ({
+      completed: 0,
+      name: project.project || "Untitled Project",
+      progress: parseProgress(project.progress),
+      status: getProjectStatus(project),
+    }));
+  const overallProgress = projectRows.length
+    ? Math.round(
+        projectRows.reduce((sum, project) => sum + project.progress, 0) /
+          projectRows.length,
+      )
+    : 0;
+  const filteredContentKeywords = filteredContentLists.flatMap(
+    (list) => list.keywords ?? [],
+  );
+  const contentBreakdownRows = (
+    breakdown.length > 0 ? breakdown : DEFAULT_CONTENT_BREAKDOWN
+  ).map((item) => {
+    const key = `${item.key} ${item.label}`.toLowerCase();
+    const used = filteredContentKeywords.filter((keyword) => {
+      const contentType = normalizeStatus(keyword.contentType);
+
+      if (key.includes("treatment")) return contentType.includes("treatment");
+      if (key.includes("condition")) return contentType.includes("condition");
+      if (key.includes("blog")) return contentType.includes("blog");
+      if (key.includes("press")) return contentType.includes("press");
+      if (key.includes("homepage")) return contentType.includes("home");
+
+      return contentType === normalizeStatus(item.label);
+    }).length;
+
+    return { ...item, used };
+  });
+  const postingCounts: StatusCount[] = [
+    { color: "#0FAA6E", label: "Published", value: 0 },
+    { color: "#FF922E", label: "Scheduled", value: 0 },
+    { color: "#2FAABC", label: "Draft", value: 0 },
+    { color: "#98A2B3", label: "Failed", value: 0 },
+  ].map((row) => ({
+    ...row,
+    value: filteredPostings.filter((post) =>
+      normalizeStatus(post.status).includes(row.label.toLowerCase()),
+    ).length,
+  }));
+  const totalPosts = filteredPostings.length;
+  const totalPostDenominator = Math.max(totalPosts, 1);
+  const reviewCount = filteredReviews.length;
+  const filteredReviewRatings = filteredReviews
+    .map((review) => review.rating)
+    .filter((rating) => Number.isFinite(rating) && rating > 0);
+  const ratingValue = filteredReviewRatings.length
+    ? filteredReviewRatings.reduce((sum, value) => sum + value, 0) /
+      filteredReviewRatings.length
+    : getRatingNumber(gbpDetails?.rating);
+  const rating = ratingValue !== null ? ratingValue.toFixed(1) : "-";
+  const thisMonthReviews = getThisMonthReviewCount(filteredReviews);
+  const reviewTrendRows = getReviewTrend(filteredReviews, reviewCount);
+  const reviewHighlightIndex = Math.max(
+    0,
+    reviewTrendRows.findLastIndex((row) => row.value !== null),
+  );
+  const citationFound = filteredCitations.filter((citation) =>
+    ["live", "found", "completed", "submitted"].some((status) =>
+      normalizeStatus(citation.status).includes(status),
+    ),
+  ).length;
+  const citationNotFound = filteredCitations.filter((citation) =>
+    normalizeStatus(citation.status).includes("not"),
+  ).length;
+  const citationIncorrect = filteredCitations.filter((citation) =>
+    Object.values(citation.verificationStatus ?? {}).some(
+      (value) => value === "Incorrect",
+    ),
+  ).length;
+  const totalCitations = filteredCitations.length;
+  const citationScore = totalCitations
+    ? Math.round((citationFound / totalCitations) * 100)
+    : 0;
+  const citationTone = getScoreTone(citationScore);
+  const citationsThisMonthCount = citations.filter((citation) =>
+    isDateInMonthOffset(citation.createdAt ?? citation.updatedAt),
+  ).length;
+  const citationsLastMonthCount = citations.filter((citation) =>
+    isDateInMonthOffset(citation.createdAt ?? citation.updatedAt, -1),
+  ).length;
+  const citationMonthlyDelta =
+    citationsThisMonthCount - citationsLastMonthCount;
+  const citationMonthlyDeltaLabel =
+    citationMonthlyDelta > 0
+      ? `↗ ${citationMonthlyDelta} this month`
+      : citationMonthlyDelta < 0
+        ? `↘ ${Math.abs(citationMonthlyDelta)} this month`
+        : "0 this month";
+  const citationMonthlyDeltaClass =
+    citationMonthlyDelta > 0
+      ? "bg-emerald-50 text-emerald-600"
+      : citationMonthlyDelta < 0
+        ? "bg-red-50 text-red-600"
+        : "bg-slate-100 text-slate-600";
+  const top13 = filteredRankings.filter(
+    (item) => typeof item.averageRank === "number" && item.averageRank <= 3,
+  ).length;
+  const top410 = filteredRankings.filter(
+    (item) =>
+      typeof item.averageRank === "number" &&
+      item.averageRank > 3 &&
+      item.averageRank <= 10,
+  ).length;
+  const top1120 = filteredRankings.filter(
+    (item) =>
+      typeof item.averageRank === "number" &&
+      item.averageRank > 10 &&
+      item.averageRank <= 20,
+  ).length;
+  const notRanking = Math.max(
+    0,
+    filteredRankings.length - top13 - top410 - top1120,
+  );
+  const latestRankingScanDates = Array.from(
+    new Set(
+      filteredRankings
+        .map((item) => item.dateOfScan ?? item.dateAdded)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  )
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())
+    .slice(0, 4)
+    .map(formatShortMonthDate);
+  const trackedKeywordRows = [
+    ["Top 1-3", top13],
+    ["Top 4 - 10", top410],
+    ["Top 11 - 20", top1120],
+    ["Not Ranking", notRanking],
+  ].map(([label, value], index) => ({
+    date: latestRankingScanDates[index] ?? "-",
+    label,
+    value,
+  }));
+  const dateRangeValue = {
+    end: toDateValue(dateRange.end) ?? parseDate(dateRange.end),
+    start: toDateValue(dateRange.start) ?? parseDate(dateRange.start),
+  };
+  const handleExportPdf = () => {
+    const previousTitle = document.title;
+
+    const restoreTitle = () => {
+      document.title = previousTitle;
+      window.removeEventListener("afterprint", restoreTitle);
+    };
+
+    document.title = `Client Activity Overview ${dateRange.start} to ${dateRange.end}`;
+    window.addEventListener("afterprint", restoreTitle);
+    window.print();
+    window.setTimeout(() => {
+      restoreTitle();
+    }, 10000);
+  };
+
+  return (
+    <div className="analytics-report space-y-6 pb-8">
+      <style>{`
+        @media print {
+          @page {
+            margin: 16mm;
+            size: A4 portrait;
+          }
+
+          html,
+          body {
+            background: #ffffff !important;
+          }
+
+          body * {
+            visibility: hidden;
+          }
+
+          .analytics-report,
+          .analytics-report * {
+            visibility: visible;
+          }
+
+          .analytics-report {
+            left: 0;
+            position: absolute;
+            top: 0;
+            width: 100%;
+          }
+
+          .analytics-report-controls {
+            display: none !important;
+          }
+
+          .analytics-card {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .analytics-card canvas {
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold text-[#1F2937]">
+          Client Activity Overview
+        </h1>
+        <div className="analytics-report-controls flex flex-wrap items-center gap-3">
+          <DateRangePicker
+            aria-label="Analytics date range"
+            className="w-[320px]"
+            radius="md"
+            selectorIcon={<CalendarDays size={16} />}
+            value={dateRangeValue}
+            visibleMonths={2}
+            onChange={(value) => {
+              if (!value?.start || !value?.end) {
+                return;
+              }
+
+              setDateRange({
+                end: value.end.toString(),
+                start: value.start.toString(),
+              });
+            }}
+          />
+          <Button
+            className="bg-[#0B2F8A] text-white"
+            isDisabled={isLoading}
+            radius="md"
+            startContent={<Download size={16} />}
+            onPress={handleExportPdf}
+          >
+            Export PDF
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.06fr_1.1fr_0.86fr]">
-        <AnalyticsCardShell
-          actions={
-            <Button
-              endContent={<ChevronDown size={14} />}
-              radius="sm"
-              variant="light"
-            >
-              All Time
-            </Button>
-          }
-          subtitle="All Time"
-          title="Interaction By Devices"
-        >
-          <div className="space-y-4">
-            {deviceBreakdown.map((device) => {
-              const DeviceIcon = device.icon;
+      <div className="grid gap-6 xl:grid-cols-[0.8fr_1.12fr]">
+        <CardShell title="Onboarding Completion">
+          <Gauge value={profileCompletion.percentage} />
+          <div className="mt-5 grid grid-cols-2 gap-6 px-1">
+            <div>
+              <p className="text-2xl font-semibold text-[#07A36D]">
+                {profileCompletion.completed} / {profileCompletion.total}
+              </p>
+              <p className="text-xs text-[#7B8494]">Completed</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold text-[#FF922E]">
+                {String(profileCompletion.pending).padStart(2, "0")}
+              </p>
+              <p className="text-xs text-[#7B8494]">Pending</p>
+            </div>
+          </div>
+        </CardShell>
+
+        <CardShell title="Active Projects">
+          <div className="mb-6 grid grid-cols-4 gap-4">
+            <div>
+              <p className="text-2xl font-semibold">
+                {filteredProjects.length}
+              </p>
+              <p className="text-sm text-[#7B8494]">Total Projects</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold">{overallProgress}%</p>
+              <p className="text-sm text-[#7B8494]">Overall Progress</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold">{overdueTasks}</p>
+              <p className="text-sm text-[#7B8494]">Overdue</p>
+            </div>
+            <div>
+              <p className="text-2xl font-semibold">
+                {
+                  filteredProjects.filter(
+                    (project) => getProjectStatus(project) === "Completed",
+                  ).length
+                }
+              </p>
+              <p className="text-sm text-[#7B8494]">Completed</p>
+            </div>
+          </div>
+
+          <div className="space-y-4 border-t border-[#E3E7EF] pt-6">
+            {projectRows.map((project, index) => {
+              const Icon = projectIcons[index % projectIcons.length];
 
               return (
-                <div key={device.label} className="space-y-2.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2 text-[#111827]">
-                      <div
-                        className="rounded-full p-2 text-white"
-                        style={{ backgroundColor: device.color }}
-                      >
-                        <DeviceIcon size={14} />
-                      </div>
-                      <span>{device.label}</span>
-                    </div>
-                    <span className="font-medium text-[#111827]">
-                      {device.value}
+                <div
+                  key={`${project.name}-${index}`}
+                  className="grid grid-cols-[minmax(0,1fr)_96px_minmax(120px,1fr)_44px] items-center gap-4"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Icon className="text-[#244AA8]" size={20} />
+                    <span className="truncate font-medium text-[#1F2937]">
+                      {project.name}
                     </span>
                   </div>
-                  <Progress
-                    aria-label={device.label}
-                    classNames={{
-                      indicator: "rounded-full",
-                      track: "h-2.5 bg-[#EAECEF]",
-                    }}
-                    color="primary"
-                    value={
-                      (Number(device.value.replaceAll(",", "")) /
-                        Number(deviceBreakdown[1].value.replaceAll(",", ""))) *
-                      100
-                    }
-                  />
+                  <Chip
+                    className={statusPillClass[project.status]}
+                    radius="full"
+                    size="sm"
+                  >
+                    {project.status}
+                  </Chip>
+                  <ProgressBar value={project.progress} />
+                  <span className="font-semibold text-[#1F2937]">
+                    {project.progress}%
+                  </span>
                 </div>
               );
             })}
           </div>
-        </AnalyticsCardShell>
 
-        <AnalyticsCardShell
-          actions={
-            <Button
-              endContent={<ChevronDown size={14} />}
-              radius="sm"
-              variant="light"
-            >
-              Search Query
-            </Button>
-          }
-          subtitle="Top 5 query trends"
-          title="Top Search Queries"
-        >
-          <div className="space-y-4">
-            {queryRows.map((item, index) => (
-              <div key={item.keyword} className="space-y-2">
-                <div className="grid grid-cols-[minmax(0,1fr)_52px_52px] items-center gap-3">
-                  <p className="truncate text-sm font-medium text-[#111827]">
-                    {item.keyword}
-                  </p>
-                  <span className="text-xs text-default-500">{item.rank}</span>
-                  <span className="text-right text-xs font-medium text-[#16A34A]">
-                    {item.change}
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-[#EAECEF]">
-                  <div
-                    className="h-full rounded-full bg-[#12B6E9]"
-                    style={{ width: `${queryBars[index]}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </AnalyticsCardShell>
-
-        <AnalyticsCardShell
-          subtitle="Google Maps vs Google Search"
-          title="Maps vs Google Search Views"
-        >
-          <div className="space-y-5">
-            <div className="mx-auto grid h-40 w-40 place-items-center rounded-full bg-[conic-gradient(#37B5F3_0_53.7%,#7A3FF2_53.7%_100%)]">
-              <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center">
-                <div>
-                  <p className="text-2xl font-semibold text-[#111827]">850</p>
-                  <p className="text-xs text-default-500">views</p>
-                </div>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2 text-[#111827]">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#37B5F3]" />
-                  <span>Maps</span>
-                </div>
-                <span>53.7%</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2 text-[#111827]">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#7A3FF2]" />
-                  <span>Google Search</span>
-                </div>
-                <span>46.3%</span>
-              </div>
-            </div>
-          </div>
-        </AnalyticsCardShell>
+          <Button
+            as={Link}
+            className="mt-5 px-0 text-[#0B2F8A]"
+            href={`/dashboard/clients/${clientId}/projects`}
+            variant="light"
+          >
+            View All Projects
+          </Button>
+        </CardShell>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-        <AnalyticsCardShell
-          actions={
-            <Button radius="sm" variant="light">
-              This Year
+      <CardShell title="Upcoming Task">
+        <div className="border-b border-[#E3E7EF] pb-6">
+          <p className="text-2xl font-semibold text-[#1F2937]">
+            {upcomingTasks.length}
+          </p>
+          <p className="text-sm text-[#FF922E]">Due in next 7 days</p>
+        </div>
+        <div className="space-y-5 pt-6">
+          {upcomingTasks.slice(0, 5).map((task) => (
+            <div
+              key={task.id}
+              className="flex items-center justify-between gap-4 text-[#1F2937]"
+            >
+              <span className="font-medium">{task.taskName || task.task}</span>
+              <span className="font-semibold">{formatDate(task.dueDate)}</span>
+            </div>
+          ))}
+          {upcomingTasks.length === 0 ? (
+            <p className="text-sm text-[#7B8494]">No tasks due this week.</p>
+          ) : null}
+        </div>
+        <Button
+          as={Link}
+          className="mt-5 px-0 text-[#0B2F8A]"
+          href={`/dashboard/clients/${clientId}/task-lists`}
+          variant="light"
+        >
+          View All Tasks
+        </Button>
+      </CardShell>
+
+      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.8fr]">
+        <CardShell title="Website Content">
+          <div className="overflow-x-auto">
+            <WebsiteContentChart
+              key={`${dateRange.start}-${dateRange.end}-${contentStatusCounts
+                .map((item) => item.value)
+                .join("-")}`}
+              rows={contentStatusCounts}
+            />
+          </div>
+        </CardShell>
+
+        <CardShell title="Website Content Breakdown">
+          <div className="space-y-6">
+            {contentBreakdownRows.map((item) => {
+              const allocated = Math.max(1, item.allocated);
+              const percent = Math.min(100, (item.used / allocated) * 100);
+
+              return (
+                <div
+                  key={item.key}
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(110px,1fr)_56px] items-center gap-4"
+                >
+                  <span className="font-medium text-[#1F2937]">
+                    {item.label}
+                  </span>
+                  <ProgressBar value={percent} />
+                  <span className="font-semibold text-[#1F2937]">
+                    {item.used}/{item.allocated}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <Button
+            as={Link}
+            className="mt-6 px-0 text-[#0B2F8A]"
+            href={`/dashboard/clients/${clientId}/website-content`}
+            variant="light"
+          >
+            Manage Content
+          </Button>
+        </CardShell>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <CardShell title="GBP Posting Status">
+          <div className="space-y-6">
+            <GbpPostingStatusChart rows={postingCounts} total={totalPosts} />
+            <div className="space-y-4">
+              {postingCounts.map((item) => {
+                const percent = Math.round(
+                  (item.value / totalPostDenominator) * 100,
+                );
+
+                return (
+                  <div
+                    key={item.label}
+                    className="flex items-center justify-between gap-4 px-2"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className="h-4 w-4 rounded-md"
+                        style={{ backgroundColor: item.color }}
+                      />
+                      <span className="font-medium text-[#1F2937]">
+                        {item.label}
+                      </span>
+                    </div>
+                    <span className="font-semibold text-[#1F2937]">
+                      {item.value} ({percent}%)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </CardShell>
+
+        <CardShell
+          right={
+            <Button
+              isIconOnly
+              aria-label="Refresh reviews"
+              isDisabled={isLoading}
+              isLoading={isRefreshingReviews}
+              radius="full"
+              size="sm"
+              variant="light"
+              onPress={handleRefreshReviews}
+            >
+              <RefreshCw size={18} />
             </Button>
           }
-          subtitle="Monthly review activity"
-          title="Review Progress"
+          title="Review Engagement"
         >
-          <div className="flex h-56 items-end gap-3">
-            {reviewBars.map((bar, index) => (
-              <div
-                key={monthLabels[index]}
-                className="flex flex-1 flex-col items-center gap-2"
-              >
-                <div className="flex h-44 w-full items-end gap-1.5">
-                  <div
-                    className="w-1/2 rounded-t-[10px] bg-[#31C4F5]"
-                    style={{ height: `${bar.aqua}%` }}
-                  />
-                  <div
-                    className="w-1/2 rounded-t-[10px] bg-[#7A3FF2]"
-                    style={{ height: `${bar.purple}%` }}
-                  />
-                </div>
-                <span className="text-[11px] text-default-500">
-                  {monthLabels[index]}
-                </span>
-              </div>
-            ))}
-          </div>
-        </AnalyticsCardShell>
-
-        <div className="grid gap-4">
-          <AnalyticsCardShell
-            actions={
-              <Button radius="sm" variant="light">
-                This Month
-              </Button>
-            }
-            subtitle="Customer sentiment"
-            title="Review Engagement"
-          >
-            <div className="space-y-5">
-              <div className="flex items-end gap-3">
+          <div className="grid gap-8 md:grid-cols-[1fr_1px_1fr] md:items-center">
+            <div>
+              <div className="flex items-center gap-5">
+                <p className="text-4xl font-semibold leading-none text-[#111827]">
+                  {rating}
+                </p>
                 <div>
-                  <p className="text-4xl font-semibold leading-none text-[#111827]">
-                    4.8
-                  </p>
-                  <div className="mt-2 flex gap-1 text-[#FDB022]">
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <Star key={index} className="fill-current" size={16} />
+                  <div className="flex items-center gap-1 text-[#F5AA00]">
+                    {Array.from({ length: 5 }, (_, index) => (
+                      <Star
+                        key={`review-star-${index}`}
+                        fill="currentColor"
+                        size={22}
+                        strokeWidth={0}
+                      />
                     ))}
                   </div>
+                  <p className="mt-2 text-xs text-[#697386]">Average Rating</p>
                 </div>
               </div>
-              <div className="space-y-3">
-                {reviewDistribution.map((row) => (
-                  <div key={row.label} className="flex items-center gap-3">
-                    <span className="w-3 text-xs text-default-500">
-                      {row.label}
-                    </span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#EAECEF]">
-                      <div
-                        className="h-full rounded-full bg-[#FDB022]"
-                        style={{ width: `${row.value}%` }}
-                      />
-                    </div>
-                    <span className="w-8 text-right text-xs text-default-500">
-                      {row.value}%
-                    </span>
-                  </div>
-                ))}
-              </div>
             </div>
-          </AnalyticsCardShell>
+            <div className="hidden h-[110px] w-px bg-[#E3E7EF] md:block" />
+            <div>
+              <p className="text-sm text-[#697386]">Total Reviews</p>
+              <p className="mt-1 text-2xl font-semibold leading-none text-[#111827]">
+                {reviewCount}
+              </p>
+              <Chip
+                className="mt-1 bg-emerald-50 px-3 text-xs font-medium text-emerald-600"
+                radius="full"
+              >
+                ↗ {thisMonthReviews} this month
+              </Chip>
+            </div>
+          </div>
+          <div className="mt-10">
+            <ReviewEngagementChart
+              key={`${reviewCount}-${reviewTrendRows
+                .map((row) => row.value)
+                .join("-")}`}
+              highlightIndex={reviewHighlightIndex}
+              rows={reviewTrendRows}
+            />
+          </div>
+        </CardShell>
+      </div>
 
-          <AnalyticsCardShell
-            actions={
-              <Button radius="sm" variant="light">
-                Export PDF
-              </Button>
-            }
-            subtitle="Review benchmark"
-            title="Top 10 Competitors"
-          >
-            <div className="space-y-3">
-              {competitorRows.map((row) => (
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <CardShell title="Local Citations Status">
+          <div className="grid gap-6 md:grid-cols-[220px_1fr] md:items-center">
+            <Donut
+              center={
+                <div>
+                  <p
+                    className="text-4xl font-semibold"
+                    style={{ color: citationTone.text }}
+                  >
+                    {citationScore}%
+                  </p>
+                  <p className="text-sm text-[#98A2B3]">{citationTone.label}</p>
+                </div>
+              }
+              segments={[
+                { color: citationTone.graph, value: citationScore },
+                { color: "#E5E7EB", value: Math.max(0, 100 - citationScore) },
+              ]}
+              size={190}
+            />
+            <div className="space-y-4">
+              {[
+                ["Total Citations", totalCitations, "#1F2937"],
+                ["Found", citationFound, "#07A36D"],
+                ["Not Found", citationNotFound, "#FF922E"],
+                ["Inconsistent", citationIncorrect, "#FF922E"],
+              ].map(([label, value, color]) => (
                 <div
-                  key={row.business}
-                  className="grid grid-cols-[minmax(0,1fr)_96px_76px] items-center gap-3 rounded-[18px] border border-default-200 px-4 py-3"
+                  key={String(label)}
+                  className="flex items-center justify-between gap-4"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-[#111827]">
-                      {row.business}
-                    </p>
-                    <p className="text-xs text-default-500">{row.category}</p>
-                  </div>
-                  <div className="flex items-center gap-1 text-[#FDB022]">
-                    <Star className="fill-current" size={14} />
-                    <span className="text-sm text-[#111827]">
-                      {row.average}
-                    </span>
-                  </div>
-                  <span className="text-sm text-[#111827]">{row.reviews}</span>
+                  <span className="font-medium text-[#1F2937]">{label}</span>
+                  <span
+                    className="font-semibold"
+                    style={{ color: String(color) }}
+                  >
+                    {value}
+                  </span>
                 </div>
               ))}
             </div>
-          </AnalyticsCardShell>
-        </div>
-      </div>
+          </div>
+          <div className="mt-6 flex items-center justify-between">
+            <Button
+              as={Link}
+              className="px-0 text-[#0B2F8A]"
+              href={`/dashboard/clients/${clientId}/local-citations`}
+              variant="light"
+            >
+              View Citations
+            </Button>
+            <Chip className={citationMonthlyDeltaClass} size="sm">
+              {citationMonthlyDeltaLabel}
+            </Chip>
+          </div>
+        </CardShell>
 
-      <Card className="border border-default-200 shadow-none">
-        <CardBody className="p-0">
-          <DashboardDataTable
-            showPagination
-            ariaLabel="Client analytics local rankings"
-            columns={rankingColumns}
-            getRowKey={(item) => item.id}
-            headerRight={
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  radius="sm"
-                  startContent={<CalendarDays size={14} />}
-                  variant="bordered"
-                >
-                  2 Mar
-                </Button>
-                <Button
-                  radius="sm"
-                  startContent={<List size={14} />}
-                  variant="bordered"
-                >
-                  Show 10
-                </Button>
-                <Button
-                  radius="sm"
-                  startContent={<Columns3 size={14} />}
-                  variant="bordered"
-                >
-                  Columns
-                </Button>
-              </div>
-            }
-            rows={rankingRows}
-            title="Local Rankings"
-            withShell={false}
-          />
-        </CardBody>
-      </Card>
+        <CardShell title="Tracked Local Keywords">
+          <p className="mb-8 text-2xl font-semibold text-[#1F2937]">
+            {filteredRankings.length}
+          </p>
+          {trackedKeywordRows.map((row) => (
+            <div
+              key={String(row.label)}
+              className="mb-5 flex items-center justify-between gap-4"
+            >
+              <span className="font-medium text-[#1F2937]">
+                {row.label} ({row.value})
+              </span>
+              <span className="font-semibold text-[#1F2937]">{row.date}</span>
+            </div>
+          ))}
+          <Button
+            as={Link}
+            className="mt-3 px-0 text-[#0B2F8A]"
+            href={`/dashboard/clients/${clientId}/local-rankings`}
+            variant="light"
+          >
+            View All Keywords
+          </Button>
+        </CardShell>
+      </div>
     </div>
   );
 };

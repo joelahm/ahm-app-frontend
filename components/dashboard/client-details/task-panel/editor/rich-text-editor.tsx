@@ -48,6 +48,7 @@ import {
 } from "@/components/dashboard/client-details/task-panel/editor/extensions/youtube-embed";
 
 interface RichTextEditorProps {
+  isCompact?: boolean;
   isReadOnly?: boolean;
   onChange?: (json: JSONContent) => void;
   onFetchUrlPreview?: (url: string) => Promise<UrlPreviewData>;
@@ -124,6 +125,7 @@ const removeImageBySrc = (editor: Editor, src: string) => {
 };
 
 export const RichTextEditor = ({
+  isCompact = false,
   isReadOnly = false,
   onChange,
   onFetchUrlPreview,
@@ -399,7 +401,13 @@ export const RichTextEditor = ({
   );
 
   return (
-    <div className="rounded-lg border border-default-200 bg-white">
+    <div
+      className={
+        isCompact && isReadOnly
+          ? "bg-transparent"
+          : "rounded-lg border border-default-200 bg-white"
+      }
+    >
       {!isReadOnly ? (
         <div className="flex flex-wrap items-center gap-1 border-b border-default-200 px-2 py-1.5">
           {button("Bold", <Bold size={14} />, editor.isActive("bold"), () =>
@@ -530,7 +538,11 @@ export const RichTextEditor = ({
         </div>
       ) : null}
       <EditorContent
-        className="prose prose-sm max-w-none px-3 py-3 text-sm leading-6 focus:outline-none [&_.ProseMirror]:min-h-[120px] [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:float-left [&_.ProseMirror_p.is-editor-empty:first-child]:before:h-0 [&_.ProseMirror_p.is-editor-empty:first-child]:before:text-default-400 [&_.ProseMirror_p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]"
+        className={
+          isCompact && isReadOnly
+            ? "prose prose-sm max-w-none p-0 text-sm leading-5 focus:outline-none [&_.ProseMirror]:min-h-0 [&_.ProseMirror]:outline-none [&_.ProseMirror>*:first-child]:mt-0 [&_.ProseMirror>*:last-child]:mb-0 [&_.ProseMirror_p.is-editor-empty:first-child]:before:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:float-left [&_.ProseMirror_p.is-editor-empty:first-child]:before:h-0 [&_.ProseMirror_p.is-editor-empty:first-child]:before:text-default-400 [&_.ProseMirror_p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]"
+            : "prose prose-sm max-w-none px-3 py-3 text-sm leading-6 focus:outline-none [&_.ProseMirror]:min-h-[120px] [&_.ProseMirror]:outline-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:pointer-events-none [&_.ProseMirror_p.is-editor-empty:first-child]:before:float-left [&_.ProseMirror_p.is-editor-empty:first-child]:before:h-0 [&_.ProseMirror_p.is-editor-empty:first-child]:before:text-default-400 [&_.ProseMirror_p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]"
+        }
         editor={editor}
       />
     </div>

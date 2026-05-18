@@ -232,6 +232,12 @@ const ClientsPage = () => {
         return;
       }
 
+      if (!session.user.isSuperadmin) {
+        setActionError("Only superadmins can delete clients.");
+
+        return;
+      }
+
       setActionError("");
 
       try {
@@ -260,6 +266,7 @@ const ClientsPage = () => {
         />
       ) : null}
       <ClientListTable
+        canRemoveClients={Boolean(session?.user.isSuperadmin)}
         headerActions={headerActions}
         rows={rows}
         title="Client List"

@@ -28,6 +28,7 @@ import {
   MessageSquareMore,
   FileText,
   ArrowDownWideNarrow,
+  ClipboardCheck,
 } from "lucide-react";
 
 import { DashboardLogo } from "@/components/dashboard/dashboard-logo";
@@ -75,6 +76,16 @@ const sidebarSections: SidebarSection[] = [
         href: "/dashboard/ai-content-generator",
         label: "AI Content Generator",
         Icon: Sparkles,
+      },
+      {
+        href: "/dashboard/web-content-summary",
+        label: "Web Content Summary",
+        Icon: FileText,
+      },
+      {
+        href: "/dashboard/on-page-optimization-summary",
+        label: "On Page Optimization Summary",
+        Icon: ClipboardCheck,
       },
     ],
   },

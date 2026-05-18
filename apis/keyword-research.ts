@@ -31,7 +31,10 @@ export interface KeywordResearchRequestBody {
   languageCode: string;
   languageName: string;
   locationCode?: number;
+  providers?: KeywordResearchProvider[];
 }
+
+export type KeywordResearchProvider = "DATAFORSEO" | "SE_RANKING";
 
 export interface KeywordOverviewRequestBody {
   clientId?: string;
@@ -41,6 +44,23 @@ export interface KeywordOverviewRequestBody {
   languageCode: string;
   languageName?: string;
   locationCode?: number;
+  providers?: KeywordResearchProvider[];
+}
+
+export interface KeywordResearchSourceValue {
+  searchVolume: number | null;
+  kd: number | null;
+  cpc: number | null;
+  intent: string | null;
+  serp: string | null;
+}
+
+export interface KeywordResearchProviderResult {
+  provider: KeywordResearchProvider;
+  ok: boolean;
+  notConfigured?: boolean;
+  error?: string | null;
+  keywordCount?: number;
 }
 
 export interface KeywordResearchCountryOption {
@@ -72,6 +92,7 @@ export interface KeywordResearchItem {
   keyword: string;
   searchVolume: number | null;
   serp: string | null;
+  sources?: Partial<Record<KeywordResearchProvider, KeywordResearchSourceValue>>;
 }
 
 export const keywordResearchApi = {
@@ -159,6 +180,7 @@ export const keywordResearchApi = {
     try {
       const response = await keywordResearchApiClient.post<{
         keywords: KeywordResearchItem[];
+        providers?: KeywordResearchProviderResult[];
       }>("/api/v1/integrations/dataforseo/keywords/similar", payload, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -177,6 +199,7 @@ export const keywordResearchApi = {
     try {
       const response = await keywordResearchApiClient.post<{
         keywords: KeywordResearchItem[];
+        providers?: KeywordResearchProviderResult[];
       }>("/api/v1/integrations/dataforseo/keywords/suggestions", payload, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -195,6 +218,7 @@ export const keywordResearchApi = {
     try {
       const response = await keywordResearchApiClient.post<{
         keywords: KeywordResearchItem[];
+        providers?: KeywordResearchProviderResult[];
       }>("/api/v1/integrations/dataforseo/keywords/overview", payload, {
         headers: {
           Authorization: `Bearer ${accessToken}`,

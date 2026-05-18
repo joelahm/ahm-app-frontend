@@ -342,6 +342,8 @@ export type TaskActivityType =
   | "DUE_DATE_CHANGED"
   | "PARENT_CHANGED"
   | "PRIORITY_CHANGED"
+  | "PROJECT_TASK_ASSIGNEES_RESYNCED"
+  | "PROJECT_UPDATED"
   | "STATUS_CHANGED"
   | "SUBTASK_ADDED";
 
@@ -521,6 +523,53 @@ export interface ClientCitationVerificationStatus {
 export interface ClientCitationsResponse {
   citations: ClientCitation[];
   total: number;
+}
+
+export type ClientKeywordTitleStatus =
+  | "IDLE"
+  | "GENERATING"
+  | "COMPLETED"
+  | "FAILED";
+export type ClientKeywordProvider = "DATAFORSEO" | "SE_RANKING";
+
+export interface ClientKeyword {
+  contentType: string;
+  cpcUsd: number | null;
+  generatedTitle: string;
+  id: string;
+  keyword: string;
+  keywordDifficulty: number | null;
+  note: string;
+  provider: ClientKeywordProvider | null;
+  searchIntent: string;
+  searchVolume: number | null;
+  serp: string;
+  status: string;
+  titleError: string;
+  titleStatus: ClientKeywordTitleStatus;
+  useIn: string[];
+}
+
+export interface ClientKeywordsResponse {
+  keywords: ClientKeyword[];
+  total: number;
+}
+
+export interface ClientKeywordsBulkUpdateResponse
+  extends ClientKeywordsResponse {
+  updatedCount: number;
+}
+
+export interface ClientKeywordsGenerateTitlesResponse
+  extends ClientKeywordsResponse {
+  queuedCount: number;
+}
+
+export interface ClientKeywordsBulkPatch {
+  contentType?: string;
+  useIn?: string[];
+  status?: string;
+  note?: string;
 }
 
 export interface ClientProjectsResponse {
@@ -2604,6 +2653,7 @@ export const clientsApi = {
     accessToken: string,
     clientId: string | number,
     params?: {
+      forceRefresh?: boolean;
       nextPageToken?: string | null;
       sortBy?: string | null;
     },
@@ -2616,6 +2666,7 @@ export const clientsApi = {
             Authorization: `Bearer ${accessToken}`,
           },
           params: {
+            forceRefresh: params?.forceRefresh || undefined,
             nextPageToken: params?.nextPageToken || undefined,
             sortBy: params?.sortBy || undefined,
           },
@@ -2915,6 +2966,154 @@ export const clientsApi = {
           },
         },
       );
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  getClientKeywords: async (
+    accessToken: string,
+    clientId: string | number,
+  ): Promise<ClientKeywordsResponse> => {
+    try {
+      const response = await clientsApiClient.get<ClientKeywordsResponse>(
+        `/api/v1/clients/${clientId}/keywords`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  importClientKeywords: async (
+    accessToken: string,
+    clientId: string | number,
+    keywords: ClientKeyword[],
+  ): Promise<ClientKeywordsResponse> => {
+    try {
+      const response = await clientsApiClient.post<ClientKeywordsResponse>(
+        `/api/v1/clients/${clientId}/keywords/import`,
+        { keywords },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientKeyword: async (
+    accessToken: string,
+    clientId: string | number,
+    keywordId: string,
+  ): Promise<ClientKeywordsResponse> => {
+    try {
+      const response = await clientsApiClient.delete<ClientKeywordsResponse>(
+        `/api/v1/clients/${clientId}/keywords/${encodeURIComponent(keywordId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  updateClientKeyword: async (
+    accessToken: string,
+    clientId: string | number,
+    keywordId: string,
+    payload: Partial<ClientKeyword>,
+  ): Promise<ClientKeywordsResponse> => {
+    try {
+      const response = await clientsApiClient.patch<ClientKeywordsResponse>(
+        `/api/v1/clients/${clientId}/keywords/${encodeURIComponent(keywordId)}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  deleteClientKeywords: async (
+    accessToken: string,
+    clientId: string | number,
+    keywordIds: string[],
+  ): Promise<ClientKeywordsResponse> => {
+    try {
+      const response = await clientsApiClient.post<ClientKeywordsResponse>(
+        `/api/v1/clients/${clientId}/keywords/delete`,
+        { keywordIds },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  bulkUpdateClientKeywords: async (
+    accessToken: string,
+    clientId: string | number,
+    keywordIds: string[],
+    patch: ClientKeywordsBulkPatch,
+  ): Promise<ClientKeywordsBulkUpdateResponse> => {
+    try {
+      const response =
+        await clientsApiClient.post<ClientKeywordsBulkUpdateResponse>(
+          `/api/v1/clients/${clientId}/keywords/bulk-update`,
+          { keywordIds, patch },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          },
+        );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  generateClientKeywordTitles: async (
+    accessToken: string,
+    clientId: string | number,
+    keywordIds: string[],
+  ): Promise<ClientKeywordsGenerateTitlesResponse> => {
+    try {
+      const response =
+        await clientsApiClient.post<ClientKeywordsGenerateTitlesResponse>(
+          `/api/v1/clients/${clientId}/keywords/generate-titles`,
+          { keywordIds },
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          },
+        );
+
+      return response.data;
     } catch (error) {
       throw new Error(parseError(error));
     }
@@ -3219,6 +3418,30 @@ export const clientsApi = {
     try {
       const response = await clientsApiClient.get<unknown>(
         `/api/v1/projects/tasks/${taskId}/activity`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          params: {
+            before: params?.before || undefined,
+            limit: params?.limit,
+          },
+        },
+      );
+
+      return parseTaskActivityResponse(response.data);
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
+  listProjectActivity: async (
+    accessToken: string,
+    projectId: string | number,
+    params?: { before?: string | null; limit?: number },
+  ): Promise<TaskActivityResponse> => {
+    try {
+      const response = await clientsApiClient.get<unknown>(
+        `/api/v1/projects/${projectId}/activity`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,

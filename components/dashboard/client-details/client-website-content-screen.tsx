@@ -30,16 +30,13 @@ import * as yup from "yup";
 import ReactDiffViewer from "react-diff-viewer-continued";
 import {
   Bold,
-  Copy,
-  CornerDownRight,
   Columns3,
+  Copy,
   Download,
   EllipsisVertical,
   ImageIcon,
   Italic,
   List,
-  GripVertical,
-  ListOrdered,
   Minus,
   Paperclip,
   Pencil,
@@ -48,7 +45,6 @@ import {
   Settings,
   ShieldCheck,
   ShieldOff,
-  SlidersHorizontal,
   Strikethrough,
   Trash2,
   Underline,
@@ -57,7 +53,11 @@ import {
 import Image from "next/image";
 
 import { aiPromptsApi } from "@/apis/ai-prompts";
-import { clientsApi, type ClientDetails } from "@/apis/clients";
+import {
+  clientsApi,
+  type ClientDetails,
+  type ClientKeyword,
+} from "@/apis/clients";
 import {
   keywordResearchApi,
   type KeywordResearchItem,
@@ -173,6 +173,12 @@ const INITIAL_BREAKDOWN = [
     allocated: 1,
     used: 0,
   },
+  {
+    key: "patient-referral",
+    label: "Patient Referral",
+    allocated: 1,
+    used: 0,
+  },
   { key: "blogs", label: "Blogs", allocated: 40, used: 0 },
   { key: "guide", label: "Guide Page", allocated: 5, used: 0 },
   { key: "faq", label: "FAQ Page", allocated: 5, used: 0 },
@@ -269,6 +275,18 @@ type WebsiteContentRow = {
   type: string;
   urlSlug: string | null;
 };
+
+type WebsiteContentBulkEditAction =
+  | {
+      kind: "type";
+      rows: WebsiteContentRow[];
+      value: string;
+    }
+  | {
+      kind: "contentLength";
+      rows: WebsiteContentRow[];
+      value: string;
+    };
 
 type BreakdownTableRow = {
   allocated: number;
@@ -730,6 +748,10 @@ const getBreakdownKeyForContentType = (contentType: string) => {
     return "team";
   }
 
+  if (normalized.includes("patient") && normalized.includes("referral")) {
+    return "patient-referral";
+  }
+
   if (normalized.includes("patient")) {
     return "patient-information";
   }
@@ -926,6 +948,70 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 };
 
+const LAYOUT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const LAYOUT_OPTIMIZE_MAX_DIMENSION = 1400;
+const LAYOUT_OPTIMIZE_QUALITY = 0.78;
+
+const optimizeLayoutImageFile = async (file: File): Promise<File> => {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Please upload an image file.");
+  }
+
+  if (file.size > LAYOUT_UPLOAD_MAX_BYTES) {
+    throw new Error("Layout image must be 10MB or less.");
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const candidate = new window.Image();
+
+      candidate.onload = () => resolve(candidate);
+      candidate.onerror = () => reject(new Error("Failed to read image."));
+      candidate.src = objectUrl;
+    });
+    const scale = Math.min(
+      1,
+      LAYOUT_OPTIMIZE_MAX_DIMENSION / Math.max(image.width, image.height),
+    );
+
+    if (scale >= 1 && file.size <= 1.5 * 1024 * 1024) {
+      return file;
+    }
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return file;
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", LAYOUT_OPTIMIZE_QUALITY);
+    });
+
+    if (!blob || blob.size >= file.size) {
+      return file;
+    }
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "layout";
+
+    return new File([blob], `${baseName}-optimized.jpg`, {
+      lastModified: Date.now(),
+      type: "image/jpeg",
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+};
+
 const readFeaturedImageUpload = (
   value: unknown,
 ): FeaturedImageUpload | null => {
@@ -1082,6 +1168,82 @@ const enrichRowDepths = (sourceRows: WebsiteContentRow[]) => {
   }));
 };
 
+const normalizeKeywordValue = (value: string) => value.trim().toLowerCase();
+
+const normalizeUseInValue = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const hasWebContentUseIn = (value: unknown) => {
+  const values = Array.isArray(value)
+    ? value
+    : value instanceof Set
+      ? Array.from(value)
+      : String(value ?? "").split(",");
+
+  return values.some((item) => {
+    const normalizedValue = normalizeUseInValue(item);
+
+    return (
+      normalizedValue === "web content" ||
+      normalizedValue === "website content" ||
+      normalizedValue.includes("web content") ||
+      normalizedValue.includes("website content")
+    );
+  });
+};
+
+const mapClientKeywordToWebsiteContentKeyword = (
+  item: ClientKeyword,
+): WebsiteContentKeywordItem => ({
+  contentType: item.contentType ?? "",
+  cpc: item.cpcUsd,
+  id: item.id,
+  intent: item.searchIntent?.trim() || null,
+  kd: item.keywordDifficulty,
+  keyword: item.keyword,
+  searchVolume: item.searchVolume,
+});
+
+const getUnusedWebContentClientKeywords = (
+  clientKeywords: ClientKeyword[],
+  websiteContentRows: WebsiteContentRow[],
+) => {
+  const usedKeywords = new Set(
+    websiteContentRows
+      .map((row) => normalizeKeywordValue(row.keyword))
+      .filter(Boolean),
+  );
+  const seenKeywords = new Set<string>();
+
+  return clientKeywords.reduce<WebsiteContentKeywordItem[]>(
+    (keywords, item) => {
+      const keyword = item.keyword.trim();
+      const normalizedKeyword = normalizeKeywordValue(keyword);
+      const useInWebContent = hasWebContentUseIn(item.useIn);
+
+      if (
+        !useInWebContent ||
+        !normalizedKeyword ||
+        usedKeywords.has(normalizedKeyword) ||
+        seenKeywords.has(normalizedKeyword)
+      ) {
+        return keywords;
+      }
+
+      seenKeywords.add(normalizedKeyword);
+      keywords.push(mapClientKeywordToWebsiteContentKeyword(item));
+
+      return keywords;
+    },
+    [],
+  );
+};
+
 export const ClientWebsiteContentScreen = ({
   clientId,
 }: {
@@ -1105,6 +1267,11 @@ export const ClientWebsiteContentScreen = ({
   const [websiteContentKeywords, setWebsiteContentKeywords] = useState<
     WebsiteContentKeywordItem[]
   >([]);
+  const [approvedClientKeywordPrefill, setApprovedClientKeywordPrefill] =
+    useState<string[]>([]);
+  const [approvedClientKeywordDetails, setApprovedClientKeywordDetails] =
+    useState<Record<string, WebsiteContentKeywordItem>>({});
+  const [isPreparingAddKeywords, setIsPreparingAddKeywords] = useState(false);
   const [rows, setRows] = useState<WebsiteContentRow[]>([]);
   const [isWebsiteContentLoading, setIsWebsiteContentLoading] = useState(false);
   const [writingByRowId, setWritingByRowId] = useState<Record<string, boolean>>(
@@ -1152,6 +1319,7 @@ export const ClientWebsiteContentScreen = ({
     null,
   );
   const [layoutPromptFile, setLayoutPromptFile] = useState<File | null>(null);
+  const [isLayoutOptimizing, setIsLayoutOptimizing] = useState(false);
   const [isLayoutUploading, setIsLayoutUploading] = useState(false);
   const [generationClientDetails, setGenerationClientDetails] =
     useState<ClientDetails | null>(null);
@@ -1191,6 +1359,11 @@ export const ClientWebsiteContentScreen = ({
   const [deleteConfirmRows, setDeleteConfirmRows] = useState<
     WebsiteContentRow[]
   >([]);
+  const [pendingBulkEditAction, setPendingBulkEditAction] =
+    useState<WebsiteContentBulkEditAction | null>(null);
+  const [expandedKeywordIds, setExpandedKeywordIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [bulkReviewEnablingRowId, setBulkReviewEnablingRowId] = useState<
     string | null
   >(null);
@@ -1256,6 +1429,80 @@ export const ClientWebsiteContentScreen = ({
     () => rows.filter((row) => row.isSelected),
     [rows],
   );
+  const selectedReviewRowsRef = useRef<WebsiteContentRow[]>([]);
+
+  useEffect(() => {
+    selectedReviewRowsRef.current = selectedReviewRows;
+  }, [selectedReviewRows]);
+
+  const childRowsByParentKeywordId = useMemo(() => {
+    const rowByKeywordId = new Map(rows.map((row) => [row.keywordId, row]));
+    const groups = new Map<string, WebsiteContentRow[]>();
+
+    rows.forEach((row) => {
+      if (!row.parentKeywordId || !rowByKeywordId.has(row.parentKeywordId)) {
+        return;
+      }
+
+      const current = groups.get(row.parentKeywordId) ?? [];
+
+      current.push(row);
+      groups.set(row.parentKeywordId, current);
+    });
+
+    return groups;
+  }, [rows]);
+  const parentKeywordIds = useMemo(
+    () => new Set(childRowsByParentKeywordId.keys()),
+    [childRowsByParentKeywordId],
+  );
+  const visibleWebsiteContentRows = useMemo(() => {
+    const rowByKeywordId = new Map(rows.map((row) => [row.keywordId, row]));
+    const visibleRows: WebsiteContentRow[] = [];
+    const visitedKeywordIds = new Set<string>();
+
+    const appendRow = (row: WebsiteContentRow, depth: number) => {
+      if (visitedKeywordIds.has(row.keywordId)) {
+        return;
+      }
+
+      visitedKeywordIds.add(row.keywordId);
+      visibleRows.push({ ...row, depth });
+
+      if (!expandedKeywordIds.has(row.keywordId)) {
+        return;
+      }
+
+      (childRowsByParentKeywordId.get(row.keywordId) ?? []).forEach((child) => {
+        appendRow(child, depth + 1);
+      });
+    };
+
+    rows
+      .filter(
+        (row) =>
+          !row.parentKeywordId || !rowByKeywordId.has(row.parentKeywordId),
+      )
+      .forEach((row) => appendRow(row, 0));
+
+    return visibleRows;
+  }, [childRowsByParentKeywordId, expandedKeywordIds, rows]);
+
+  useEffect(() => {
+    setExpandedKeywordIds(new Set(parentKeywordIds));
+  }, [parentKeywordIds]);
+
+  const visibleSelectableRows = useMemo(
+    () =>
+      visibleWebsiteContentRows.filter((row) => row.listId && row.keywordId),
+    [visibleWebsiteContentRows],
+  );
+  const areAllVisibleRowsSelected =
+    visibleSelectableRows.length > 0 &&
+    visibleSelectableRows.every((row) => row.isSelected);
+  const areSomeVisibleRowsSelected = visibleSelectableRows.some(
+    (row) => row.isSelected,
+  );
 
   const loadSavedKeywords = useCallback(async () => {
     if (!session?.accessToken || !clientId) {
@@ -1281,6 +1528,55 @@ export const ClientWebsiteContentScreen = ({
       ),
     );
   }, [clientId, getValidAccessToken, session?.accessToken]);
+
+  const openAddKeywordsModal = useCallback(async () => {
+    setApprovedClientKeywordPrefill([]);
+    setApprovedClientKeywordDetails({});
+
+    if (!session?.accessToken || !clientId) {
+      setIsAddKeywordsModalOpen(true);
+
+      return;
+    }
+
+    try {
+      setIsPreparingAddKeywords(true);
+      const accessToken = await getValidAccessToken();
+      const response = await clientsApi.getClientKeywords(
+        accessToken,
+        clientId,
+      );
+      const webContentKeywords = getUnusedWebContentClientKeywords(
+        response.keywords,
+        rows,
+      );
+      const webContentKeywordDetails = Object.fromEntries(
+        webContentKeywords.map((item) => [
+          normalizeKeywordValue(item.keyword),
+          item,
+        ]),
+      );
+
+      setApprovedClientKeywordPrefill(
+        webContentKeywords.map((item) => item.keyword),
+      );
+      setApprovedClientKeywordDetails(webContentKeywordDetails);
+
+      if (webContentKeywords.length === 0) {
+        toast.info("No unused client keywords marked for web content found.", {
+          description:
+            "You can still enter keywords manually in the add keyword modal.",
+        });
+      }
+    } catch (error) {
+      toast.warning("Could not prefill approved client keywords.", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setIsPreparingAddKeywords(false);
+      setIsAddKeywordsModalOpen(true);
+    }
+  }, [clientId, getValidAccessToken, rows, session?.accessToken, toast]);
 
   const loadSavedBreakdown = useCallback(async () => {
     if (!session?.accessToken || !clientId) {
@@ -2376,13 +2672,19 @@ ${plainContent || "N/A"}`.trim();
           "__GENERATED_CONTENT__",
         );
 
+        const clusterTypeForRow = detectClusterType(row);
+        const parentPillarRowForRow = getParentPillarRow(row);
+
         await keywordContentListsApi.startWebsiteContentGeneration(
           accessToken,
           {
             clientId: String(clientId),
+            clusterType: clusterTypeForRow,
             contentLength: row.contentLength,
             contentPrompt: prompt,
             contentType: row.type,
+            intent: row.intent || "",
+            keyword: row.keyword,
             keywordId: row.keywordId,
             layoutImageUrl: options?.layoutImageUrl ?? null,
             listId: row.listId,
@@ -2390,6 +2692,7 @@ ${plainContent || "N/A"}`.trim();
               row.contentLength,
             ),
             maxSeoTokens: 700,
+            parentPillarTopic: parentPillarRowForRow?.keyword || "",
             seoPromptTemplate,
             title: row.title,
           },
@@ -2437,6 +2740,8 @@ ${plainContent || "N/A"}`.trim();
       buildSeoFieldsPrompt,
       buildGenerationPrompt,
       clientId,
+      detectClusterType,
+      getParentPillarRow,
       getValidAccessToken,
       openGenerationModal,
       persistRowPatch,
@@ -3894,14 +4199,18 @@ ${plainContent || "N/A"}`.trim();
     [featuredImagesByRowId],
   );
 
-  const getBulkEditTargetRows = (row: WebsiteContentRow) =>
-    selectedReviewRows.length > 0 ? selectedReviewRows : [row];
+  const getBulkEditTargetRows = useCallback((row: WebsiteContentRow) => {
+    const selectedRows = selectedReviewRowsRef.current;
 
-  const handleContentTypeChange = (
-    row: WebsiteContentRow,
+    return selectedRows.length > 0 ? selectedRows : [row];
+  }, []);
+
+  const hasSelectedBulkRows = () => selectedReviewRowsRef.current.length > 0;
+
+  const applyContentTypeChange = (
+    targetRows: WebsiteContentRow[],
     nextType: string,
   ) => {
-    const targetRows = getBulkEditTargetRows(row);
     const targetIds = new Set(targetRows.map((targetRow) => targetRow.id));
     const previousTypes = new Map(
       targetRows.map((targetRow) => [targetRow.id, targetRow.type]),
@@ -3924,11 +4233,29 @@ ${plainContent || "N/A"}`.trim();
     });
   };
 
-  const handleContentLengthChange = (
+  const handleContentTypeChange = (
     row: WebsiteContentRow,
-    nextContentLength: string,
+    nextType: string,
   ) => {
     const targetRows = getBulkEditTargetRows(row);
+
+    if (hasSelectedBulkRows()) {
+      setPendingBulkEditAction({
+        kind: "type",
+        rows: targetRows,
+        value: nextType,
+      });
+
+      return;
+    }
+
+    applyContentTypeChange(targetRows, nextType);
+  };
+
+  const applyContentLengthChange = (
+    targetRows: WebsiteContentRow[],
+    nextContentLength: string,
+  ) => {
     const targetIds = new Set(targetRows.map((targetRow) => targetRow.id));
     const previousContentLengths = new Map(
       targetRows.map((targetRow) => [targetRow.id, targetRow.contentLength]),
@@ -3954,10 +4281,51 @@ ${plainContent || "N/A"}`.trim();
     });
   };
 
+  const handleContentLengthChange = (
+    row: WebsiteContentRow,
+    nextContentLength: string,
+  ) => {
+    const targetRows = getBulkEditTargetRows(row);
+
+    if (hasSelectedBulkRows()) {
+      setPendingBulkEditAction({
+        kind: "contentLength",
+        rows: targetRows,
+        value: nextContentLength,
+      });
+
+      return;
+    }
+
+    applyContentLengthChange(targetRows, nextContentLength);
+  };
+
   const tableColumns: DashboardDataTableColumn<WebsiteContentRow>[] = [
     {
       key: "select",
       label: "",
+      header: (
+        <Checkbox
+          aria-label="Select all visible web content rows"
+          isIndeterminate={
+            areSomeVisibleRowsSelected && !areAllVisibleRowsSelected
+          }
+          isSelected={areAllVisibleRowsSelected}
+          onValueChange={(isSelected) => {
+            const targetIds = new Set(
+              visibleSelectableRows.map((targetRow) => targetRow.id),
+            );
+
+            setRows((current) =>
+              current.map((currentRow) =>
+                targetIds.has(currentRow.id)
+                  ? { ...currentRow, isSelected }
+                  : currentRow,
+              ),
+            );
+          }}
+        />
+      ),
       className: "w-10 bg-[#F9FAFB] text-[#111827]",
       renderCell: (item) => (
         <Checkbox
@@ -3975,17 +4343,20 @@ ${plainContent || "N/A"}`.trim();
       className: "bg-[#F9FAFB] text-[#111827]",
       renderCell: (item) => (
         <div
-          className="flex items-center gap-2"
-          style={{ paddingLeft: `${item.depth * 16}px` }}
+          className="flex min-w-0 items-center gap-2"
+          style={{ paddingLeft: `${Math.min(item.depth, 4) * 20}px` }}
         >
-          <GripVertical className="text-[#9CA3AF]" size={14} />
-          {item.depth > 0 ? (
-            <CornerDownRight className="text-[#9CA3AF]" size={14} />
-          ) : null}
-          <span className="text-sm text-[#111827]">{item.keyword}</span>
+          <span
+            className={`h-8 w-1 flex-none rounded-full ${
+              item.depth > 0 ? "bg-[#10B981]" : "bg-[#60A5FA]"
+            }`}
+          />
+          <span className="line-clamp-2 min-w-0 text-sm font-semibold text-[#111827]">
+            {item.keyword}
+          </span>
           {item.isPillarArticle ? (
             <Chip
-              className="bg-[#DCFCE7] text-[#166534]"
+              className="flex-none bg-[#DCFCE7] text-[#166534]"
               radius="full"
               size="sm"
             >
@@ -4213,7 +4584,7 @@ ${plainContent || "N/A"}`.trim();
                   }
 
                   if (actionKey === "delete") {
-                    openDeleteConfirm([item]);
+                    openDeleteConfirm(getBulkEditTargetRows(item));
                   }
                 }}
               >
@@ -4358,31 +4729,8 @@ ${plainContent || "N/A"}`.trim();
             Web Content
           </h2>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              startContent={<SlidersHorizontal size={14} />}
-              variant="bordered"
-            >
-              Filter
-            </Button>
-            <Button startContent={<ListOrdered size={14} />} variant="bordered">
-              Show 10
-            </Button>
             <Button startContent={<Columns3 size={14} />} variant="bordered">
               Columns
-            </Button>
-            <Button
-              isIconOnly
-              aria-label="Delete selected keywords"
-              className="text-danger"
-              color="danger"
-              isDisabled={selectedReviewRows.length === 0}
-              isLoading={isBulkDeletingKeywords}
-              variant="bordered"
-              onPress={() => {
-                openDeleteConfirm(selectedReviewRows);
-              }}
-            >
-              <Trash2 size={16} />
             </Button>
             <Button
               isDisabled={selectedReviewRows.length === 0}
@@ -4408,9 +4756,10 @@ ${plainContent || "N/A"}`.trim();
             </Button>
             <Button
               className="bg-[#022279] text-white"
+              isLoading={isPreparingAddKeywords}
               startContent={<Plus size={14} />}
               onPress={() => {
-                setIsAddKeywordsModalOpen(true);
+                void openAddKeywordsModal();
               }}
             >
               Add Keyword
@@ -4485,7 +4834,7 @@ ${plainContent || "N/A"}`.trim();
             isLoading={isWebsiteContentLoading}
             loadingLabel="Loading website content..."
             pageSize={10}
-            rows={rows}
+            rows={visibleWebsiteContentRows}
             title=""
             withShell={false}
           />
@@ -4734,6 +5083,66 @@ ${plainContent || "N/A"}`.trim();
 
       <Modal
         hideCloseButton
+        isOpen={Boolean(pendingBulkEditAction)}
+        size="md"
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setPendingBulkEditAction(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader className="pb-2">
+            <h3 className="text-lg font-semibold text-[#111827]">
+              {pendingBulkEditAction?.kind === "type"
+                ? "Update Type"
+                : "Update Content Length"}
+            </h3>
+          </ModalHeader>
+          <ModalBody className="space-y-3 pt-0 text-sm text-[#4B5563]">
+            <p>
+              This will update {pendingBulkEditAction?.rows.length ?? 0}{" "}
+              selected{" "}
+              {(pendingBulkEditAction?.rows.length ?? 0) === 1
+                ? "keyword"
+                : "keywords"}{" "}
+              to &quot;{pendingBulkEditAction?.value ?? ""}&quot;.
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="bordered"
+              onPress={() => {
+                setPendingBulkEditAction(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              onPress={() => {
+                const action = pendingBulkEditAction;
+
+                setPendingBulkEditAction(null);
+                if (!action) {
+                  return;
+                }
+
+                if (action.kind === "type") {
+                  applyContentTypeChange(action.rows, action.value);
+                } else {
+                  applyContentLengthChange(action.rows, action.value);
+                }
+              }}
+            >
+              Confirm
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal
+        hideCloseButton
         isOpen={Boolean(overwriteTargetRow)}
         size="md"
         onOpenChange={(isOpen) => {
@@ -4786,7 +5195,7 @@ ${plainContent || "N/A"}`.trim();
         isOpen={Boolean(layoutPromptRow)}
         size="lg"
         onOpenChange={(isOpen) => {
-          if (!isOpen && !isLayoutUploading) {
+          if (!isOpen && !isLayoutUploading && !isLayoutOptimizing) {
             setLayoutPromptRowId(null);
             setLayoutPromptFile(null);
           }
@@ -4816,7 +5225,11 @@ ${plainContent || "N/A"}`.trim();
               </span>
               {layoutPromptFile ? (
                 <span className="text-xs text-[#9CA3AF]">
-                  {(layoutPromptFile.size / (1024 * 1024)).toFixed(2)} MB
+                  {formatBytes(layoutPromptFile.size)}
+                </span>
+              ) : isLayoutOptimizing ? (
+                <span className="text-xs text-[#9CA3AF]">
+                  Optimizing layout image...
                 </span>
               ) : null}
               <input
@@ -4827,8 +5240,31 @@ ${plainContent || "N/A"}`.trim();
                 onChange={(event) => {
                   const [file] = Array.from(event.target.files ?? []);
 
-                  setLayoutPromptFile(file ?? null);
                   event.target.value = "";
+
+                  if (!file) {
+                    setLayoutPromptFile(null);
+
+                    return;
+                  }
+
+                  setIsLayoutOptimizing(true);
+                  optimizeLayoutImageFile(file)
+                    .then((optimizedFile) => {
+                      setLayoutPromptFile(optimizedFile);
+                    })
+                    .catch((error) => {
+                      setLayoutPromptFile(null);
+                      toast.danger("Failed to prepare layout image.", {
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : "Please try another image.",
+                      });
+                    })
+                    .finally(() => {
+                      setIsLayoutOptimizing(false);
+                    });
                 }}
               />
             </label>
@@ -4844,7 +5280,7 @@ ${plainContent || "N/A"}`.trim();
           </ModalBody>
           <ModalFooter>
             <Button
-              isDisabled={isLayoutUploading}
+              isDisabled={isLayoutUploading || isLayoutOptimizing}
               variant="bordered"
               onPress={() => {
                 setLayoutPromptRowId(null);
@@ -4854,7 +5290,7 @@ ${plainContent || "N/A"}`.trim();
               Cancel
             </Button>
             <Button
-              isDisabled={isLayoutUploading}
+              isDisabled={isLayoutUploading || isLayoutOptimizing}
               variant="bordered"
               onPress={() => {
                 void handleConfirmLayoutPrompt(false);
@@ -4864,8 +5300,8 @@ ${plainContent || "N/A"}`.trim();
             </Button>
             <Button
               className="bg-[#022279] text-white"
-              isDisabled={!layoutPromptFile}
-              isLoading={isLayoutUploading}
+              isDisabled={!layoutPromptFile || isLayoutOptimizing}
+              isLoading={isLayoutUploading || isLayoutOptimizing}
               onPress={() => {
                 void handleConfirmLayoutPrompt(true);
               }}
@@ -6158,6 +6594,7 @@ ${plainContent || "N/A"}`.trim();
       </Modal>
 
       <AddWebsiteContentKeywordsModal
+        initialKeywords={approvedClientKeywordPrefill}
         isOpen={isAddKeywordsModalOpen}
         onNext={async (payload) => {
           if (!session?.accessToken) {
@@ -6165,41 +6602,62 @@ ${plainContent || "N/A"}`.trim();
           }
 
           let keywordDetails: KeywordResearchItem[] = [];
+          const manualKeywords = payload.keywords.filter(
+            (keyword) =>
+              !approvedClientKeywordDetails[normalizeKeywordValue(keyword)],
+          );
 
-          try {
-            const accessToken = await getValidAccessToken();
-            const response = await keywordResearchApi.getKeywordOverview(
-              accessToken,
-              {
-                clientId,
-                countryIsoCode: payload.countryIsoCode,
-                forceRefresh: true,
-                keywords: payload.keywords,
-                languageCode: payload.languageCode,
-                languageName: payload.language,
-                locationCode: payload.locationCode,
-              },
-            );
+          if (manualKeywords.length > 0) {
+            try {
+              const accessToken = await getValidAccessToken();
+              const response = await keywordResearchApi.getKeywordOverview(
+                accessToken,
+                {
+                  clientId,
+                  countryIsoCode: payload.countryIsoCode,
+                  forceRefresh: true,
+                  keywords: manualKeywords,
+                  languageCode: payload.languageCode,
+                  languageName: payload.language,
+                  locationCode: payload.locationCode,
+                },
+              );
 
-            keywordDetails = response.keywords;
-          } catch (error) {
-            toast.warning(
-              "Keyword metrics unavailable. Continuing without DataForSEO metrics.",
-              {
-                description: error instanceof Error ? error.message : undefined,
-                timeout: 5000,
-              },
-            );
+              keywordDetails = response.keywords;
+            } catch (error) {
+              toast.warning(
+                "Keyword metrics unavailable. Continuing without DataForSEO metrics.",
+                {
+                  description:
+                    error instanceof Error ? error.message : undefined,
+                  timeout: 5000,
+                },
+              );
+            }
           }
 
           const detailMap = new Map(
-            keywordDetails.map((item) => [item.keyword.toLowerCase(), item]),
+            keywordDetails.map((item) => [
+              normalizeKeywordValue(item.keyword),
+              item,
+            ]),
           );
           const mappedKeywords: WebsiteContentKeywordItem[] =
             payload.keywords.map((keyword, index) => {
-              const matched = detailMap.get(keyword.toLowerCase());
+              const normalizedKeyword = normalizeKeywordValue(keyword);
+              const matchedClientKeyword =
+                approvedClientKeywordDetails[normalizedKeyword];
+              const matched = detailMap.get(normalizedKeyword);
+
+              if (matchedClientKeyword) {
+                return {
+                  ...matchedClientKeyword,
+                  keyword,
+                };
+              }
 
               return {
+                contentType: "",
                 cpc: matched?.cpc ?? null,
                 id: matched?.id ?? `${Date.now()}-${index}`,
                 intent: matched?.intent ?? null,

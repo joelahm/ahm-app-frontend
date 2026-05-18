@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Checkbox } from "@heroui/checkbox";
@@ -271,6 +272,9 @@ export const ClientGbpPostingsTable = ({
   openPostId?: string | null;
 }) => {
   const { getValidAccessToken, session } = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useAppToast();
   const toastRef = useRef(toast);
   const openedPostIdRef = useRef<string | null>(null);
@@ -477,6 +481,7 @@ export const ClientGbpPostingsTable = ({
 
   const closeEditModal = useCallback(() => {
     setEditingRow(null);
+    openedPostIdRef.current = null;
     lastHydratedEditFormRef.current = null;
     setComments([]);
     setCommentInput("");
@@ -494,7 +499,18 @@ export const ClientGbpPostingsTable = ({
     if (commentEditorRef.current) {
       commentEditorRef.current.innerText = "";
     }
-  }, [pendingAttachments]);
+
+    if (openPostId && pathname) {
+      const params = new URLSearchParams(searchParams.toString());
+
+      params.delete("postId");
+      const queryString = params.toString();
+
+      router.replace(queryString ? `${pathname}?${queryString}` : pathname, {
+        scroll: false,
+      });
+    }
+  }, [openPostId, pathname, pendingAttachments, router, searchParams]);
 
   const loadReviewLink = useCallback(
     async (postingId: string) => {

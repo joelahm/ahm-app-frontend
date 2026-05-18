@@ -72,6 +72,7 @@ interface ClientListTableProps {
   headerActions?: DashboardTableAction[];
   rows?: ClientRecord[];
   columns?: DashboardDataTableColumn<ClientRecord>[];
+  canRemoveClients?: boolean;
   onSetStatus?: (clientId: string, status: "Active" | "Inactive") => void;
   onRemove?: (clientId: string) => void;
 }
@@ -142,6 +143,7 @@ export const ClientListTable = ({
   headerActions = defaultHeaderActions,
   rows = defaultRows,
   columns,
+  canRemoveClients = false,
   onRemove,
   onSetStatus,
 }: ClientListTableProps) => {
@@ -459,14 +461,18 @@ export const ClientListTable = ({
                       Set Active
                     </DropdownItem>
                   )}
-                  <DropdownItem
-                    key="remove"
-                    className="text-danger"
-                    color="danger"
-                    startContent={<Trash2 className="text-danger" size={16} />}
-                  >
-                    Remove
-                  </DropdownItem>
+                  {canRemoveClients ? (
+                    <DropdownItem
+                      key="remove"
+                      className="text-danger"
+                      color="danger"
+                      startContent={
+                        <Trash2 className="text-danger" size={16} />
+                      }
+                    >
+                      Remove
+                    </DropdownItem>
+                  ) : null}
                 </DropdownMenu>
               </Dropdown>
             </div>
@@ -474,7 +480,7 @@ export const ClientListTable = ({
         },
       },
     ],
-    [expandedClientGroups, onSetStatus],
+    [canRemoveClients, expandedClientGroups, onSetStatus],
   );
   const baseColumns = columns ?? defaultColumns;
   const toggleableColumns = useMemo(

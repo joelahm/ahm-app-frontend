@@ -18,6 +18,7 @@ import {
   Clock3,
   FolderKanban,
   Globe,
+  KeyRound,
   ListChecks,
   PanelsTopLeft,
 } from "lucide-react";
@@ -36,6 +37,7 @@ type ClientMenuKey =
   | "projects"
   | "analytics"
   | "tasks"
+  | "keywords"
   | "local-rankings"
   | "gbp"
   | "content"
@@ -105,6 +107,7 @@ const CLIENT_MENU: ClientMenuItem[] = [
     icon: Clock3,
     path: "/local-citations",
   },
+  { key: "keywords", label: "Keywords", icon: KeyRound, path: "/keywords" },
 ];
 
 export const ClientProfileAside = ({

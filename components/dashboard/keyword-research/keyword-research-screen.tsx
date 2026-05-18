@@ -9,6 +9,13 @@ import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
 import { Input } from "@heroui/input";
 import { Textarea } from "@heroui/input";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import { Select, SelectItem } from "@heroui/select";
 import { Tab, Tabs } from "@heroui/tabs";
 import {
@@ -36,10 +43,15 @@ import {
   type KeywordResearchCountryOption,
   type KeywordResearchItem,
   type KeywordResearchLanguageOption,
+  type KeywordResearchProvider,
   type KeywordResearchRequestBody,
 } from "@/apis/keyword-research";
 import { keywordContentListsApi } from "@/apis/keyword-content-lists";
-import { clientsApi, type ClientApiItem } from "@/apis/clients";
+import {
+  clientsApi,
+  type ClientApiItem,
+  type ClientKeyword,
+} from "@/apis/clients";
 import { scansApi } from "@/apis/scans";
 import { useAuth } from "@/components/auth/auth-context";
 import { AddKeywordsToWebContentModal } from "@/components/dashboard/keyword-research/add-keywords-to-web-content-modal";
@@ -58,6 +70,12 @@ type KeywordResearchRow = {
   keyword: string;
   searchVolume: number | null;
   serp: string | null;
+  sources?: KeywordResearchItem["sources"];
+};
+
+type PendingClientKeywordsImport = {
+  clientId: string;
+  keywords: ClientKeyword[];
 };
 
 const RESULTS_PER_PAGE = 10;
@@ -110,7 +128,101 @@ const mapApiRowToTableRow = (
   keyword: item.keyword,
   searchVolume: item.searchVolume,
   serp: item.serp,
+  sources: item.sources,
 });
+
+// Provider metadata for the toggle chips and per-cell badges. Keep the keys
+// aligned with the backend's KEYWORD_PROVIDER_KEYS enum.
+const KEYWORD_PROVIDERS = [
+  {
+    key: "DATAFORSEO" as const,
+    label: "DataForSEO",
+    short: "DFS",
+    chip: "bg-[#DBEAFE] text-[#1D4ED8]",
+  },
+  {
+    key: "SE_RANKING" as const,
+    label: "SE Ranking",
+    short: "SER",
+    chip: "bg-[#EDE9FE] text-[#6D28D9]",
+  },
+];
+
+const SOURCE_FILTER_OPTIONS = [
+  { key: "ALL", label: "All Sources" },
+  { key: "DATAFORSEO", label: "DataForSEO" },
+  { key: "SE_RANKING", label: "SE Ranking" },
+] as const;
+
+const getActiveProviderKeysFromSources = (
+  sources: KeywordResearchItem["sources"] | undefined,
+) => {
+  if (!sources) {
+    return [];
+  }
+
+  return KEYWORD_PROVIDERS.map((provider) => provider.key).filter((key) =>
+    Boolean(sources?.[key]),
+  );
+};
+
+type SourceMetricKey = "searchVolume" | "kd" | "cpc";
+
+const collectNumericSources = (
+  sources: KeywordResearchItem["sources"] | undefined,
+  metric: SourceMetricKey,
+) => {
+  if (!sources) {
+    return [];
+  }
+
+  return KEYWORD_PROVIDERS.map((provider) => {
+    const source = sources[provider.key];
+    const value = source?.[metric];
+
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return null;
+    }
+
+    return { provider, value };
+  }).filter(
+    (
+      item,
+    ): item is {
+      provider: (typeof KEYWORD_PROVIDERS)[number];
+      value: number;
+    } => item !== null,
+  );
+};
+
+const renderSourceMetricValues = (
+  sources: KeywordResearchItem["sources"] | undefined,
+  metric: SourceMetricKey,
+  fallbackValue: number | null,
+  formatter: (value: number) => string,
+) => {
+  const entries = collectNumericSources(sources, metric);
+
+  if (entries.length === 0) {
+    return (
+      <span>{fallbackValue === null ? "-" : formatter(fallbackValue)}</span>
+    );
+  }
+
+  return (
+    <div className="flex min-w-[120px] flex-wrap items-center gap-x-3 gap-y-1">
+      {entries.map((entry) => (
+        <span
+          key={entry.provider.key}
+          className="whitespace-nowrap text-sm text-[#111827]"
+          title={entry.provider.label}
+        >
+          {formatter(entry.value)}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const DEFAULT_COUNTRY_OPTION: KeywordResearchCountryOption = {
   key: "GB",
@@ -310,6 +422,9 @@ export const KeywordResearchScreen = () => {
   const [isAddToListOpen, setIsAddToListOpen] = useState(false);
   const [isWebsiteContentModalOpen, setIsWebsiteContentModalOpen] =
     useState(false);
+  const [pendingClientKeywordsImport, setPendingClientKeywordsImport] =
+    useState<PendingClientKeywordsImport | null>(null);
+  const [isAddingClientKeywords, setIsAddingClientKeywords] = useState(false);
   const [websiteContentLocation, setWebsiteContentLocation] = useState("");
   const [websiteContentSelectedClientId, setWebsiteContentSelectedClientId] =
     useState("");
@@ -373,6 +488,11 @@ export const KeywordResearchScreen = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [lastSubmittedSearch, setLastSubmittedSearch] =
     useState<KeywordResearchRequestBody | null>(null);
+  const [selectedProvider, setSelectedProvider] =
+    useState<KeywordResearchProvider>("SE_RANKING");
+  const [sourceFilter, setSourceFilter] = useState<
+    "ALL" | KeywordResearchProvider
+  >("ALL");
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -469,6 +589,8 @@ export const KeywordResearchScreen = () => {
 
   const executeSearch = useCallback(
     async (payload: KeywordResearchRequestBody) => {
+      const isSimilarMode = keywordMode === "similar-keywords";
+
       if (!session?.accessToken) {
         setLoadError("You must be signed in to search keywords.");
         setSimilarKeywordResults([]);
@@ -482,18 +604,21 @@ export const KeywordResearchScreen = () => {
         setLoadError("");
         const accessToken = await getValidAccessToken();
 
-        const [similarKeywordsResponse, keywordSuggestionsResponse] =
-          await Promise.all([
-            keywordResearchApi.getSimilarKeywords(accessToken, payload),
-            keywordResearchApi.getKeywordSuggestions(accessToken, payload),
-          ]);
+        const response = isSimilarMode
+          ? await keywordResearchApi.getSimilarKeywords(accessToken, payload)
+          : await keywordResearchApi.getKeywordSuggestions(
+              accessToken,
+              payload,
+            );
 
-        setSimilarKeywordResults(
-          similarKeywordsResponse.keywords.map(mapApiRowToTableRow),
-        );
-        setKeywordSuggestionResults(
-          keywordSuggestionsResponse.keywords.map(mapApiRowToTableRow),
-        );
+        if (isSimilarMode) {
+          setSimilarKeywordResults(response.keywords.map(mapApiRowToTableRow));
+        } else {
+          setKeywordSuggestionResults(
+            response.keywords.map(mapApiRowToTableRow),
+          );
+        }
+
         setSelectedKeys(new Set([]));
       } catch (error) {
         setLoadError(
@@ -501,14 +626,17 @@ export const KeywordResearchScreen = () => {
             ? error.message
             : "Failed to fetch keyword research results.",
         );
-        setSimilarKeywordResults([]);
-        setKeywordSuggestionResults([]);
+        if (isSimilarMode) {
+          setSimilarKeywordResults([]);
+        } else {
+          setKeywordSuggestionResults([]);
+        }
         setSelectedKeys(new Set([]));
       } finally {
         setIsLoading(false);
       }
     },
-    [getValidAccessToken, session?.accessToken],
+    [getValidAccessToken, keywordMode, session?.accessToken],
   );
 
   const handleSearch = useCallback(() => {
@@ -535,7 +663,7 @@ export const KeywordResearchScreen = () => {
       return;
     }
 
-    const payload = {
+    const payload: KeywordResearchRequestBody = {
       country: searchCountryLabel,
       countryIsoCode: searchCountry || undefined,
       forceRefresh: true,
@@ -543,8 +671,11 @@ export const KeywordResearchScreen = () => {
       languageCode: selectedLanguage.value,
       languageName: selectedLanguage.label,
       locationCode: searchCountryLocationCode ?? undefined,
+      providers: [selectedProvider],
     };
 
+    setSimilarKeywordResults([]);
+    setKeywordSuggestionResults([]);
     setHasSearched(true);
     setLastSubmittedSearch(payload);
     setPage(1);
@@ -554,6 +685,7 @@ export const KeywordResearchScreen = () => {
     searchCountryLocationCode,
     searchKeyword,
     searchLanguage,
+    selectedProvider,
   ]);
 
   useEffect(() => {
@@ -749,6 +881,9 @@ export const KeywordResearchScreen = () => {
       const matchesExcludedKeyword = excludedKeywords.size
         ? !excludedKeywords.has(row.keyword.trim().toLowerCase())
         : true;
+      const activeSourceKeys = getActiveProviderKeysFromSources(row.sources);
+      const matchesSource =
+        sourceFilter === "ALL" || activeSourceKeys.includes(sourceFilter);
 
       return (
         matchesQuery &&
@@ -756,7 +891,8 @@ export const KeywordResearchScreen = () => {
         matchesKeywordDifficulty &&
         matchesCpc &&
         matchesIntent &&
-        matchesExcludedKeyword
+        matchesExcludedKeyword &&
+        matchesSource
       );
     });
   }, [
@@ -767,6 +903,7 @@ export const KeywordResearchScreen = () => {
     selectedIntents,
     selectedKeywordDifficulty,
     selectedSearchVolume,
+    sourceFilter,
   ]);
 
   const totalPages = Math.max(
@@ -821,20 +958,29 @@ export const KeywordResearchScreen = () => {
       "Search Intent",
       "SERP",
       "CPC (USD)",
+      "Sources",
     ];
 
     const csv = [
       headers.join(","),
-      ...exportRows.map((row) =>
-        [
+      ...exportRows.map((row) => {
+        const sourceShorts = getActiveProviderKeysFromSources(row.sources)
+          .map(
+            (key) => KEYWORD_PROVIDERS.find((p) => p.key === key)?.short ?? "",
+          )
+          .filter(Boolean)
+          .join("|");
+
+        return [
           escapeCsvValue(row.keyword),
           row.searchVolume ?? "",
           row.kd ?? "",
           escapeCsvValue(row.intent ?? ""),
           escapeCsvValue(row.serp ?? ""),
           row.cpc ?? "",
-        ].join(","),
-      ),
+          escapeCsvValue(sourceShorts),
+        ].join(",");
+      }),
     ].join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -856,6 +1002,43 @@ export const KeywordResearchScreen = () => {
   const handleAddToList = useCallback(
     async ({ clientId, location }: { clientId: string; location: string }) => {
       setSaveSuccessMessage("");
+
+      if (location === "Client Keywords") {
+        const keywords: ClientKeyword[] = exportRows
+          .map((row, index) => {
+            const sourceKeys = getActiveProviderKeysFromSources(row.sources);
+            const provider = sourceKeys.length === 1 ? sourceKeys[0] : null;
+
+            return {
+              contentType: "",
+              cpcUsd: row.cpc,
+              generatedTitle: "",
+              id: `keyword-research-${Date.now()}-${index}`,
+              keyword: row.keyword.trim(),
+              keywordDifficulty: row.kd,
+              note: "",
+              provider,
+              searchIntent: row.intent ?? "",
+              searchVolume: row.searchVolume,
+              serp: row.serp ?? "",
+              status: "",
+              titleError: "",
+              titleStatus: "IDLE" as const,
+              useIn: [],
+            };
+          })
+          .filter((row) => row.keyword.length > 0);
+
+        if (!keywords.length) {
+          toast.warning("No keywords selected.");
+
+          return;
+        }
+
+        setPendingClientKeywordsImport({ clientId, keywords });
+
+        return;
+      }
 
       if (location === "Local Rankings") {
         const keywords = Array.from(
@@ -926,6 +1109,61 @@ export const KeywordResearchScreen = () => {
     [exportRows, getValidAccessToken, router, session?.accessToken, toast],
   );
 
+  const handleConfirmClientKeywordsImport = useCallback(
+    async (shouldRedirect: boolean) => {
+      if (!pendingClientKeywordsImport) {
+        return;
+      }
+
+      if (!session?.accessToken) {
+        toast.warning("You must be signed in.");
+
+        return;
+      }
+
+      setIsAddingClientKeywords(true);
+
+      try {
+        const accessToken = await getValidAccessToken();
+
+        await clientsApi.importClientKeywords(
+          accessToken,
+          pendingClientKeywordsImport.clientId,
+          pendingClientKeywordsImport.keywords,
+        );
+
+        const keywordCount = pendingClientKeywordsImport.keywords.length;
+
+        setPendingClientKeywordsImport(null);
+        toast.success(
+          `${keywordCount} keyword${keywordCount === 1 ? "" : "s"} added to client keywords.`,
+        );
+
+        if (shouldRedirect) {
+          router.push(
+            `/dashboard/clients/${encodeURIComponent(
+              pendingClientKeywordsImport.clientId,
+            )}/keywords`,
+          );
+        }
+      } catch (error) {
+        toast.danger("Failed to add keywords to client keywords.", {
+          description:
+            error instanceof Error ? error.message : "Please try again.",
+        });
+      } finally {
+        setIsAddingClientKeywords(false);
+      }
+    },
+    [
+      getValidAccessToken,
+      pendingClientKeywordsImport,
+      router,
+      session?.accessToken,
+      toast,
+    ],
+  );
+
   const handleSaveWebsiteContentKeywords = useCallback(
     async (values: WebsiteContentFormValues) => {
       if (!session?.accessToken) {
@@ -992,6 +1230,32 @@ export const KeywordResearchScreen = () => {
           <div className="space-y-5 pt-5">
             <Card className="border border-default-200 shadow-none">
               <CardBody className="p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-[#6B7280]">
+                    Data sources
+                  </span>
+                  {KEYWORD_PROVIDERS.map((provider) => {
+                    const isActive = selectedProvider === provider.key;
+
+                    return (
+                      <button
+                        key={provider.key}
+                        aria-pressed={isActive}
+                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+                          isActive
+                            ? `${provider.chip} border-transparent`
+                            : "border-default-200 bg-white text-[#6B7280] hover:border-default-300"
+                        }`}
+                        type="button"
+                        onClick={() => setSelectedProvider(provider.key)}
+                      >
+                        {isActive ? <Check size={12} /> : null}
+                        <span>{provider.label}</span>
+                        <span className="opacity-60">({provider.short})</span>
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="grid gap-3 lg:grid-cols-4">
                   <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:col-span-2">
                     <Input
@@ -1120,7 +1384,10 @@ export const KeywordResearchScreen = () => {
                     radius="lg"
                     selectedKey={keywordMode}
                     variant="solid"
-                    onSelectionChange={(key) => setKeywordMode(String(key))}
+                    onSelectionChange={(key) => {
+                      setKeywordMode(String(key));
+                      setPage(1);
+                    }}
                   >
                     <Tab key="similar-keywords" title="Similar Keywords" />
                     <Tab
@@ -1740,6 +2007,30 @@ export const KeywordResearchScreen = () => {
                       value={pageSearch}
                       onValueChange={setPageSearch}
                     />
+                    <Select
+                      aria-label="Filter results by source"
+                      className="w-full lg:w-[190px]"
+                      radius="md"
+                      selectedKeys={[sourceFilter]}
+                      onSelectionChange={(keys) => {
+                        const selectedKey =
+                          keys === "all"
+                            ? "ALL"
+                            : String(keys.currentKey ?? "ALL");
+
+                        setSourceFilter(
+                          selectedKey === "DATAFORSEO" ||
+                            selectedKey === "SE_RANKING"
+                            ? selectedKey
+                            : "ALL",
+                        );
+                        setPage(1);
+                      }}
+                    >
+                      {SOURCE_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.key}>{option.label}</SelectItem>
+                      ))}
+                    </Select>
                     <div className="flex flex-wrap items-center gap-2">
                       <Button
                         isDisabled={!paginatedRows.length}
@@ -1794,21 +2085,77 @@ export const KeywordResearchScreen = () => {
                     <TableColumn className={headerCellClass}>
                       CPC (USD)
                     </TableColumn>
+                    <TableColumn className={headerCellClass}>
+                      Sources
+                    </TableColumn>
                   </TableHeader>
                   <TableBody
                     emptyContent={emptyStateMessage}
                     items={paginatedRows}
                   >
-                    {(item) => (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.keyword}</TableCell>
-                        <TableCell>{formatMetric(item.searchVolume)}</TableCell>
-                        <TableCell>{formatMetric(item.kd)}</TableCell>
-                        <TableCell>{item.intent ?? "-"}</TableCell>
-                        <TableCell>{item.serp ?? "-"}</TableCell>
-                        <TableCell>{formatCpc(item.cpc)}</TableCell>
-                      </TableRow>
-                    )}
+                    {(item) => {
+                      const activeProviderKeys =
+                        getActiveProviderKeysFromSources(item.sources);
+
+                      return (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.keyword}</TableCell>
+                          <TableCell>
+                            {renderSourceMetricValues(
+                              item.sources,
+                              "searchVolume",
+                              item.searchVolume,
+                              (value) => formatMetric(Math.round(value)),
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {renderSourceMetricValues(
+                              item.sources,
+                              "kd",
+                              item.kd,
+                              (value) => formatMetric(Math.round(value)),
+                            )}
+                          </TableCell>
+                          <TableCell>{item.intent ?? "-"}</TableCell>
+                          <TableCell>{item.serp ?? "-"}</TableCell>
+                          <TableCell>
+                            {renderSourceMetricValues(
+                              item.sources,
+                              "cpc",
+                              item.cpc,
+                              (value) => formatCpc(value),
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {activeProviderKeys.length === 0 ? (
+                              <span className="text-xs text-[#9CA3AF]">-</span>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                {activeProviderKeys.map((key) => {
+                                  const provider = KEYWORD_PROVIDERS.find(
+                                    (entry) => entry.key === key,
+                                  );
+
+                                  if (!provider) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <span
+                                      key={provider.key}
+                                      className="text-sm text-[#111827]"
+                                      title={provider.label}
+                                    >
+                                      {provider.label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }}
                   </TableBody>
                 </Table>
 
@@ -1886,6 +2233,51 @@ export const KeywordResearchScreen = () => {
         onOpenChange={setIsAddToListOpen}
         onSubmit={handleAddToList}
       />
+      <Modal
+        isOpen={Boolean(pendingClientKeywordsImport)}
+        placement="center"
+        size="sm"
+        onOpenChange={(isOpen) => {
+          if (!isOpen && !isAddingClientKeywords) {
+            setPendingClientKeywordsImport(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>Add to client keywords</ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-[#4B5563]">
+              Add {pendingClientKeywordsImport?.keywords.length ?? 0} selected
+              keyword
+              {pendingClientKeywordsImport?.keywords.length === 1 ? "" : "s"} to
+              client keywords?
+            </p>
+          </ModalBody>
+          <ModalFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              isDisabled={isAddingClientKeywords}
+              variant="light"
+              onPress={() => setPendingClientKeywordsImport(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              isLoading={isAddingClientKeywords}
+              variant="bordered"
+              onPress={() => void handleConfirmClientKeywordsImport(false)}
+            >
+              Add Only
+            </Button>
+            <Button
+              className="bg-[#022279] text-white"
+              isLoading={isAddingClientKeywords}
+              onPress={() => void handleConfirmClientKeywordsImport(true)}
+            >
+              Add and Redirect
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
       <WebsiteContentKeywordsModal
         isOpen={isWebsiteContentModalOpen}
         keywords={websiteContentKeywords}

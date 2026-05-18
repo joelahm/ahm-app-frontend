@@ -95,14 +95,18 @@ export interface UploadedWebsiteContentFeaturedImage {
 
 export interface StartWebsiteContentGenerationPayload {
   clientId: string;
+  clusterType?: string;
   contentLength: string;
   contentPrompt: string;
   contentType: string;
+  intent?: string;
+  keyword?: string;
   keywordId: string;
   layoutImageUrl?: string | null;
   listId: string;
   maxContentTokens: number;
   maxSeoTokens: number;
+  parentPillarTopic?: string;
   seoPromptTemplate: string;
   title: string;
 }

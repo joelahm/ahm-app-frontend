@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import {
@@ -10,6 +10,13 @@ import {
   DropdownTrigger,
 } from "@heroui/dropdown";
 import { Input } from "@heroui/input";
+import {
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+} from "@heroui/modal";
 import { EllipsisVertical, Pencil, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 
@@ -61,6 +68,10 @@ export const SettingsAIHubContent = () => {
   const toastRef = useRef(toast);
   const [searchValue, setSearchValue] = useState("");
   const [rows, setRows] = useState<AiPromptRow[]>([]);
+  const [deleteCandidate, setDeleteCandidate] = useState<AiPromptRow | null>(
+    null,
+  );
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     toastRef.current = toast;
@@ -102,6 +113,40 @@ export const SettingsAIHubContent = () => {
       isMounted = false;
     };
   }, [getValidAccessToken, session?.accessToken]);
+
+  const handleDeletePrompt = useCallback(async () => {
+    if (!deleteCandidate) {
+      return;
+    }
+
+    if (!session?.accessToken) {
+      toast.danger("Your session has expired.", {
+        description: "Please sign in again.",
+      });
+
+      return;
+    }
+
+    setIsDeleting(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+
+      await aiPromptsApi.deletePrompt(accessToken, deleteCandidate.id);
+      setRows((current) =>
+        current.filter((row) => row.id !== deleteCandidate.id),
+      );
+      toast.success("AI prompt deleted.");
+      setDeleteCandidate(null);
+    } catch (error) {
+      toast.danger("Failed to delete AI prompt.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteCandidate, getValidAccessToken, session?.accessToken, toast]);
 
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
@@ -198,6 +243,7 @@ export const SettingsAIHubContent = () => {
                   className="text-danger"
                   color="danger"
                   startContent={<Trash2 className="text-danger" size={18} />}
+                  onPress={() => setDeleteCandidate(item)}
                 >
                   Delete
                 </DropdownItem>
@@ -211,32 +257,71 @@ export const SettingsAIHubContent = () => {
   );
 
   return (
-    <DashboardDataTable
-      ariaLabel="AI prompts table"
-      columns={columns}
-      getRowKey={(item) => item.id}
-      headerRight={
-        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-          <Input
-            className="w-full sm:w-[200px]"
-            placeholder="Search here"
-            radius="md"
-            startContent={<Search className="text-default-400" size={20} />}
-            value={searchValue}
-            onValueChange={setSearchValue}
-          />
-          <Button
-            as={Link}
-            className="bg-[#022279] px-6 text-white"
-            href="/dashboard/settings/ai-hub/new"
-            radius="md"
-          >
-            New Prompt
-          </Button>
-        </div>
-      }
-      rows={filteredRows}
-      title="AI Prompts"
-    />
+    <>
+      <DashboardDataTable
+        ariaLabel="AI prompts table"
+        columns={columns}
+        getRowKey={(item) => item.id}
+        headerRight={
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <Input
+              className="w-full sm:w-[200px]"
+              placeholder="Search here"
+              radius="md"
+              startContent={<Search className="text-default-400" size={20} />}
+              value={searchValue}
+              onValueChange={setSearchValue}
+            />
+            <Button
+              as={Link}
+              className="bg-[#022279] px-6 text-white"
+              href="/dashboard/settings/ai-hub/new"
+              radius="md"
+            >
+              New Prompt
+            </Button>
+          </div>
+        }
+        rows={filteredRows}
+        title="AI Prompts"
+      />
+      <Modal
+        isOpen={Boolean(deleteCandidate)}
+        placement="center"
+        scrollBehavior="inside"
+        size="sm"
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setDeleteCandidate(null);
+          }
+        }}
+      >
+        <ModalContent>
+          <ModalHeader>Delete AI prompt</ModalHeader>
+          <ModalBody>
+            <p className="text-sm text-default-600">
+              Delete &ldquo;{deleteCandidate?.name}&rdquo;? This cannot be
+              undone.
+            </p>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              isDisabled={isDeleting}
+              variant="light"
+              onPress={() => setDeleteCandidate(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="danger"
+              isLoading={isDeleting}
+              onPress={() => void handleDeletePrompt()}
+            >
+              Delete
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
 };

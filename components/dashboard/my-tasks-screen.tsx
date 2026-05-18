@@ -11,7 +11,9 @@ import {
   DropdownMenu,
   DropdownTrigger,
 } from "@heroui/dropdown";
+import { Drawer, DrawerBody, DrawerContent } from "@heroui/drawer";
 import { Input } from "@heroui/input";
+import { Tab, Tabs } from "@heroui/tabs";
 import {
   Table,
   TableBody,
@@ -22,6 +24,7 @@ import {
 } from "@heroui/table";
 import {
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Columns3,
   Search,
@@ -31,7 +34,7 @@ import {
 import { clientsApi, type ProjectTask } from "@/apis/clients";
 import { usersApi } from "@/apis/users";
 import { useAuth } from "@/components/auth/auth-context";
-import { ViewTaskModal } from "@/components/dashboard/client-details/view-task-modal";
+import { ViewTaskListsPanelContent } from "@/components/dashboard/client-details/view-task-lists-panel-content";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { formatCommentPreview } from "@/lib/comment-preview";
 
@@ -58,7 +61,8 @@ type TaskRow = {
 };
 
 type TaskGroup = {
-  id: string;
+  count: number;
+  id: GroupId;
   label: string;
   rows: TaskRow[];
   tone?: "danger" | "default";
@@ -79,6 +83,7 @@ const STATUS_LABELS = [
   "On Hold",
   "Completed",
 ] as const;
+const TASKS_PER_PAGE = 10;
 const toggleableColumnKeys = [
   "taskName",
   "assignee",
@@ -97,12 +102,47 @@ const columnLabels: Record<string, string> = {
   status: "Status",
   taskName: "Task Name",
 };
-const dueGroupFilterOptions = [
-  { key: "all", label: "All groups" },
-  { key: "overdue", label: "Overdue" },
-  { key: "later", label: "Later / No Due Date" },
-  { key: "completed", label: "Completed" },
-];
+
+const getPageItems = (
+  currentPage: number,
+  totalPages: number,
+): Array<number | "ellipsis"> => {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+
+  const pages = new Set<number>([
+    1,
+    totalPages,
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+  ]);
+  const validPages = Array.from(pages)
+    .filter((page) => page > 1 && page < totalPages)
+    .sort((a, b) => a - b);
+  const items: Array<number | "ellipsis"> = [1];
+
+  for (const page of validPages) {
+    const last = items[items.length - 1];
+
+    if (typeof last === "number" && page - last > 1) {
+      items.push("ellipsis");
+    }
+
+    items.push(page);
+  }
+
+  const last = items[items.length - 1];
+
+  if (typeof last === "number" && totalPages - last > 1) {
+    items.push("ellipsis");
+  }
+
+  items.push(totalPages);
+
+  return items;
+};
 
 const getStatusChipClassName = (status: string) => {
   const normalizedStatus = normalizeStatus(status);
@@ -360,10 +400,15 @@ export const MyTasksScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedClientFilter, setSelectedClientFilter] = useState("all");
-  const [selectedDueGroupFilter, setSelectedDueGroupFilter] = useState("all");
   const [selectedProjectTypeFilter, setSelectedProjectTypeFilter] =
     useState("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [activeGroupTab, setActiveGroupTab] = useState<GroupId>("overdue");
+  const [groupPages, setGroupPages] = useState<Record<GroupId, number>>({
+    completed: 1,
+    later: 1,
+    overdue: 1,
+  });
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
     () => new Set(toggleableColumnKeys),
   );
@@ -563,7 +608,6 @@ export const MyTasksScreen = () => {
   const visibleColumnCount = visibleTableColumnKeys.length;
   const hasActiveFilters =
     selectedClientFilter !== "all" ||
-    selectedDueGroupFilter !== "all" ||
     selectedProjectTypeFilter !== "all" ||
     selectedStatusFilter !== "all";
 
@@ -582,9 +626,6 @@ export const MyTasksScreen = () => {
       const matchesProjectType =
         selectedProjectTypeFilter === "all" ||
         projectType === selectedProjectTypeFilter;
-      const matchesDueGroup =
-        selectedDueGroupFilter === "all" ||
-        getTaskGroupId(task) === selectedDueGroupFilter;
       const haystack = [
         task.taskName ?? "",
         task.clientName,
@@ -599,18 +640,13 @@ export const MyTasksScreen = () => {
       const matchesSearch = !query || haystack.includes(query);
 
       return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesClient &&
-        matchesProjectType &&
-        matchesDueGroup
+        matchesSearch && matchesStatus && matchesClient && matchesProjectType
       );
     });
   }, [
     assignedTasks,
     searchQuery,
     selectedClientFilter,
-    selectedDueGroupFilter,
     selectedProjectTypeFilter,
     selectedStatusFilter,
   ]);
@@ -690,51 +726,60 @@ export const MyTasksScreen = () => {
 
     return [
       {
+        count: overdueRows.length,
         id: "overdue",
-        label: `Overdue (${overdueRows.length})`,
+        label: "Overdue",
         rows: overdueRows,
         tone: "danger",
       },
       {
+        count: laterRows.length,
         id: "later",
-        label: `Later / No Due Date (${laterRows.length})`,
+        label: "Later / No Due Date",
         rows: laterRows,
       },
       {
+        count: completedRows.length,
         id: "completed",
-        label: `Completed (${completedRows.length})`,
+        label: "Completed",
         rows: completedRows,
       },
     ];
   }, [allTasks, filteredTasks]);
 
-  const groupedFlatRows = useMemo(
-    () =>
-      groupedTasks.map((group) => ({
-        ...group,
-        flatRows: flattenRows(group.rows, expandedTaskIds),
-      })),
-    [expandedTaskIds, groupedTasks],
-  );
-  const tableRows = useMemo(
-    () =>
-      groupedFlatRows.flatMap((group) => [
-        {
-          groupId: group.id,
-          key: `group-${group.id}`,
-          label: group.label,
-          tone: group.tone,
-          type: "group" as const,
-        },
-        ...group.flatRows.map((item) => ({
-          groupId: group.id,
-          item,
-          key: `task-${item.id}`,
-          type: "task" as const,
-        })),
-      ]),
-    [groupedFlatRows],
-  );
+  useEffect(() => {
+    setGroupPages({
+      completed: 1,
+      later: 1,
+      overdue: 1,
+    });
+  }, [
+    searchQuery,
+    selectedClientFilter,
+    selectedProjectTypeFilter,
+    selectedStatusFilter,
+  ]);
+
+  useEffect(() => {
+    setGroupPages((current) => {
+      let didChange = false;
+      const next = { ...current };
+
+      groupedTasks.forEach((group) => {
+        const totalPages = Math.max(
+          1,
+          Math.ceil(group.rows.length / TASKS_PER_PAGE),
+        );
+
+        if ((next[group.id] ?? 1) > totalPages) {
+          next[group.id] = totalPages;
+          didChange = true;
+        }
+      });
+
+      return didChange ? next : current;
+    });
+  }, [groupedTasks]);
 
   const toggleTaskExpansion = (taskId: string) => {
     setExpandedTaskIds((current) => {
@@ -762,79 +807,58 @@ export const MyTasksScreen = () => {
     return allTasks.find((task) => String(task.id) === selectedTaskId) ?? null;
   }, [allTasks, selectedTaskId]);
 
-  const selectedTaskProjectOptions = useMemo(() => {
+  const selectedTaskProjectId = selectedTaskWithClient?.projectId
+    ? String(selectedTaskWithClient.projectId)
+    : "";
+
+  const selectedPanelTasks = useMemo(() => {
     if (!selectedTaskWithClient) {
       return [];
     }
 
-    const projectsByKey = new Map<string, string>();
+    return allTasks
+      .filter((task) => {
+        const taskProjectId = task.projectId ? String(task.projectId) : "";
 
-    allTasks.forEach((task) => {
-      if (task.clientId !== selectedTaskWithClient.clientId) {
-        return;
-      }
+        if (selectedTaskProjectId) {
+          return taskProjectId === selectedTaskProjectId;
+        }
 
-      const id = task.projectId ? String(task.projectId) : "";
+        return String(task.id) === String(selectedTaskWithClient.id);
+      })
+      .map((task) => ({
+        assigneeAvatar: resolveServerAssetUrl(task.assignedTo.avatar),
+        assigneeId: task.assignedToId ? String(task.assignedToId) : null,
+        assigneeName: getTaskAssigneeName(task),
+        blockedTaskId: task.blockedTaskId ? String(task.blockedTaskId) : null,
+        description: task.description,
+        descriptionJson: task.descriptionJson ?? null,
+        dueDate: task.dueDate || "-",
+        dueDateRuleType: task.dueDateRuleType ?? null,
+        id: String(task.id),
+        name: task.taskName?.trim() || task.task?.trim() || "Untitled task",
+        parentTaskId: task.parentTaskId ? String(task.parentTaskId) : null,
+        status: normalizeStatus(task.status),
+      }));
+  }, [allTasks, selectedTaskProjectId, selectedTaskWithClient]);
 
-      if (!id) {
-        return;
-      }
-
-      const label =
-        (task.projectName as string | undefined)?.trim() ||
-        (task.projectType as string | undefined)?.trim() ||
-        "";
-
-      if (label && !projectsByKey.has(id)) {
-        projectsByKey.set(id, label);
-      }
-    });
-
-    return Array.from(projectsByKey.entries()).map(([id, label]) => ({
-      id,
-      label,
-    }));
-  }, [allTasks, selectedTaskWithClient]);
-
-  const selectedTaskModalProps = useMemo(() => {
-    if (!selectedTaskWithClient) {
-      return null;
+  const handlePanelTaskChange = async (
+    taskId: string,
+    payload: {
+      assigneeId?: string;
+      dueDate?: string;
+      status?: string;
+    },
+  ) => {
+    if (!session?.accessToken) {
+      throw new Error("Your session has expired. Please login again.");
     }
 
-    const assigneeIdValue = selectedTaskWithClient.assignedToId
-      ? String(selectedTaskWithClient.assignedToId)
-      : selectedTaskWithClient.assignedTo?.id
-        ? String(selectedTaskWithClient.assignedTo.id)
-        : "";
-    const assigneeName =
-      users.find((user) => user.id === assigneeIdValue)?.name ||
-      [
-        selectedTaskWithClient.assignedTo?.firstName,
-        selectedTaskWithClient.assignedTo?.lastName,
-      ]
-        .map((value) => value?.trim() ?? "")
-        .filter(Boolean)
-        .join(" ");
+    const accessToken = await getValidAccessToken();
 
-    return {
-      assigneeId: assigneeIdValue,
-      assigneeName: assigneeName || "Unassigned",
-      blockedTaskId: selectedTaskWithClient.blockedTaskId
-        ? String(selectedTaskWithClient.blockedTaskId)
-        : undefined,
-      comment: selectedTaskWithClient.latestComment || "",
-      description: selectedTaskWithClient.description ?? "",
-      dueDate: selectedTaskWithClient.dueDate ?? "",
-      dueDateRuleType: selectedTaskWithClient.dueDateRuleType ?? null,
-      id: String(selectedTaskWithClient.id),
-      projectId: selectedTaskWithClient.projectId
-        ? String(selectedTaskWithClient.projectId)
-        : "",
-      status: selectedTaskWithClient.status ?? "To Do",
-      taskName:
-        selectedTaskWithClient.taskName ?? selectedTaskWithClient.task ?? "",
-    };
-  }, [selectedTaskWithClient, users]);
+    await clientsApi.updateProjectTask(accessToken, taskId, payload);
+    setReloadKey((current) => current + 1);
+  };
 
   const renderTaskCell = (item: TaskRow, columnKey: string) => {
     if (columnKey === "taskName") {
@@ -960,6 +984,139 @@ export const MyTasksScreen = () => {
     );
   };
 
+  const renderPagination = (
+    groupId: GroupId,
+    currentPage: number,
+    totalPages: number,
+  ) => {
+    if (totalPages <= 1) {
+      return null;
+    }
+
+    const updatePage = (page: number) => {
+      setGroupPages((current) => ({
+        ...current,
+        [groupId]: Math.min(Math.max(page, 1), totalPages),
+      }));
+    };
+
+    return (
+      <div className="flex items-center justify-center border-t-0 border-default-200 p-3">
+        <Button
+          isDisabled={currentPage <= 1}
+          startContent={<ChevronLeft size={20} />}
+          variant="light"
+          onPress={() => updatePage(currentPage - 1)}
+        >
+          Prev
+        </Button>
+
+        <div className="flex items-center gap-1">
+          {getPageItems(currentPage, totalPages).map((item, idx) => {
+            if (item === "ellipsis") {
+              return (
+                <span
+                  key={`ellipsis-${idx}`}
+                  className="px-2 text-sm text-default-500"
+                >
+                  ...
+                </span>
+              );
+            }
+
+            const isActive = item === currentPage;
+
+            return (
+              <Button
+                key={`page-${groupId}-${item}`}
+                className={`min-h-11 min-w-11 ${isActive ? "bg-[#022279] text-white" : ""}`}
+                radius="full"
+                variant={isActive ? "solid" : "light"}
+                onPress={() => updatePage(item)}
+              >
+                {item}
+              </Button>
+            );
+          })}
+        </div>
+
+        <Button
+          endContent={<ChevronRight size={20} />}
+          isDisabled={currentPage >= totalPages}
+          variant="light"
+          onPress={() => updatePage(currentPage + 1)}
+        >
+          Next
+        </Button>
+      </div>
+    );
+  };
+
+  const renderTaskTable = (group: TaskGroup) => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(group.rows.length / TASKS_PER_PAGE),
+    );
+    const currentPage = Math.min(groupPages[group.id] ?? 1, totalPages);
+    const startIndex = (currentPage - 1) * TASKS_PER_PAGE;
+    const paginatedRows = flattenRows(
+      group.rows.slice(startIndex, startIndex + TASKS_PER_PAGE),
+      expandedTaskIds,
+    );
+
+    return (
+      <>
+        <Table
+          removeWrapper
+          aria-label={`${group.label} tasks table`}
+          classNames={{
+            table: "border-collapse border-spacing-0",
+            tbody:
+              "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#FCFCFD]",
+            td: "px-3 py-3 text-sm text-[#111827]",
+            th: "px-3 py-3 text-xs font-medium text-[#6B7280]",
+          }}
+        >
+          <TableHeader>
+            {visibleTableColumnKeys.map((columnKey) => (
+              <TableColumn key={columnKey}>
+                {columnKey === "action" ? "Action" : columnLabels[columnKey]}
+              </TableColumn>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={visibleColumnCount}>
+                  <div className="px-3 py-4 text-sm text-[#6B7280]">
+                    Loading tasks...
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : paginatedRows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={visibleColumnCount}>
+                  <div className="px-3 py-4 text-sm text-[#6B7280]">
+                    No tasks found.
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              paginatedRows.map((item) => (
+                <TableRow key={`${group.id}-${item.id}`}>
+                  {visibleTableColumnKeys.map((columnKey) =>
+                    renderTaskCell(item, columnKey),
+                  )}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+        {renderPagination(group.id, currentPage, totalPages)}
+      </>
+    );
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-1.5">
@@ -1061,29 +1218,6 @@ export const MyTasksScreen = () => {
                     </select>
                   </div>
                 </DropdownItem>
-                <DropdownItem
-                  key="due-date-group-filter"
-                  textValue="Due date group filter"
-                >
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-[#4B5563]">
-                      Due date group
-                    </p>
-                    <select
-                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
-                      value={selectedDueGroupFilter}
-                      onChange={(event) =>
-                        setSelectedDueGroupFilter(event.target.value)
-                      }
-                    >
-                      {dueGroupFilterOptions.map((option) => (
-                        <option key={option.key} value={option.key}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </DropdownItem>
                 <DropdownItem key="reset-filters" textValue="Reset filters">
                   <Button
                     fullWidth
@@ -1093,7 +1227,6 @@ export const MyTasksScreen = () => {
                       setSelectedStatusFilter("all");
                       setSelectedClientFilter("all");
                       setSelectedProjectTypeFilter("all");
-                      setSelectedDueGroupFilter("all");
                     }}
                   >
                     Reset
@@ -1152,92 +1285,93 @@ export const MyTasksScreen = () => {
           </div>
         </CardHeader>
 
-        <CardBody className="p-0">
-          <Table
-            removeWrapper
-            aria-label="My tasks table"
+        <CardBody className="py-0 px-4">
+          <Tabs
+            aria-label="My task groups"
+            className="w-full"
             classNames={{
-              table: "border-collapse border-spacing-0",
-              tbody:
-                "[&_tr]:border-b [&_tr]:border-default-200 [&_tr:nth-child(even)]:bg-[#FCFCFD]",
-              td: "px-3 py-3 text-sm text-[#111827]",
-              th: "px-3 py-3 text-xs font-medium text-[#6B7280]",
+              base: "w-full",
+              cursor: "bg-white shadow-none",
+              panel: "p-0",
+              tab: "h-9 rounded-lg px-4 text-sm font-medium data-[hover-unselected=true]:opacity-100",
+              tabContent:
+                "group-data-[selected=true]:text-[#111827] group-data-[selected=false]:text-[#111827]",
+              tabList: "mt-4 mb-1 h-11 gap-0 rounded-xl bg-[#F3F4F6] p-1",
             }}
+            selectedKey={activeGroupTab}
+            onSelectionChange={(key) => setActiveGroupTab(key as GroupId)}
           >
-            <TableHeader>
-              {visibleTableColumnKeys.map((columnKey) => (
-                <TableColumn key={columnKey}>
-                  {columnKey === "action" ? "Action" : columnLabels[columnKey]}
-                </TableColumn>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={visibleColumnCount}>
-                    <div className="px-3 py-4 text-sm text-[#6B7280]">
-                      Loading tasks...
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : tableRows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={visibleColumnCount}>
-                    <div className="px-3 py-4 text-sm text-[#6B7280]">
-                      No tasks found.
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                tableRows.map((row) =>
-                  row.type === "group" ? (
-                    <TableRow key={row.key}>
-                      <TableCell
-                        className="bg-white px-3 py-2"
-                        colSpan={visibleColumnCount}
-                      >
-                        <div
-                          className={`text-base font-semibold ${
-                            row.tone === "danger"
-                              ? "text-danger"
-                              : "text-[#374151]"
-                          }`}
-                        >
-                          {row.label}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    <TableRow key={`${row.groupId}-${row.key}`}>
-                      {visibleTableColumnKeys.map((columnKey) =>
-                        renderTaskCell(row.item, columnKey),
-                      )}
-                    </TableRow>
-                  ),
-                )
-              )}
-            </TableBody>
-          </Table>
+            {groupedTasks.map((group) => (
+              <Tab
+                key={group.id}
+                title={
+                  <span className="flex items-center gap-2">
+                    <span>{group.label}</span>
+                    <Chip
+                      className="h-5 min-w-5 px-1 text-[11px] font-semibold"
+                      color={group.tone === "danger" ? "danger" : "default"}
+                      radius="full"
+                      size="sm"
+                      variant="flat"
+                    >
+                      {group.count}
+                    </Chip>
+                  </span>
+                }
+              >
+                {renderTaskTable(group)}
+              </Tab>
+            ))}
+          </Tabs>
         </CardBody>
       </Card>
-      <ViewTaskModal
-        clientAddress=""
-        clientName={selectedTaskWithClient?.clientName ?? "-"}
-        isOpen={Boolean(selectedTaskModalProps)}
-        projectOptions={selectedTaskProjectOptions}
-        statusOptions={[...STATUS_LABELS]}
-        subtasks={[]}
-        task={selectedTaskModalProps}
-        users={users}
+      <Drawer
+        hideCloseButton
+        classNames={{
+          backdrop: "bg-black/20",
+          base: "w-full max-w-4xl",
+          wrapper: "justify-end",
+        }}
+        isDismissable={false}
+        isOpen={Boolean(selectedTaskWithClient)}
+        placement="right"
+        scrollBehavior="inside"
         onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedTaskId(null);
           }
         }}
-        onTaskSaved={async () => {
-          setReloadKey((current) => current + 1);
-        }}
-      />
+      >
+        <DrawerContent className="h-screen max-h-screen rounded-none">
+          <DrawerBody className="p-5">
+            <ViewTaskListsPanelContent
+              accountManagerName="-"
+              address=""
+              clientName={selectedTaskWithClient?.clientName ?? "-"}
+              csmName="-"
+              initialSelectedTaskId={selectedTaskId}
+              projectDueDate={selectedTaskWithClient?.dueDate ?? null}
+              projectId={selectedTaskProjectId}
+              projectName={
+                selectedTaskWithClient?.projectName?.trim() ||
+                selectedTaskWithClient?.projectType?.trim() ||
+                "Project"
+              }
+              projectStartDate={selectedTaskWithClient?.startDate ?? null}
+              status="Draft"
+              tasks={selectedPanelTasks}
+              users={users}
+              onClose={() => {
+                setSelectedTaskId(null);
+              }}
+              onTaskChange={handlePanelTaskChange}
+              onTaskDueDateChange={async (taskId, dueDate) => {
+                await handlePanelTaskChange(taskId, { dueDate });
+              }}
+            />
+          </DrawerBody>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 };

@@ -30,6 +30,7 @@ import {
   type LocalRankingKeyword,
   type ScanComparisonRun,
 } from "@/apis/scans";
+import { clientsApi, type ClientKeyword } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
 import {
   DashboardDataTable,
@@ -94,6 +95,46 @@ const formatMetric = (value?: number | null) =>
   value === null || value === undefined ? "-" : String(value);
 const formatRankMetric = (value?: number | null) =>
   value === null || value === undefined ? "X" : String(value);
+
+const normalizeKeywordValue = (value: string) => value.trim().toLowerCase();
+
+const normalizeUseInValue = (value: unknown) =>
+  String(value ?? "")
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+const hasLocalRankingUseIn = (value: unknown) => {
+  const values = Array.isArray(value)
+    ? value
+    : value instanceof Set
+      ? Array.from(value)
+      : String(value ?? "").split(",");
+
+  return values.some((item) => {
+    const normalizedValue = normalizeUseInValue(item);
+
+    return (
+      normalizedValue === "local ranking" ||
+      normalizedValue === "local rankings" ||
+      normalizedValue.includes("local ranking") ||
+      normalizedValue.includes("local rankings")
+    );
+  });
+};
+
+const getLocalRankingClientKeywords = (clientKeywords: ClientKeyword[]) =>
+  Array.from(
+    new Map(
+      clientKeywords
+        .filter((item) => hasLocalRankingUseIn(item.useIn))
+        .map((item) => item.keyword.trim())
+        .filter(Boolean)
+        .map((keyword) => [normalizeKeywordValue(keyword), keyword]),
+    ).values(),
+  );
 
 const formatPreviousMetric = (value?: number | null) =>
   value === null || value === undefined ? "" : String(value);
@@ -368,6 +409,14 @@ export const ClientLocalRankingsTable = ({
   const [savedScanLaterKeywords, setSavedScanLaterKeywords] = useState<
     string[]
   >([]);
+  const [
+    clientKeywordLocalRankingKeywords,
+    setClientKeywordLocalRankingKeywords,
+  ] = useState<string[]>([]);
+  const [
+    dismissedClientLocalRankingKeywords,
+    setDismissedClientLocalRankingKeywords,
+  ] = useState<string[]>([]);
   const savedScanLaterKeywordsRef = useRef<string[]>([]);
   const savedKeywordPersistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [deletingScanId, setDeletingScanId] = useState<string | null>(null);
@@ -430,15 +479,35 @@ export const ClientLocalRankingsTable = ({
         traffic: "-",
       }));
 
-    if (!savedScanLaterKeywords.length) {
+    const existingRankingKeywords = new Set(
+      [...rowsWithProgress, ...activeRows].map((row) =>
+        normalizeKeywordValue(row.keyword),
+      ),
+    );
+    const dismissedClientKeywords = new Set(
+      dismissedClientLocalRankingKeywords.map(normalizeKeywordValue),
+    );
+    const scheduledKeywords = [
+      ...savedScanLaterKeywords,
+      ...clientKeywordLocalRankingKeywords.filter(
+        (keyword) =>
+          !dismissedClientKeywords.has(normalizeKeywordValue(keyword)),
+      ),
+    ];
+
+    if (!scheduledKeywords.length) {
       return [...activeRows, ...rowsWithProgress];
     }
 
     const normalizedScheduledKeywords = Array.from(
       new Map(
-        savedScanLaterKeywords
+        scheduledKeywords
           .map((keyword) => keyword.trim())
           .filter(Boolean)
+          .filter(
+            (keyword) =>
+              !existingRankingKeywords.has(normalizeKeywordValue(keyword)),
+          )
           .map((keyword) => [keyword.toLowerCase(), keyword]),
       ).values(),
     );
@@ -463,7 +532,14 @@ export const ClientLocalRankingsTable = ({
     );
 
     return [...activeRows, ...scheduledRows, ...rowsWithProgress];
-  }, [clientId, progressByScanId, rows, savedScanLaterKeywords]);
+  }, [
+    clientId,
+    clientKeywordLocalRankingKeywords,
+    dismissedClientLocalRankingKeywords,
+    progressByScanId,
+    rows,
+    savedScanLaterKeywords,
+  ]);
   const selectedRowIds = useMemo(() => {
     if (selectedKeys === "all") {
       return displayedRows.map((row) => row.id);
@@ -587,6 +663,48 @@ export const ClientLocalRankingsTable = ({
     };
 
     void loadSavedKeywords();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [clientId, getValidAccessToken, reloadTick, session?.accessToken]);
+
+  useEffect(() => {
+    if (!session?.accessToken || !clientId) {
+      setClientKeywordLocalRankingKeywords([]);
+      setDismissedClientLocalRankingKeywords([]);
+
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadClientKeywordLocalRankings = async () => {
+      try {
+        const accessToken = await getValidAccessToken();
+        const response = await clientsApi.getClientKeywords(
+          accessToken,
+          clientId,
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        setClientKeywordLocalRankingKeywords(
+          getLocalRankingClientKeywords(response.keywords),
+        );
+        setDismissedClientLocalRankingKeywords([]);
+      } catch {
+        if (!isMounted) {
+          return;
+        }
+
+        setClientKeywordLocalRankingKeywords([]);
+      }
+    };
+
+    void loadClientKeywordLocalRankings();
 
     return () => {
       isMounted = false;
@@ -858,10 +976,18 @@ export const ClientLocalRankingsTable = ({
       const nextSaved = previousSaved.filter(
         (item) => item.trim().toLowerCase() !== normalizedKeyword,
       );
+      const isClientKeywordScheduled = clientKeywordLocalRankingKeywords.some(
+        (item) => item.trim().toLowerCase() === normalizedKeyword,
+      );
 
       // Optimistic update
       savedScanLaterKeywordsRef.current = nextSaved;
       setSavedScanLaterKeywords(nextSaved);
+      if (isClientKeywordScheduled) {
+        setDismissedClientLocalRankingKeywords((current) =>
+          Array.from(new Set([...current, keyword])),
+        );
+      }
 
       try {
         await persistSavedScheduledKeywords(nextSaved);
@@ -869,13 +995,26 @@ export const ClientLocalRankingsTable = ({
         // Revert on failure
         savedScanLaterKeywordsRef.current = previousSaved;
         setSavedScanLaterKeywords(previousSaved);
+        if (isClientKeywordScheduled) {
+          setDismissedClientLocalRankingKeywords((current) =>
+            current.filter(
+              (item) => item.trim().toLowerCase() !== normalizedKeyword,
+            ),
+          );
+        }
         toast.danger("Failed to remove scheduled keyword.", {
           description:
             error instanceof Error ? error.message : "Please try again.",
         });
       }
     },
-    [clientId, persistSavedScheduledKeywords, session?.accessToken, toast],
+    [
+      clientId,
+      clientKeywordLocalRankingKeywords,
+      persistSavedScheduledKeywords,
+      session?.accessToken,
+      toast,
+    ],
   );
   const removeSavedScheduledKeyword = useCallback(
     async (keyword: string) => {
@@ -1447,8 +1586,28 @@ export const ClientLocalRankingsTable = ({
               onPress={() => {
                 // If the user has scheduled keywords but no manual prefill,
                 // default the modal to scan them all in one go.
-                if (savedScanLaterKeywords.length) {
-                  setPrefilledKeywords(savedScanLaterKeywords);
+                const scheduledKeywords = Array.from(
+                  new Map(
+                    [
+                      ...savedScanLaterKeywords,
+                      ...clientKeywordLocalRankingKeywords.filter(
+                        (keyword) =>
+                          !dismissedClientLocalRankingKeywords
+                            .map(normalizeKeywordValue)
+                            .includes(normalizeKeywordValue(keyword)),
+                      ),
+                    ]
+                      .map((keyword) => keyword.trim())
+                      .filter(Boolean)
+                      .map((keyword) => [
+                        normalizeKeywordValue(keyword),
+                        keyword,
+                      ]),
+                  ).values(),
+                );
+
+                if (scheduledKeywords.length) {
+                  setPrefilledKeywords(scheduledKeywords);
                 }
                 setIsScanModalOpen(true);
               }}

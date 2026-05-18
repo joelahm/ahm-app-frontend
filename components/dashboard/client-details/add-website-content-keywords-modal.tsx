@@ -84,12 +84,14 @@ export interface AddWebsiteContentKeywordsPayload {
 }
 
 interface AddWebsiteContentKeywordsModalProps {
+  initialKeywords?: string[];
   isOpen: boolean;
   onNext: (payload: AddWebsiteContentKeywordsPayload) => Promise<void> | void;
   onOpenChange: (open: boolean) => void;
 }
 
 export const AddWebsiteContentKeywordsModal = ({
+  initialKeywords = [],
   isOpen,
   onNext,
   onOpenChange,
@@ -134,7 +136,7 @@ export const AddWebsiteContentKeywordsModal = ({
       audience: "",
       country: "",
       enableContentClustering: false,
-      keywords: "",
+      keywords: initialKeywords.join("\n"),
       language: "",
       topic: "",
     });
@@ -142,7 +144,7 @@ export const AddWebsiteContentKeywordsModal = ({
     setLanguageSearch("");
     setSubmitError("");
     clearErrors();
-  }, [clearErrors, isOpen, reset]);
+  }, [clearErrors, initialKeywords, isOpen, reset]);
 
   useEffect(() => {
     if (!isOpen || !session?.accessToken) {

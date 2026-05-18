@@ -17,7 +17,11 @@ import { X } from "lucide-react";
 import { Controller, useForm } from "react-hook-form";
 import * as yup from "yup";
 
-const locationOptions = ["Website Content", "Local Rankings"];
+const locationOptions = [
+  "Website Content",
+  "Local Rankings",
+  "Client Keywords",
+];
 
 const schema = yup.object({
   clientId: yup.string().trim().required("Client is required"),
@@ -147,7 +151,7 @@ export const AddKeywordsToWebContentModal = ({
       <ModalContent>
         <ModalHeader className="flex items-center justify-between border-b border-default-200 px-6">
           <h2 className="text-lg font-semibold leading-none text-[#111827]">
-            Add Keywords to web content
+            Add Keywords
           </h2>
           <Button
             isIconOnly

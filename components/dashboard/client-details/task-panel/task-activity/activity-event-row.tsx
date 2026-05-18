@@ -12,6 +12,7 @@ import {
 
 interface ActivityEventRowProps {
   item: TaskActivityEventItem;
+  showTaskName?: boolean;
 }
 
 const buildVerb = (item: TaskActivityEventItem) => {
@@ -34,6 +35,18 @@ const buildVerb = (item: TaskActivityEventItem) => {
     }
     case "PRIORITY_CHANGED":
       return `changed priority from ${getMetadataString(metadata, "from") || "-"} to ${getMetadataString(metadata, "to") || "-"}`;
+    case "PROJECT_UPDATED": {
+      const updatedFields = metadata.updatedFields;
+      const fields = Array.isArray(updatedFields)
+        ? updatedFields.filter((field) => typeof field === "string")
+        : [];
+
+      return fields.length
+        ? `updated project ${fields.join(", ")}`
+        : "updated the project";
+    }
+    case "PROJECT_TASK_ASSIGNEES_RESYNCED":
+      return "resynced project task assignees";
     case "PARENT_CHANGED":
       return "moved the task";
     case "ATTACHMENT_ADDED":
@@ -55,8 +68,12 @@ const buildVerb = (item: TaskActivityEventItem) => {
   }
 };
 
-export const ActivityEventRow = ({ item }: ActivityEventRowProps) => {
+export const ActivityEventRow = ({
+  item,
+  showTaskName = false,
+}: ActivityEventRowProps) => {
   const actorName = item.actor?.name ?? "Someone";
+  const taskName = getMetadataString(item.metadata, "taskName");
 
   return (
     <div className="flex gap-3 py-3">
@@ -70,6 +87,9 @@ export const ActivityEventRow = ({ item }: ActivityEventRowProps) => {
           <span className="font-semibold text-default-900">{actorName}</span>{" "}
           {buildVerb(item)}
         </p>
+        {showTaskName && taskName ? (
+          <p className="mt-0.5 text-xs text-default-500">Task: {taskName}</p>
+        ) : null}
         <p className="mt-0.5 text-xs text-default-400">
           {getRelativeTime(item.createdAt)}
         </p>

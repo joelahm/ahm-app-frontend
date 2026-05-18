@@ -30,6 +30,7 @@ import {
 import { TaskPanelAttachments } from "@/components/dashboard/client-details/task-panel/task-panel-attachments";
 import { TaskPanelChecklists } from "@/components/dashboard/client-details/task-panel/task-panel-checklists";
 import { TaskActivityFeed } from "@/components/dashboard/client-details/task-panel/task-activity/task-activity-feed";
+import { ProjectActivityFeed } from "@/components/dashboard/client-details/task-panel/task-activity/project-activity-feed";
 import {
   TaskActivityRefreshProvider,
   useTaskActivityRefresh,
@@ -1253,7 +1254,14 @@ const ViewTaskListsPanelContentInner = ({
 
         {selectedTask ? (
           <AccordionItem key="activity" aria-label="Activity" title="Activity">
-            <TaskActivityFeed taskId={selectedTask.id} />
+            <TaskActivityFeed key={selectedTask.id} taskId={selectedTask.id} />
+          </AccordionItem>
+        ) : selectedTaskId ? null : projectId ? (
+          <AccordionItem key="activity" aria-label="Activity" title="Activity">
+            <ProjectActivityFeed
+              projectId={projectId}
+              taskIds={panelTasks.map((task) => task.id)}
+            />
           </AccordionItem>
         ) : null}
       </Accordion>

@@ -9,6 +9,7 @@ export const WEB_CONTENT_TYPE_OPTIONS = [
   "Doctor Profile Page",
   "Team Page",
   "Patient Information Page",
+  "Patient Referral",
   "Blog Page",
   "Guide Page",
   "FAQ Page",

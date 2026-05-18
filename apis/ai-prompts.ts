@@ -120,6 +120,22 @@ export const aiPromptsApi = {
       throw new Error(parseError(error));
     }
   },
+  deletePrompt: async (accessToken: string, promptId: string) => {
+    try {
+      const response = await aiPromptsApiClient.delete<{ success: boolean }>(
+        `/api/v1/ai-prompts/${promptId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   reserveUniqueId: async (accessToken: string) => {
     try {
       const response = await aiPromptsApiClient.post<{ uniqueId: string }>(
