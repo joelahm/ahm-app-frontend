@@ -6602,10 +6602,22 @@ ${plainContent || "N/A"}`.trim();
           }
 
           let keywordDetails: KeywordResearchItem[] = [];
-          const manualKeywords = payload.keywords.filter(
-            (keyword) =>
-              !approvedClientKeywordDetails[normalizeKeywordValue(keyword)],
-          );
+          const seenManualKeywords = new Set<string>();
+          const manualKeywords = payload.keywords.filter((keyword) => {
+            const normalizedKeyword = normalizeKeywordValue(keyword);
+
+            if (
+              !normalizedKeyword ||
+              approvedClientKeywordDetails[normalizedKeyword] ||
+              seenManualKeywords.has(normalizedKeyword)
+            ) {
+              return false;
+            }
+
+            seenManualKeywords.add(normalizedKeyword);
+
+            return true;
+          });
 
           if (manualKeywords.length > 0) {
             try {

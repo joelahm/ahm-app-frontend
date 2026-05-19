@@ -32,6 +32,7 @@ type SummaryStatus = "Healthy" | "Needs Attention" | "Blocked";
 type WebContentSummaryRow = {
   accountManager: string;
   approved: number;
+  clientAddress: string;
   clientId: string;
   clientName: string;
   contentTypeMix: string;
@@ -49,6 +50,7 @@ type WebContentSummaryRow = {
 type OnPageSummaryRow = {
   accountManager: string;
   avgScore: string;
+  clientAddress: string;
   clientId: string;
   clientName: string;
   failedIssues: number;
@@ -89,6 +91,9 @@ const formatDateTime = (value?: string | null) => {
 
 const getClientName = (client: ClientApiItem) =>
   client.businessName || client.clientName || `Client ${client.id}`;
+
+const getClientAddress = (client: ClientApiItem) =>
+  client.address?.trim() || "-";
 
 const getAccountManager = (client: ClientApiItem) =>
   client.assignedUserName ||
@@ -202,6 +207,14 @@ const statusSortRank: Record<SummaryStatus, number> = {
 
 const sortWebContentRows = (sourceRows: WebContentSummaryRow[]) =>
   [...sourceRows].sort((left, right) => {
+    if (left.generated !== right.generated) {
+      return right.generated - left.generated;
+    }
+
+    if (left.published !== right.published) {
+      return right.published - left.published;
+    }
+
     const leftGapScore =
       left.missingContent * 3 +
       left.missingTitles * 2 +
@@ -216,7 +229,7 @@ const sortWebContentRows = (sourceRows: WebContentSummaryRow[]) =>
       (right.totalKeywords === 0 ? 1000 : 0);
 
     if (leftGapScore !== rightGapScore) {
-      return rightGapScore - leftGapScore;
+      return leftGapScore - rightGapScore;
     }
 
     return left.clientName.localeCompare(right.clientName);
@@ -255,6 +268,22 @@ const sortOnPageRows = (sourceRows: OnPageSummaryRow[]) =>
     return left.clientName.localeCompare(right.clientName);
   });
 
+const getWebContentRowClassName = (row: WebContentSummaryRow) => {
+  if (row.generated >= 20) {
+    return "bg-[#ECFDF5] hover:bg-[#D1FAE5]";
+  }
+
+  if (row.generated >= 10) {
+    return "bg-[#F0FDF4] hover:bg-[#DCFCE7]";
+  }
+
+  if (row.generated >= 1) {
+    return "bg-[#FFFBEB] hover:bg-[#FEF3C7]";
+  }
+
+  return "bg-[#FEF2F2] hover:bg-[#FEE2E2]";
+};
+
 const buildWebContentRow = (
   client: ClientApiItem,
   lists: KeywordContentListRecord[],
@@ -269,6 +298,7 @@ const buildWebContentRow = (
     approved: keywords.filter(
       (keyword) => normalizeStatus(keyword.status) === "approved",
     ).length,
+    clientAddress: getClientAddress(client),
     clientId: String(client.id),
     clientName: getClientName(client),
     contentTypeMix: summarizeContentTypeMix(keywords),
@@ -345,6 +375,7 @@ const buildOnPageRow = (
       typeof latestRun?.healthScore === "number"
         ? `${latestRun.healthScore}/100`
         : "-",
+    clientAddress: getClientAddress(client),
     clientId: String(client.id),
     clientName: getClientName(client),
     failedIssues:
@@ -544,8 +575,8 @@ export const SeoSummaryScreen = ({
             >
               {item.clientName}
             </Link>
-            <span className="text-xs text-[#6B7280]">
-              {item.accountManager}
+            <span className="line-clamp-2 text-xs text-[#6B7280]">
+              {item.clientAddress}
             </span>
           </div>
         ),
@@ -745,9 +776,20 @@ export const SeoSummaryScreen = ({
       </div>
 
       <DashboardDataTable
+        showPagination
         columns={columns}
+        disableZebraRows={isWebContent}
         emptyContent="No client summary data found."
         getRowKey={(item) => item.clientId}
+        getRowProps={
+          isWebContent
+            ? (item) => ({
+                className: getWebContentRowClassName(
+                  item as WebContentSummaryRow,
+                ),
+              })
+            : undefined
+        }
         isLoading={isLoading}
         loadingLabel="Loading SEO summary..."
         pageSize={10}
