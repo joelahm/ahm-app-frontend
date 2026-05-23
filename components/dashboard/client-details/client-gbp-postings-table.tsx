@@ -1119,11 +1119,24 @@ export const ClientGbpPostingsTable = ({
       payload,
     );
 
+    if (!response.postings.length && response.skipped.length) {
+      throw new Error(response.skipped.map((item) => item.message).join(" "));
+    }
+
     setRows((current) => [
       ...response.postings.map(mapPostingToRow),
       ...current,
     ]);
-    toastRef.current.success("GBP postings saved.");
+
+    if (response.skipped.length) {
+      toastRef.current.warning("Some GBP postings were skipped.", {
+        description: response.skipped
+          .map((item) => `${item.keyword || item.contentType}: ${item.message}`)
+          .join(" "),
+      });
+    } else {
+      toastRef.current.success("GBP postings saved.");
+    }
   };
 
   const handleImageUpload = async (files: FileList | null) => {

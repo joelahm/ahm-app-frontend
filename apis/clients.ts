@@ -251,6 +251,15 @@ export interface CreateClientGbpPostingsRequestBody {
 
 export interface ClientGbpPostingsResponse {
   postings: ClientGbpPosting[];
+  skipped: Array<{
+    code: string;
+    contentType: string;
+    keyword: string;
+    message: string;
+    postIndex: number | null;
+    promptId: string | null;
+    promptType: string;
+  }>;
   total: number;
 }
 
@@ -1791,9 +1800,23 @@ const parseClientGbpPostingsResponse = (
   const postings = asArray(payload.postings)
     .map(parseClientGbpPosting)
     .filter((posting): posting is ClientGbpPosting => posting !== null);
+  const skipped = asArray(payload.skipped).map((item) => {
+    const record = asObject(item);
+
+    return {
+      code: asString(record.code) ?? "GBP_POSTING_SKIPPED",
+      contentType: asString(record.contentType) ?? "",
+      keyword: asString(record.keyword) ?? "",
+      message: asString(record.message) ?? "GBP posting was skipped.",
+      postIndex: asNumber(record.postIndex),
+      promptId: asString(record.promptId),
+      promptType: asString(record.promptType) ?? "",
+    };
+  });
 
   return {
     postings,
+    skipped,
     total: asNumber(payload.total) ?? postings.length,
   };
 };
