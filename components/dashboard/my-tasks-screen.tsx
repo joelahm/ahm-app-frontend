@@ -51,6 +51,7 @@ type TaskRow = {
   clientId: string;
   depth: number;
   dueDate: string;
+  dueDateValue?: string | null;
   id: string;
   isOrphanChild: boolean;
   latestComment: string;
@@ -69,6 +70,7 @@ type TaskGroup = {
 };
 
 type GroupId = "overdue" | "later" | "completed";
+type TaskListGroupByKey = "client" | "dueDate" | "projectType" | "status";
 type TaskWithClient = ProjectTask & {
   clientId: string;
   clientName: string;
@@ -101,6 +103,25 @@ const columnLabels: Record<string, string> = {
   projectType: "Project Type",
   status: "Status",
   taskName: "Task Name",
+};
+const GROUP_BY_LABELS: Record<TaskListGroupByKey, string> = {
+  client: "Client",
+  dueDate: "Due Date",
+  projectType: "Project Type",
+  status: "Status",
+};
+const DUE_DATE_GROUP_ORDER = [
+  "due-in-3-days",
+  "due-this-week",
+  "later",
+] as const;
+const DUE_DATE_GROUP_LABELS: Record<
+  (typeof DUE_DATE_GROUP_ORDER)[number],
+  string
+> = {
+  "due-in-3-days": "Due in 3 days",
+  "due-this-week": "Due this week",
+  later: "Later / No Due Date",
 };
 
 const getPageItems = (
@@ -294,6 +315,136 @@ const getTaskGroupId = (task: TaskWithClient): GroupId => {
   return "later";
 };
 
+const compareTasksByDueDate = (left: TaskWithClient, right: TaskWithClient) => {
+  const leftDate = parseDate(left.dueDate);
+  const rightDate = parseDate(right.dueDate);
+  const leftTime = leftDate?.getTime() ?? Number.POSITIVE_INFINITY;
+  const rightTime = rightDate?.getTime() ?? Number.POSITIVE_INFINITY;
+
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return (left.taskName ?? "").localeCompare(right.taskName ?? "");
+};
+
+const getLaterTaskRowGroupId = (
+  row: TaskRow,
+): (typeof DUE_DATE_GROUP_ORDER)[number] => {
+  const dueDate = parseDate(row.dueDateValue);
+
+  if (!dueDate) {
+    return "later";
+  }
+
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const dueInThreeDays = new Date(startOfToday);
+
+  dueInThreeDays.setDate(startOfToday.getDate() + 3);
+
+  const endOfWeek = new Date(startOfToday);
+  const daysUntilSunday = 6 - startOfToday.getDay();
+
+  endOfWeek.setDate(startOfToday.getDate() + daysUntilSunday);
+
+  const dueTime = dueDate.getTime();
+
+  if (dueTime <= dueInThreeDays.getTime()) {
+    return "due-in-3-days";
+  }
+
+  if (dueTime <= endOfWeek.getTime()) {
+    return "due-this-week";
+  }
+
+  return "later";
+};
+
+const groupLaterTaskRows = (rows: TaskRow[]) => {
+  const groups = new Map<(typeof DUE_DATE_GROUP_ORDER)[number], TaskRow[]>(
+    DUE_DATE_GROUP_ORDER.map((key) => [key, []]),
+  );
+
+  rows.forEach((row) => {
+    groups.get(getLaterTaskRowGroupId(row))?.push(row);
+  });
+
+  return DUE_DATE_GROUP_ORDER.map((id) => ({
+    id,
+    label: DUE_DATE_GROUP_LABELS[id],
+    rows: groups.get(id) ?? [],
+  })).filter((group) => group.rows.length > 0);
+};
+
+const getLaterTaskRowClassName = (
+  groupId: (typeof DUE_DATE_GROUP_ORDER)[number],
+) => {
+  if (groupId === "due-in-3-days") {
+    return "[&>td]:bg-[#FEF2F2]";
+  }
+
+  if (groupId === "due-this-week") {
+    return "[&>td]:bg-[#FFFBEB]";
+  }
+
+  return "";
+};
+
+const getTaskRowGroupValue = (row: TaskRow, groupBy: TaskListGroupByKey) => {
+  if (groupBy === "client") {
+    return row.clientName || "No Client";
+  }
+
+  if (groupBy === "status") {
+    return row.status || "No Status";
+  }
+
+  if (groupBy === "projectType") {
+    return row.projectType || "No Project Type";
+  }
+
+  return "Due Date";
+};
+
+const groupTaskRows = (rows: TaskRow[], groupBy: TaskListGroupByKey) => {
+  const groups = new Map<string, TaskRow[]>();
+
+  rows.forEach((row) => {
+    const groupKey = getTaskRowGroupValue(row, groupBy);
+    const current = groups.get(groupKey) ?? [];
+
+    current.push(row);
+    groups.set(groupKey, current);
+  });
+
+  const statusOrder = new Map<string, number>(
+    STATUS_LABELS.map((status, index) => [status, index]),
+  );
+
+  return Array.from(groups.entries())
+    .map(([id, groupRows]) => ({
+      id,
+      label: id,
+      rows: groupRows,
+    }))
+    .sort((left, right) => {
+      if (groupBy === "status") {
+        return (
+          (statusOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+            (statusOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+          left.label.localeCompare(right.label)
+        );
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+};
+
 const getTaskRow = ({
   task,
   tasksByParentId,
@@ -327,21 +478,24 @@ const getTaskRow = ({
       projectType: task.projectType?.trim() || "Website",
       status: normalizeStatus(task.status),
       taskName: task.taskName?.trim() || "Untitled task",
+      dueDateValue: task.dueDate ?? null,
     };
   }
 
   visited.add(taskId);
 
-  const childRows = (tasksByParentId.get(taskId) ?? []).map((childTask) =>
-    getTaskRow({
-      allTasksById,
-      depth: depth + 1,
-      task: childTask,
-      tasksByParentId,
-      tasksInGroupById,
-      visited,
-    }),
-  );
+  const childRows = [...(tasksByParentId.get(taskId) ?? [])]
+    .sort(compareTasksByDueDate)
+    .map((childTask) =>
+      getTaskRow({
+        allTasksById,
+        depth: depth + 1,
+        task: childTask,
+        tasksByParentId,
+        tasksInGroupById,
+        visited,
+      }),
+    );
 
   const parentTaskId =
     task.parentTaskId !== null && task.parentTaskId !== undefined
@@ -363,6 +517,7 @@ const getTaskRow = ({
     clientName: task.clientName,
     depth,
     dueDate: formatDateForDisplay(task.dueDate),
+    dueDateValue: task.dueDate ?? null,
     id: taskId,
     isOrphanChild,
     latestComment: formatCommentPreview(task.latestComment),
@@ -403,6 +558,8 @@ export const MyTasksScreen = () => {
   const [selectedProjectTypeFilter, setSelectedProjectTypeFilter] =
     useState("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [taskListGroupBy, setTaskListGroupBy] =
+    useState<TaskListGroupByKey>("dueDate");
   const [activeGroupTab, setActiveGroupTab] = useState<GroupId>("overdue");
   const [groupPages, setGroupPages] = useState<Record<GroupId, number>>({
     completed: 1,
@@ -672,10 +829,11 @@ export const MyTasksScreen = () => {
     });
 
     const createRowsForGroup = (groupTasks: TaskWithClient[]) => {
+      const sortedGroupTasks = [...groupTasks].sort(compareTasksByDueDate);
       const tasksInGroupById = new Map<string, TaskWithClient>();
       const tasksByParentId = new Map<string, TaskWithClient[]>();
 
-      groupTasks.forEach((task) => {
+      sortedGroupTasks.forEach((task) => {
         const taskId = String(task.id);
 
         tasksInGroupById.set(taskId, task);
@@ -705,7 +863,7 @@ export const MyTasksScreen = () => {
         });
       });
 
-      const topLevelTasks = groupTasks.filter(
+      const topLevelTasks = sortedGroupTasks.filter(
         (task) => !childTaskIds.has(String(task.id)),
       );
 
@@ -1162,10 +1320,17 @@ export const MyTasksScreen = () => {
     );
     const currentPage = Math.min(groupPages[group.id] ?? 1, totalPages);
     const startIndex = (currentPage - 1) * TASKS_PER_PAGE;
-    const paginatedRows = flattenRows(
-      group.rows.slice(startIndex, startIndex + TASKS_PER_PAGE),
-      expandedTaskIds,
+    const paginatedTopLevelRows = group.rows.slice(
+      startIndex,
+      startIndex + TASKS_PER_PAGE,
     );
+    const paginatedRows = flattenRows(paginatedTopLevelRows, expandedTaskIds);
+    const shouldShowInternalGroups =
+      taskListGroupBy !== "dueDate" || group.id === "later";
+    const internalRowGroups =
+      taskListGroupBy === "dueDate"
+        ? groupLaterTaskRows(paginatedTopLevelRows)
+        : groupTaskRows(paginatedTopLevelRows, taskListGroupBy);
 
     return (
       <>
@@ -1204,6 +1369,37 @@ export const MyTasksScreen = () => {
                   </div>
                 </TableCell>
               </TableRow>
+            ) : shouldShowInternalGroups ? (
+              internalRowGroups.flatMap((rowGroup) => [
+                <TableRow key={`${group.id}-group-${rowGroup.id}`}>
+                  <TableCell
+                    className="bg-white px-3 py-2"
+                    colSpan={visibleColumnCount}
+                  >
+                    <Chip
+                      className="bg-[#EEF2FF] text-[#4F46E5]"
+                      radius="full"
+                      size="sm"
+                    >
+                      {rowGroup.label}
+                    </Chip>
+                  </TableCell>
+                </TableRow>,
+                ...flattenRows(rowGroup.rows, expandedTaskIds).map((item) => (
+                  <TableRow
+                    key={`${group.id}-${rowGroup.id}-${item.id}`}
+                    className={
+                      taskListGroupBy === "dueDate"
+                        ? getLaterTaskRowClassName(rowGroup.id)
+                        : ""
+                    }
+                  >
+                    {visibleTableColumnKeys.map((columnKey) =>
+                      renderTaskCell(item, columnKey),
+                    )}
+                  </TableRow>
+                )),
+              ])
             ) : (
               paginatedRows.map((item) => (
                 <TableRow key={`${group.id}-${item.id}`}>
@@ -1335,6 +1531,38 @@ export const MyTasksScreen = () => {
                     Reset
                   </Button>
                 </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
+            <Dropdown placement="bottom-start">
+              <DropdownTrigger>
+                <Button
+                  startContent={<SlidersHorizontal size={14} />}
+                  variant="bordered"
+                >
+                  {`Group by: ${GROUP_BY_LABELS[taskListGroupBy]}`}
+                </Button>
+              </DropdownTrigger>
+              <DropdownMenu
+                aria-label="Group my tasks by"
+                selectedKeys={new Set([taskListGroupBy])}
+                selectionMode="single"
+                onSelectionChange={(keys) => {
+                  const selected = Array.from(keys)[0];
+
+                  if (
+                    selected === "dueDate" ||
+                    selected === "client" ||
+                    selected === "status" ||
+                    selected === "projectType"
+                  ) {
+                    setTaskListGroupBy(selected);
+                  }
+                }}
+              >
+                <DropdownItem key="dueDate">Due Date</DropdownItem>
+                <DropdownItem key="client">Client</DropdownItem>
+                <DropdownItem key="status">Status</DropdownItem>
+                <DropdownItem key="projectType">Project Type</DropdownItem>
               </DropdownMenu>
             </Dropdown>
             <Dropdown closeOnSelect={false} placement="bottom-end">
