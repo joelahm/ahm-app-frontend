@@ -381,9 +381,7 @@ const groupLaterTaskRows = (rows: TaskRow[]) => {
   })).filter((group) => group.rows.length > 0);
 };
 
-const getLaterTaskRowClassName = (
-  groupId: (typeof DUE_DATE_GROUP_ORDER)[number],
-) => {
+const getLaterTaskRowClassName = (groupId: string) => {
   if (groupId === "due-in-3-days") {
     return "[&>td]:bg-[#FEF2F2]";
   }
