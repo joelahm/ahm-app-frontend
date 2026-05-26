@@ -1,10 +1,13 @@
 "use client";
 
+import type { DateValue } from "@internationalized/date";
+
 import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "@heroui/avatar";
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Chip } from "@heroui/chip";
+import { DateRangePicker } from "@heroui/date-picker";
 import {
   Dropdown,
   DropdownItem,
@@ -23,6 +26,7 @@ import {
   TableRow,
 } from "@heroui/table";
 import {
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -71,6 +75,10 @@ type TaskGroup = {
 
 type GroupId = "overdue" | "later" | "completed";
 type TaskListGroupByKey = "client" | "dueDate" | "projectType" | "status";
+type TaskDueDateRange = {
+  end: DateValue;
+  start: DateValue;
+};
 type TaskWithClient = ProjectTask & {
   clientId: string;
   clientName: string;
@@ -556,6 +564,8 @@ export const MyTasksScreen = () => {
   const [selectedProjectTypeFilter, setSelectedProjectTypeFilter] =
     useState("all");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [selectedDueDateRange, setSelectedDueDateRange] =
+    useState<TaskDueDateRange | null>(null);
   const [taskListGroupBy, setTaskListGroupBy] =
     useState<TaskListGroupByKey>("dueDate");
   const [activeGroupTab, setActiveGroupTab] = useState<GroupId>("overdue");
@@ -767,14 +777,22 @@ export const MyTasksScreen = () => {
   const hasActiveFilters =
     selectedClientFilter !== "all" ||
     selectedProjectTypeFilter !== "all" ||
-    selectedStatusFilter !== "all";
+    selectedStatusFilter !== "all" ||
+    Boolean(selectedDueDateRange);
 
   const filteredTasks = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
+    const dueDateRangeStart = selectedDueDateRange
+      ? parseDate(selectedDueDateRange.start.toString())
+      : null;
+    const dueDateRangeEnd = selectedDueDateRange
+      ? parseDate(selectedDueDateRange.end.toString())
+      : null;
 
     return assignedTasks.filter((task) => {
       const normalizedStatus = normalizeStatus(task.status);
       const projectType = task.projectType?.trim() || "Website";
+      const dueDate = parseDate(task.dueDate);
       const matchesStatus =
         selectedStatusFilter === "all" ||
         normalizedStatus === selectedStatusFilter;
@@ -796,15 +814,26 @@ export const MyTasksScreen = () => {
         .join(" ")
         .toLowerCase();
       const matchesSearch = !query || haystack.includes(query);
+      const matchesDueDateRange =
+        !selectedDueDateRange ||
+        (dueDate !== null &&
+          (!dueDateRangeStart ||
+            dueDate.getTime() >= dueDateRangeStart.getTime()) &&
+          (!dueDateRangeEnd || dueDate.getTime() <= dueDateRangeEnd.getTime()));
 
       return (
-        matchesSearch && matchesStatus && matchesClient && matchesProjectType
+        matchesSearch &&
+        matchesStatus &&
+        matchesClient &&
+        matchesProjectType &&
+        matchesDueDateRange
       );
     });
   }, [
     assignedTasks,
     searchQuery,
     selectedClientFilter,
+    selectedDueDateRange,
     selectedProjectTypeFilter,
     selectedStatusFilter,
   ]);
@@ -915,6 +944,7 @@ export const MyTasksScreen = () => {
   }, [
     searchQuery,
     selectedClientFilter,
+    selectedDueDateRange,
     selectedProjectTypeFilter,
     selectedStatusFilter,
   ]);
@@ -1524,6 +1554,7 @@ export const MyTasksScreen = () => {
                       setSelectedStatusFilter("all");
                       setSelectedClientFilter("all");
                       setSelectedProjectTypeFilter("all");
+                      setSelectedDueDateRange(null);
                     }}
                   >
                     Reset
@@ -1531,6 +1562,21 @@ export const MyTasksScreen = () => {
                 </DropdownItem>
               </DropdownMenu>
             </Dropdown>
+            <DateRangePicker
+              aria-label="Task due date range"
+              className="w-full md:w-[280px]"
+              radius="sm"
+              selectorIcon={<CalendarDays size={16} />}
+              value={selectedDueDateRange}
+              visibleMonths={2}
+              onChange={(value) => {
+                setSelectedDueDateRange(
+                  value?.start && value?.end
+                    ? { end: value.end, start: value.start }
+                    : null,
+                );
+              }}
+            />
             <Dropdown placement="bottom-start">
               <DropdownTrigger>
                 <Button
