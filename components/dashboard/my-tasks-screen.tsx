@@ -413,6 +413,9 @@ export const MyTasksScreen = () => {
     () => new Set(toggleableColumnKeys),
   );
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [savingStatusTaskIds, setSavingStatusTaskIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [users, setUsers] = useState<
     Array<{ avatar?: string; id: string; name: string }>
   >([]);
@@ -726,20 +729,20 @@ export const MyTasksScreen = () => {
 
     return [
       {
-        count: overdueRows.length,
+        count: tasksByGroup.get("overdue")?.length ?? 0,
         id: "overdue",
         label: "Overdue",
         rows: overdueRows,
         tone: "danger",
       },
       {
-        count: laterRows.length,
+        count: tasksByGroup.get("later")?.length ?? 0,
         id: "later",
         label: "Later / No Due Date",
         rows: laterRows,
       },
       {
-        count: completedRows.length,
+        count: tasksByGroup.get("completed")?.length ?? 0,
         id: "completed",
         label: "Completed",
         rows: completedRows,
@@ -860,6 +863,78 @@ export const MyTasksScreen = () => {
     setReloadKey((current) => current + 1);
   };
 
+  const handleTaskStatusChange = async (taskId: string, status: string) => {
+    const normalizedStatus = normalizeStatus(status);
+    const currentTask = allTasks.find((task) => String(task.id) === taskId);
+
+    if (
+      !currentTask ||
+      normalizeStatus(currentTask.status) === normalizedStatus
+    ) {
+      return;
+    }
+
+    if (!session?.accessToken) {
+      toast.danger("Your session has expired. Please login again.");
+
+      return;
+    }
+
+    const previousTasks = allTasks;
+
+    setSavingStatusTaskIds((current) => new Set(current).add(taskId));
+    setAllTasks((current) =>
+      current.map((task) =>
+        String(task.id) === taskId
+          ? { ...task, status: normalizedStatus }
+          : task,
+      ),
+    );
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const updatedTask = await clientsApi.updateProjectTask(
+        accessToken,
+        taskId,
+        {
+          status: normalizedStatus,
+        },
+      );
+
+      setAllTasks((current) =>
+        current.map((task) =>
+          String(task.id) === taskId
+            ? {
+                ...task,
+                ...updatedTask,
+                clientId: updatedTask.clientId
+                  ? String(updatedTask.clientId)
+                  : task.clientId,
+                clientName: updatedTask.clientName?.trim() || task.clientName,
+                latestComment: formatCommentPreview(
+                  updatedTask.latestComment ?? task.latestComment,
+                ),
+              }
+            : task,
+        ),
+      );
+    } catch (error) {
+      setAllTasks(previousTasks);
+      toast.danger("Could not update task status.", {
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setSavingStatusTaskIds((current) => {
+        const next = new Set(current);
+
+        next.delete(taskId);
+
+        return next;
+      });
+    }
+  };
+
   const renderTaskCell = (item: TaskRow, columnKey: string) => {
     if (columnKey === "taskName") {
       return (
@@ -924,15 +999,43 @@ export const MyTasksScreen = () => {
     }
 
     if (columnKey === "status") {
+      const isSavingStatus = savingStatusTaskIds.has(item.id);
+
       return (
         <TableCell key={`${item.id}-${columnKey}`}>
-          <Chip
-            className={getStatusChipClassName(item.status)}
-            radius="full"
-            size="sm"
-          >
-            {item.status}
-          </Chip>
+          <Dropdown>
+            <DropdownTrigger>
+              <Button
+                className="h-auto min-w-0 px-0"
+                isDisabled={isSavingStatus}
+                radius="full"
+                variant="light"
+              >
+                <Chip
+                  className={getStatusChipClassName(item.status)}
+                  radius="full"
+                  size="sm"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {isSavingStatus ? "Saving..." : item.status}
+                    <ChevronDown size={12} />
+                  </span>
+                </Chip>
+              </Button>
+            </DropdownTrigger>
+            <DropdownMenu
+              aria-label={`Change status for ${item.taskName}`}
+              selectedKeys={new Set([item.status])}
+              selectionMode="single"
+              onAction={(key) => {
+                void handleTaskStatusChange(item.id, String(key));
+              }}
+            >
+              {STATUS_LABELS.map((status) => (
+                <DropdownItem key={status}>{status}</DropdownItem>
+              ))}
+            </DropdownMenu>
+          </Dropdown>
         </TableCell>
       );
     }

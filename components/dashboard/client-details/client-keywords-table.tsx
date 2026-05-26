@@ -25,9 +25,7 @@ import {
   Columns3,
   Download,
   Filter,
-  Loader2,
   Plus,
-  RefreshCw,
   Search,
   Sparkles,
   Trash2,
@@ -101,12 +99,86 @@ const statusFilterOptions: Array<{
   { key: "", label: "No status" },
   ...statusOptions.map((status) => ({ key: status, label: status })),
 ];
+const providerFilterOptions: Array<{
+  key: ClientKeywordProvider | "all" | "none";
+  label: string;
+}> = [
+  { key: "all", label: "All sources" },
+  { key: "DATAFORSEO", label: "DataForSEO" },
+  { key: "SE_RANKING", label: "SE Ranking" },
+  { key: "none", label: "No source" },
+];
+const searchVolumeFilterOptions = [
+  { key: "all", label: "All search volumes" },
+  { key: "100001:", label: "100,001+" },
+  { key: "10001:100000", label: "10,001-100,000" },
+  { key: "1001:10000", label: "1,001-10,000" },
+  { key: "101:1000", label: "101-1,000" },
+  { key: "11:100", label: "11-100" },
+  { key: "1:10", label: "1-10" },
+  { key: "custom", label: "Custom" },
+];
+const keywordDifficultyFilterOptions = [
+  { key: "all", label: "All difficulties" },
+  { key: "85:100", label: "Very hard (85-100%)" },
+  { key: "70:84", label: "Hard (70-84%)" },
+  { key: "50:69", label: "Difficult (50-69%)" },
+  { key: "30:49", label: "Possible (30-49%)" },
+  { key: "15:29", label: "Easy (15-29%)" },
+  { key: "0:14", label: "Very easy (0-14%)" },
+  { key: "custom", label: "Custom" },
+];
+const cpcFilterOptions = [
+  { key: "all", label: "All CPC" },
+  { key: "10:", label: "$10+" },
+  { key: "5:9.99", label: "$5-$9.99" },
+  { key: "1:4.99", label: "$1-$4.99" },
+  { key: ":0.99", label: "Up to $0.99" },
+  { key: "custom", label: "Custom" },
+];
 
-const lockedColumnKeys = new Set(["keyword", "action"]);
+const lockedColumnKeys = new Set(["selection", "keyword", "action"]);
 const formatNumber = (value: number | null) =>
   value === null ? "-" : new Intl.NumberFormat("en-US").format(value);
 const formatCurrency = (value: number | null) =>
   value === null ? "-" : `$${value.toFixed(2)}`;
+const getAppliedNumericFilterValue = (
+  selectedValue: string,
+  customFrom: string,
+  customTo: string,
+) => {
+  if (selectedValue === "custom") {
+    const from = customFrom.trim();
+    const to = customTo.trim();
+
+    return from || to ? `${from}:${to}` : "";
+  }
+
+  return selectedValue === "all" ? "" : selectedValue;
+};
+const parseNumericRange = (value: string) => {
+  if (!value) {
+    return { max: null, min: null };
+  }
+
+  const [minValue = "", maxValue = ""] = value.split(":");
+  const min = minValue ? Number(minValue) : null;
+  const max = maxValue ? Number(maxValue) : null;
+
+  return {
+    max: Number.isFinite(max) ? max : null,
+    min: Number.isFinite(min) ? min : null,
+  };
+};
+const matchesNumericRange = (
+  value: number | null,
+  range: { max: number | null; min: number | null },
+) =>
+  range.min === null && range.max === null
+    ? true
+    : value !== null &&
+      (range.min === null || value >= range.min) &&
+      (range.max === null || value <= range.max);
 const escapeCsvValue = (value: unknown) => {
   const stringValue = String(value ?? "");
 
@@ -158,9 +230,25 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
   const [isImporting, setIsImporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [contentTypeFilter, setContentTypeFilter] = useState("all");
+  const [cpcFilter, setCpcFilter] = useState("all");
+  const [customCpcFrom, setCustomCpcFrom] = useState("");
+  const [customCpcTo, setCustomCpcTo] = useState("");
+  const [customKeywordDifficultyFrom, setCustomKeywordDifficultyFrom] =
+    useState("");
+  const [customKeywordDifficultyTo, setCustomKeywordDifficultyTo] =
+    useState("");
+  const [customSearchVolumeFrom, setCustomSearchVolumeFrom] = useState("");
+  const [customSearchVolumeTo, setCustomSearchVolumeTo] = useState("");
+  const [keywordDifficultyFilter, setKeywordDifficultyFilter] = useState("all");
+  const [providerFilter, setProviderFilter] = useState<
+    ClientKeywordProvider | "all" | "none"
+  >("all");
+  const [searchVolumeFilter, setSearchVolumeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<KeywordStatus | "all">(
     "all",
   );
+  const [useInFilter, setUseInFilter] = useState<KeywordUseIn | "all">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [deleteCandidate, setDeleteCandidate] =
     useState<ClientKeywordRow | null>(null);
@@ -171,10 +259,10 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
   const [visibleColumnKeys, setVisibleColumnKeys] = useState<Set<string>>(
     () =>
       new Set([
+        "selection",
         "keyword",
         "useIn",
         "contentType",
-        "generatedTitle",
         "searchVolume",
         "keywordDifficulty",
         "searchIntent",
@@ -386,6 +474,19 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
         return;
       }
 
+      const targetRows = rows.filter((row) => keywordIds.includes(row.id));
+      const missingContentType = targetRows.find(
+        (row) => !row.contentType.trim(),
+      );
+
+      if (missingContentType) {
+        toast.danger("Content type is required before generating a title.", {
+          description: `Select a content type for "${missingContentType.keyword}" first.`,
+        });
+
+        return;
+      }
+
       if (!session?.accessToken) {
         toast.danger("Your session has expired.", {
           description: "Please sign in again.",
@@ -419,11 +520,48 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
         setIsGeneratingTitles(false);
       }
     },
-    [clientId, getValidAccessToken, session?.accessToken, toast],
+    [clientId, getValidAccessToken, rows, session?.accessToken, toast],
+  );
+
+  const toggleKeywordSelection = useCallback(
+    (keywordId: string, isSelected: boolean) => {
+      setSelectedKeys((current) => {
+        const next =
+          current === "all"
+            ? new Set(rows.map((row) => row.id))
+            : new Set(Array.from(current).map(String));
+
+        if (isSelected) {
+          next.add(keywordId);
+        } else {
+          next.delete(keywordId);
+        }
+
+        return next;
+      });
+    },
+    [rows],
   );
 
   const columns = useMemo<DashboardDataTableColumn<ClientKeywordRow>[]>(
     () => [
+      {
+        className: "w-12",
+        key: "selection",
+        label: "Select",
+        renderCell: (item) => (
+          <Checkbox
+            aria-label={`Select ${item.keyword}`}
+            isSelected={
+              selectedKeys === "all" ||
+              Array.from(selectedKeys).map(String).includes(item.id)
+            }
+            onValueChange={(isSelected) =>
+              toggleKeywordSelection(item.id, isSelected)
+            }
+          />
+        ),
+      },
       {
         key: "keyword",
         label: "Keyword",
@@ -510,72 +648,6 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
             ))}
           </Select>
         ),
-      },
-      {
-        key: "generatedTitle",
-        label: "Title",
-        renderCell: (item) => {
-          if (item.titleStatus === "GENERATING") {
-            return (
-              <div className="flex items-center gap-2 text-xs text-[#6B7280]">
-                <Loader2 className="animate-spin" size={14} />
-                <span>Generating...</span>
-              </div>
-            );
-          }
-
-          if (item.titleStatus === "FAILED") {
-            return (
-              <div className="flex items-center gap-2 text-xs text-danger">
-                <span title={item.titleError || ""}>Failed</span>
-                <Button
-                  isIconOnly
-                  aria-label={`Retry title generation for ${item.keyword}`}
-                  className="text-default-500"
-                  radius="full"
-                  size="sm"
-                  variant="light"
-                  onPress={() => void handleGenerateTitles([item.id])}
-                >
-                  <RefreshCw size={14} />
-                </Button>
-              </div>
-            );
-          }
-
-          if (item.generatedTitle) {
-            return (
-              <div className="flex items-center gap-2">
-                <span className="line-clamp-2 text-sm text-[#111827]">
-                  {item.generatedTitle}
-                </span>
-                <Button
-                  isIconOnly
-                  aria-label={`Regenerate title for ${item.keyword}`}
-                  className="text-default-500"
-                  radius="full"
-                  size="sm"
-                  variant="light"
-                  onPress={() => void handleGenerateTitles([item.id])}
-                >
-                  <RefreshCw size={14} />
-                </Button>
-              </div>
-            );
-          }
-
-          return (
-            <Button
-              radius="sm"
-              size="sm"
-              startContent={<Sparkles size={14} />}
-              variant="bordered"
-              onPress={() => void handleGenerateTitles([item.id])}
-            >
-              Generate
-            </Button>
-          );
-        },
       },
       {
         key: "searchVolume",
@@ -694,7 +766,7 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
         ),
       },
     ],
-    [handleGenerateTitles, saveKeywordPatch, updateRow],
+    [saveKeywordPatch, selectedKeys, toggleKeywordSelection, updateRow],
   );
 
   const visibleColumns = useMemo(
@@ -702,26 +774,129 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
     [columns, visibleColumnKeys],
   );
 
+  const contentTypeFilterOptions = useMemo(
+    () =>
+      Array.from(
+        rows.reduce<Map<string, string>>((acc, row) => {
+          const contentType = row.contentType.trim();
+
+          if (contentType) {
+            acc.set(contentType, contentType);
+          }
+
+          return acc;
+        }, new Map()),
+      )
+        .map(([key, label]) => ({ key, label }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [rows],
+  );
+  const appliedCpcFilter = getAppliedNumericFilterValue(
+    cpcFilter,
+    customCpcFrom,
+    customCpcTo,
+  );
+  const appliedKeywordDifficultyFilter = getAppliedNumericFilterValue(
+    keywordDifficultyFilter,
+    customKeywordDifficultyFrom,
+    customKeywordDifficultyTo,
+  );
+  const appliedSearchVolumeFilter = getAppliedNumericFilterValue(
+    searchVolumeFilter,
+    customSearchVolumeFrom,
+    customSearchVolumeTo,
+  );
+  const hasActiveFilters =
+    Boolean(appliedCpcFilter) ||
+    Boolean(appliedKeywordDifficultyFilter) ||
+    Boolean(appliedSearchVolumeFilter) ||
+    contentTypeFilter !== "all" ||
+    providerFilter !== "all" ||
+    statusFilter !== "all" ||
+    useInFilter !== "all";
+
+  const resetFilters = () => {
+    setContentTypeFilter("all");
+    setCpcFilter("all");
+    setCustomCpcFrom("");
+    setCustomCpcTo("");
+    setCustomKeywordDifficultyFrom("");
+    setCustomKeywordDifficultyTo("");
+    setCustomSearchVolumeFrom("");
+    setCustomSearchVolumeTo("");
+    setKeywordDifficultyFilter("all");
+    setProviderFilter("all");
+    setSearchVolumeFilter("all");
+    setStatusFilter("all");
+    setUseInFilter("all");
+    setCurrentPage(1);
+  };
+
   const filteredRows = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
+    const cpcRange = parseNumericRange(appliedCpcFilter);
+    const keywordDifficultyRange = parseNumericRange(
+      appliedKeywordDifficultyFilter,
+    );
+    const searchVolumeRange = parseNumericRange(appliedSearchVolumeFilter);
 
     return rows.filter((row) => {
+      const matchesContentType =
+        contentTypeFilter === "all" ||
+        (contentTypeFilter === "none" && !row.contentType) ||
+        row.contentType === contentTypeFilter;
+      const matchesProvider =
+        providerFilter === "all" ||
+        (providerFilter === "none" && !row.provider) ||
+        row.provider === providerFilter;
       const matchesStatus =
         statusFilter === "all" || row.status === statusFilter;
+      const matchesUseIn =
+        useInFilter === "all" || row.useIn.includes(useInFilter);
+      const matchesCpc = matchesNumericRange(row.cpcUsd, cpcRange);
+      const matchesKeywordDifficulty = matchesNumericRange(
+        row.keywordDifficulty,
+        keywordDifficultyRange,
+      );
+      const matchesSearchVolume = matchesNumericRange(
+        row.searchVolume,
+        searchVolumeRange,
+      );
       const haystack = [
         row.keyword,
         row.useIn.join(" "),
+        row.contentType,
         row.searchIntent,
         row.serp,
+        row.provider ?? "",
         row.status,
         row.note,
       ]
         .join(" ")
         .toLowerCase();
 
-      return matchesStatus && (!query || haystack.includes(query));
+      return (
+        matchesContentType &&
+        matchesCpc &&
+        matchesKeywordDifficulty &&
+        matchesProvider &&
+        matchesSearchVolume &&
+        matchesStatus &&
+        matchesUseIn &&
+        (!query || haystack.includes(query))
+      );
     });
-  }, [rows, searchValue, statusFilter]);
+  }, [
+    appliedCpcFilter,
+    appliedKeywordDifficultyFilter,
+    appliedSearchVolumeFilter,
+    contentTypeFilter,
+    providerFilter,
+    rows,
+    searchValue,
+    statusFilter,
+    useInFilter,
+  ]);
 
   const selectedKeywordRows = useMemo(() => {
     const selectedRowIds =
@@ -899,7 +1074,6 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
     <>
       <DashboardDataTable
         disableZebraRows
-        enableSelection
         showPagination
         ariaLabel={`Client ${clientId} keywords`}
         columns={visibleColumns}
@@ -974,33 +1148,292 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
             >
               Export
             </Button>
-            <Dropdown placement="bottom-end">
+            <Dropdown closeOnSelect={false} placement="bottom-end">
               <DropdownTrigger>
                 <Button
-                  color={statusFilter !== "all" ? "primary" : "default"}
+                  color={hasActiveFilters ? "primary" : "default"}
                   radius="sm"
                   startContent={<Filter size={14} />}
-                  variant={statusFilter !== "all" ? "flat" : "bordered"}
+                  variant={hasActiveFilters ? "flat" : "bordered"}
                 >
                   Filter
                 </Button>
               </DropdownTrigger>
               <DropdownMenu
-                aria-label="Keyword status filter"
-                items={statusFilterOptions}
-                selectedKeys={[statusFilter]}
-                selectionMode="single"
-                onSelectionChange={(keys) => {
-                  const selectedKey =
-                    keys === "all" ? "all" : String(keys.currentKey ?? "all");
-
-                  setStatusFilter(selectedKey as KeywordStatus | "all");
-                  setCurrentPage(1);
-                }}
+                aria-label="Keyword filters"
+                className="w-72 min-w-72"
               >
-                {(item) => (
-                  <DropdownItem key={item.key}>{item.label}</DropdownItem>
-                )}
+                <DropdownItem key="use-in-filter" textValue="Use In filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Use In
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={useInFilter}
+                      onChange={(event) => {
+                        setUseInFilter(
+                          event.target.value as KeywordUseIn | "all",
+                        );
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">All uses</option>
+                      {useInOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="content-type-filter"
+                  textValue="Content Type filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Content Type
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={contentTypeFilter}
+                      onChange={(event) => {
+                        setContentTypeFilter(event.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value="all">All content types</option>
+                      <option value="none">No content type</option>
+                      {contentTypeFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="search-volume-filter"
+                  textValue="Search Volume filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Search Volume
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={searchVolumeFilter}
+                      onChange={(event) => {
+                        setSearchVolumeFilter(event.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      {searchVolumeFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {searchVolumeFilter === "custom" ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          min={0}
+                          placeholder="From"
+                          radius="sm"
+                          size="sm"
+                          type="number"
+                          value={customSearchVolumeFrom}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomSearchVolumeFrom(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                        <Input
+                          min={0}
+                          placeholder="To"
+                          radius="sm"
+                          size="sm"
+                          type="number"
+                          value={customSearchVolumeTo}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomSearchVolumeTo(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownItem>
+                <DropdownItem
+                  key="keyword-difficulty-filter"
+                  textValue="Keyword Difficulty filter"
+                >
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Keyword Difficulty
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={keywordDifficultyFilter}
+                      onChange={(event) => {
+                        setKeywordDifficultyFilter(event.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      {keywordDifficultyFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {keywordDifficultyFilter === "custom" ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          max={100}
+                          min={0}
+                          placeholder="From"
+                          radius="sm"
+                          size="sm"
+                          type="number"
+                          value={customKeywordDifficultyFrom}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomKeywordDifficultyFrom(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                        <Input
+                          max={100}
+                          min={0}
+                          placeholder="To"
+                          radius="sm"
+                          size="sm"
+                          type="number"
+                          value={customKeywordDifficultyTo}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomKeywordDifficultyTo(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="cpc-filter" textValue="CPC filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">CPC</p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={cpcFilter}
+                      onChange={(event) => {
+                        setCpcFilter(event.target.value);
+                        setCurrentPage(1);
+                      }}
+                    >
+                      {cpcFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {cpcFilter === "custom" ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input
+                          min={0}
+                          placeholder="From"
+                          radius="sm"
+                          size="sm"
+                          step="0.01"
+                          type="number"
+                          value={customCpcFrom}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomCpcFrom(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                        <Input
+                          min={0}
+                          placeholder="To"
+                          radius="sm"
+                          size="sm"
+                          step="0.01"
+                          type="number"
+                          value={customCpcTo}
+                          variant="bordered"
+                          onValueChange={(value) => {
+                            setCustomCpcTo(value);
+                            setCurrentPage(1);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="source-filter" textValue="Source filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Source
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={providerFilter}
+                      onChange={(event) => {
+                        setProviderFilter(
+                          event.target.value as
+                            | ClientKeywordProvider
+                            | "all"
+                            | "none",
+                        );
+                        setCurrentPage(1);
+                      }}
+                    >
+                      {providerFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="status-filter" textValue="Status filter">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-[#4B5563]">
+                      Status
+                    </p>
+                    <select
+                      className="w-full rounded-md border border-default-200 px-2 py-1 text-sm"
+                      value={statusFilter}
+                      onChange={(event) => {
+                        setStatusFilter(
+                          event.target.value as KeywordStatus | "all",
+                        );
+                        setCurrentPage(1);
+                      }}
+                    >
+                      {statusFilterOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </DropdownItem>
+                <DropdownItem key="reset-filters" textValue="Reset filters">
+                  <Button
+                    fullWidth
+                    isDisabled={!hasActiveFilters}
+                    radius="sm"
+                    variant="bordered"
+                    onPress={resetFilters}
+                  >
+                    Reset
+                  </Button>
+                </DropdownItem>
               </DropdownMenu>
             </Dropdown>
             <Button
@@ -1077,10 +1510,8 @@ export const ClientKeywordsTable = ({ clientId }: ClientKeywordsTableProps) => {
         isLoading={isLoading}
         pageSize={10}
         rows={filteredRows}
-        selectedKeys={selectedKeys}
         title="Keywords"
         onPageChange={setCurrentPage}
-        onSelectionChange={setSelectedKeys}
       />
       <ImportKeywordsModal
         isOpen={isImportModalOpen}
