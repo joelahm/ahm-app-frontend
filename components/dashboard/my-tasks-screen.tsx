@@ -1388,7 +1388,7 @@ export const MyTasksScreen = () => {
                     key={`${group.id}-${rowGroup.id}-${item.id}`}
                     className={
                       taskListGroupBy === "dueDate"
-                        ? getLaterTaskRowClassName(rowGroup.id)
+                        ? getLaterTaskRowClassName(getLaterTaskRowGroupId(item))
                         : ""
                     }
                   >
