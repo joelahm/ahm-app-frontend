@@ -3340,7 +3340,6 @@ ${plainContent || "N/A"}`.trim();
         clientId,
         maxCharacters: 700,
         prompt,
-        provider: "ANTHROPIC",
       });
       const generatedSeo = parseGeneratedSeoMetadata(
         response.text?.trim() || "",

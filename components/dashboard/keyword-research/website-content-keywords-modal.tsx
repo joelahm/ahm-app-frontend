@@ -33,8 +33,6 @@ import {
 } from "@/lib/ai-prompt-template";
 import { WEB_CONTENT_TYPE_OPTIONS } from "@/lib/web-content-types";
 
-const TITLE_GENERATION_MODEL = "claude-3-5-haiku-20241022";
-
 const websiteContentSchema = yup.object({
   audience: yup.string().trim().default(""),
   enableContentClustering: yup.boolean().required(),
@@ -351,9 +349,7 @@ export const WebsiteContentKeywordsModal = ({
       const response = await manusApi.generateText(accessToken, {
         clientId: effectiveClientId,
         maxCharacters: Number(maxCharacters),
-        model: TITLE_GENERATION_MODEL,
         prompt: resolvedPrompt,
-        provider: "ANTHROPIC",
       });
 
       generatedTitle = response.text.trim();

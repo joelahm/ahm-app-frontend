@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   ClipboardPen,
   Clock3,
   FolderKanban,
@@ -34,6 +35,7 @@ import {
 
 type ClientMenuKey =
   | "details"
+  | "client-fields"
   | "projects"
   | "analytics"
   | "tasks"
@@ -62,6 +64,12 @@ interface ClientMenuItem {
 
 const CLIENT_MENU: ClientMenuItem[] = [
   { key: "details", label: "Client Details", icon: Briefcase, path: "/" },
+  {
+    key: "client-fields",
+    label: "Client Fields",
+    icon: ClipboardList,
+    path: "/client-fields",
+  },
   { key: "projects", label: "Projects", icon: FolderKanban, path: "/projects" },
   {
     key: "analytics",
