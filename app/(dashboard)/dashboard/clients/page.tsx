@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@heroui/alert";
-import { Columns3, Download, Form, Plus, SlidersHorizontal } from "lucide-react";
+import {
+  Columns3,
+  Download,
+  Form,
+  Plus,
+  SlidersHorizontal,
+} from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
