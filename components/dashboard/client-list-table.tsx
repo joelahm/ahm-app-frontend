@@ -494,6 +494,14 @@ export const ClientListTable = ({
     () => headerActions.find((action) => action.key === "add-client"),
     [headerActions],
   );
+  const extraHeaderActions = useMemo(
+    () =>
+      headerActions.filter(
+        (action) =>
+          !["add-client", "columns", "filter", "show"].includes(action.key),
+      ),
+    [headerActions],
+  );
   const managerOptions = useMemo(
     () =>
       Array.from(
@@ -873,6 +881,18 @@ export const ClientListTable = ({
         value={searchValue}
         onValueChange={setSearchValue}
       />
+      {extraHeaderActions.map((action) => (
+        <Button
+          key={action.key}
+          isDisabled={action.isDisabled}
+          isLoading={action.isLoading}
+          startContent={action.startContent}
+          variant={action.variant ?? "bordered"}
+          onPress={action.onPress}
+        >
+          {action.label}
+        </Button>
+      ))}
       {addClientAction ? (
         <Button
           className="bg-[#022279] text-white"

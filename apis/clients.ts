@@ -3977,6 +3977,23 @@ export const clientsApi = {
       throw new Error(parseError(error));
     }
   },
+  exportClientsCsv: async (accessToken: string) => {
+    try {
+      const response = await clientsApiClient.get<Blob>(
+        "/api/v1/clients/export.csv",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          responseType: "blob",
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      throw new Error(parseError(error));
+    }
+  },
   getClientDiscordStatuses: async (accessToken: string) => {
     try {
       const response = await clientsApiClient.get<unknown>(

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert } from "@heroui/alert";
-import { Columns3, Form, Plus, SlidersHorizontal } from "lucide-react";
+import { Columns3, Download, Form, Plus, SlidersHorizontal } from "lucide-react";
 
 import { clientsApi } from "@/apis/clients";
 import { useAuth } from "@/components/auth/auth-context";
@@ -60,10 +60,23 @@ const resolveServerAssetUrl = (value?: string | null) => {
   return baseUrl ? `${baseUrl}/${normalizedPath}` : rawValue;
 };
 
+const downloadBlob = (blob: Blob, filename: string) => {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
+
 const ClientsPage = () => {
   const { getValidAccessToken, session } = useAuth();
   const [actionError, setActionError] = useState("");
   const [isAddClientOpen, setIsAddClientOpen] = useState(false);
+  const [isExportingClients, setIsExportingClients] = useState(false);
   const [rows, setRows] = useState<ClientRecord[]>([]);
 
   const mapClientRows = useCallback(
@@ -141,33 +154,6 @@ const ClientsPage = () => {
     void loadClients();
   }, [loadClients]);
 
-  const headerActions = useMemo<DashboardTableAction[]>(
-    () => [
-      {
-        key: "filter",
-        label: "Filter",
-        startContent: <SlidersHorizontal size={14} />,
-      },
-      { key: "show", label: "Show 10", startContent: <Form size={14} /> },
-      {
-        key: "columns",
-        label: "Columns",
-        startContent: <Columns3 size={14} />,
-      },
-      {
-        key: "add-client",
-        label: "Add Client",
-        color: "primary",
-        variant: "solid",
-        startContent: <Plus size={14} />,
-        onPress: () => {
-          setIsAddClientOpen(true);
-        },
-      },
-    ],
-    [],
-  );
-
   const clientNameOptions = useMemo(() => {
     const seenNames = new Set<string>();
 
@@ -197,6 +183,31 @@ const ClientsPage = () => {
     await clientsApi.createClient(accessToken, payload);
     await loadClients();
   };
+
+  const handleExportClients = useCallback(async () => {
+    if (!session) {
+      setActionError("Your session has expired. Please login again.");
+
+      return;
+    }
+
+    setActionError("");
+    setIsExportingClients(true);
+
+    try {
+      const accessToken = await getValidAccessToken();
+      const csvBlob = await clientsApi.exportClientsCsv(accessToken);
+      const today = new Date().toISOString().slice(0, 10);
+
+      downloadBlob(csvBlob, `clients-export-${today}.csv`);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Failed to export clients.",
+      );
+    } finally {
+      setIsExportingClients(false);
+    }
+  }, [getValidAccessToken, session]);
 
   const handleSetClientStatus = useCallback(
     async (clientId: string, status: "Active" | "Inactive") => {
@@ -252,6 +263,40 @@ const ClientsPage = () => {
       }
     },
     [getValidAccessToken, loadClients, session],
+  );
+
+  const headerActions = useMemo<DashboardTableAction[]>(
+    () => [
+      {
+        key: "filter",
+        label: "Filter",
+        startContent: <SlidersHorizontal size={14} />,
+      },
+      { key: "show", label: "Show 10", startContent: <Form size={14} /> },
+      {
+        key: "columns",
+        label: "Columns",
+        startContent: <Columns3 size={14} />,
+      },
+      {
+        key: "export-clients",
+        label: "Export CSV",
+        isLoading: isExportingClients,
+        startContent: <Download size={14} />,
+        onPress: handleExportClients,
+      },
+      {
+        key: "add-client",
+        label: "Add Client",
+        color: "primary",
+        variant: "solid",
+        startContent: <Plus size={14} />,
+        onPress: () => {
+          setIsAddClientOpen(true);
+        },
+      },
+    ],
+    [handleExportClients, isExportingClients],
   );
 
   return (
